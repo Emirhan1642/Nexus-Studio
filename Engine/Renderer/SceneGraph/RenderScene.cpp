@@ -27,6 +27,13 @@ void RenderScene::markDirty(uint32_t proxyIndex, const Engine::Math::Matrix4& ne
     m_dirtyEntries.push_back({ proxyIndex, newTransform });
 }
 
+void RenderScene::updateProxy(uint32_t proxyIndex, const RenderProxy& newProxy) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    if (proxyIndex < m_proxies.size()) {
+        m_proxies[proxyIndex] = newProxy;
+    }
+}
+
 void RenderScene::flushDirtyTransforms() {
     std::lock_guard<std::mutex> lock(m_mutex);
     for (const auto& entry : m_dirtyEntries) {

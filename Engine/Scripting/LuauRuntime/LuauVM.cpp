@@ -2,6 +2,7 @@
 #include "ScriptScheduler.h"
 #include "InstanceBinding.h"
 #include "Vector3Binding.h"
+#include "ScriptWatchdog.h"
 #include <Luau/Compiler.h>
 #include <iostream>
 
@@ -28,7 +29,10 @@ void LuauVM::init() {
     
     // Register Bindings
     registerVector3Type(L);
+    registerSignalBinding(L);
     registerInstanceBinding(L);
+    
+    ScriptWatchdog::install(L);
 }
 
 void LuauVM::shutdown() {
@@ -94,7 +98,17 @@ bool LuauVM::executeScript(const std::string& source, Script* scriptInstance) {
     lua_setfenv(thread, -2);
 
     // 3. Resume
+    ScriptExecutionContext ctx;
+    ctx.scriptName = chunkName;
+    ctx.startTime = std::chrono::steady_clock::now();
+    ctx.phase = ScriptExecutionPhase::Initialization;
+    ctx.budget = ScriptWatchdog::getBudgetFor(ctx.phase);
+    ctx.instructionCount = 0;
+    
+    ScriptWatchdog::setCurrentContext(&ctx);
     int status = lua_resume(thread, L, 0);
+    ScriptWatchdog::setCurrentContext(nullptr);
+    
     if (status != LUA_OK && status != LUA_YIELD) {
         std::cerr << "Luau Runtime Error: " << lua_tostring(thread, -1) << std::endl;
         return false;

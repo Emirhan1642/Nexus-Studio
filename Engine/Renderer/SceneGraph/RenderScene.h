@@ -19,6 +19,7 @@ public:
     
     // İş parçacığı güvenli olması açısından lock eklenebilir, şimdilik basit bir yapı kuruyoruz.
     void markDirty(uint32_t proxyIndex, const Engine::Math::Matrix4& newTransform);
+    void updateProxy(uint32_t proxyIndex, const RenderProxy& newProxy);
 
     // Renderer'in çizebilmesi için proxy listesini döndürür.
     const std::vector<RenderProxy>& getProxies() const { return m_proxies; }

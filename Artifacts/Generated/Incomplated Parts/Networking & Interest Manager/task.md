@@ -1,0 +1,31 @@
+# Networking & Interest Management (Phase 6 & 16)
+
+- `[x]` 1. ThirdParty & CMake Setup
+  - `[x]` ENet kütüphanesini `ThirdParty/CMakeLists.txt` içerisine ekle (GNS yerine).
+  - `[x]` `Engine/Networking/CMakeLists.txt` oluştur.
+  - `[x]` `Engine/CMakeLists.txt` ve `Editor/CMakeLists.txt` güncellemelerini yap.
+- `[x]` 2. Reflection System Upgrade
+  - `[x]` `PropertyDescriptor`'a `replicated` alanı ekle.
+  - `[x]` `ClassBuilder`'a `noReplicate()` metodu ekle.
+  - `[x]` Setter metotlarına `ReplicationManager` hook'u ekle.
+- `[x]` 3. Networking Transport Layer
+  - `[x]` `NetworkContext` (`Standalone`, `Server`, `Client`) tanımla.
+  - `[x]` `NetworkServer` ve `NetworkClient` UDP dinleme/bağlanma döngüsünü (ENet ile) yaz.
+- `[x]` 4. Interest Management (Replication)
+  - `[x]` `Instance` sınıfına `alwaysRelevant` ekle.
+  - `[x]` `SpatialGrid` (100x100 hücre bazlı görünürlük) kodla.
+  - `[x]` `RelevancyTracker` (Hysteresis) ve `PriorityCalculator` kodla.
+  - `[x]` `DormancyManager` (Uyku modu) kodla.
+  - `[x]` `ReplicationManager::flushToAllClients` akışını (20Hz) oluştur.
+- `[x]` 5. Client-Side Prediction
+  - `[x]` `ClientPredictor` mekanizmasını kur.
+  - `[x]` Yerel hareketlerin uygulanması ve Reconciliation adımları.
+- `[x]` 6. RemoteEvent & Luau
+  - `[x]` `RemoteEvent` C++ sınıfını oluştur (`FireServer`, `FireClient`).
+  - `[x]` Luau binding'lerini ekle.
+- `[x]` 7. Integration & UI
+  - `[x]` `Main.cpp` argümanlarını parse et (`--server`, `--client`).
+  - `[x]` ImGui menüsüne Networking panelini ekle.
+- `[x]` 8. Testing & Validation
+  - `[x]` CMake Build.
+  - `[x]` İstemci ve Sunucu bağlantı testleri.

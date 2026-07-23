@@ -14,13 +14,16 @@ set(RENDERER_HEADERS
 
 add_library(EngineRenderer STATIC ${RENDERER_SOURCES} ${RENDERER_HEADERS})
 
-target_include_directories(EngineRenderer PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
+target_include_directories(EngineRenderer PUBLIC 
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
 
 target_link_libraries(EngineRenderer PUBLIC
     EngineCore
     bgfx
     bimg
     bx
+    bimg_decode
 )
 
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${RENDERER_SOURCES} ${RENDERER_HEADERS})

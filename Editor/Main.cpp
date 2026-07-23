@@ -4,6 +4,9 @@
 #include <fstream>
 
 #if defined(_WIN32)
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <winsock2.h>
 #define GLFW_EXPOSE_NATIVE_WIN32
 #elif defined(__APPLE__)
 #define GLFW_EXPOSE_NATIVE_COCOA
@@ -11,7 +14,6 @@
 #define GLFW_EXPOSE_NATIVE_X11
 #endif
 
-#define NOMINMAX
 #include <GLFW/glfw3native.h>
 
 #include <dear-imgui/imgui.h>
@@ -34,9 +36,41 @@
 #include "UI/ViewportPanel.h"
 #include "UI/ExplorerPanel.h"
 #include "UI/PropertiesPanel.h"
+#include "UI/AssetBrowserPanel.h"
 #include "Undo/UndoStack.h"
 
+#include "Engine/Assets/AssetDatabase.h"
+#include "Engine/Assets/ThumbnailCache.h"
+#include "Engine/Assets/AssetImportPipeline.h"
+
+// Networking Headers
+#include "Engine/Networking/Transport/NetworkContext.h"
+#include "Engine/Networking/Transport/NetworkServer.h"
+#include "Engine/Networking/Transport/NetworkClient.h"
+#include "Engine/Networking/Replication/ReplicationManager.h"
+#include <string_view>
+
 int main(int argc, char** argv) {
+    // Parse arguments
+    for (int i = 1; i < argc; ++i) {
+        std::string_view arg(argv[i]);
+        if (arg == "--server") {
+            Engine::Networking::NetworkContext::setMode(Engine::Networking::NetworkMode::Server);
+        } else if (arg == "--client") {
+            Engine::Networking::NetworkContext::setMode(Engine::Networking::NetworkMode::Client);
+        }
+    }
+
+    if (Engine::Networking::NetworkContext::mode() == Engine::Networking::NetworkMode::Server) {
+        std::cout << "[Main] Starting in SERVER mode.\n";
+        Engine::Networking::NetworkServer::instance().start(7777);
+    } else if (Engine::Networking::NetworkContext::mode() == Engine::Networking::NetworkMode::Client) {
+        std::cout << "[Main] Starting in CLIENT mode.\n";
+        Engine::Networking::NetworkClient::instance().connect("127.0.0.1", 7777);
+    } else {
+        std::cout << "[Main] Starting in STANDALONE mode.\n";
+    }
+
     Engine::Physics::PhysicsWorld::initJolt();
 
     // 1. Initialize Reflection System
@@ -108,6 +142,13 @@ int main(int argc, char** argv) {
     // Initialize UI
     std::cout << "[INIT] ImGuiLayer::init()" << std::endl;
     ImGuiLayer::instance().init(window);
+
+    // Initialize Assets System
+    std::cout << "[INIT] Asset System" << std::endl;
+    Engine::Assets::AssetDatabase::instance().initialize("C:/Users/Emirhan/Desktop/Emirhan/Projects/Nexus Studio");
+    Engine::Assets::AssetImportPipeline::instance().initialize();
+    Engine::Assets::ThumbnailCache::instance().initialize();
+    Editor::UI::AssetBrowserPanel::instance().initialize();
 
     // Create Panels
     std::cout << "[INIT] Create Panels" << std::endl;
@@ -183,6 +224,17 @@ int main(int argc, char** argv) {
         if (isSimulating) {
             Engine::Physics::PhysicsWorld::instance().step(deltaTime);
             Engine::Scripting::ScriptScheduler::instance().update(deltaTime);
+            
+            if (Engine::Networking::NetworkContext::mode() == Engine::Networking::NetworkMode::Server) {
+                Engine::Networking::ReplicationManager::instance().flushToAllClients(deltaTime);
+            }
+        }
+
+        // Network Polling
+        if (Engine::Networking::NetworkContext::mode() == Engine::Networking::NetworkMode::Server) {
+            Engine::Networking::NetworkServer::instance().poll();
+        } else if (Engine::Networking::NetworkContext::mode() == Engine::Networking::NetworkMode::Client) {
+            Engine::Networking::NetworkClient::instance().poll();
         }
 
         // UI Frame
@@ -194,6 +246,32 @@ int main(int argc, char** argv) {
             if (ImGui::BeginMenu("Simulation")) {
                 if (ImGui::MenuItem(isSimulating ? "Stop (F5)" : "Play (F5)")) {
                     toggleSim = true;
+                }
+                ImGui::EndMenu();
+            }
+            if (ImGui::BeginMenu("Networking")) {
+                auto currentMode = Engine::Networking::NetworkContext::mode();
+                std::string modeStr = "Standalone";
+                if (currentMode == Engine::Networking::NetworkMode::Server) modeStr = "Server";
+                else if (currentMode == Engine::Networking::NetworkMode::Client) modeStr = "Client";
+                ImGui::Text("Current Mode: %s", modeStr.c_str());
+                ImGui::Separator();
+                
+                if (ImGui::MenuItem("Host Server", nullptr, false, currentMode == Engine::Networking::NetworkMode::Standalone)) {
+                    Engine::Networking::NetworkContext::setMode(Engine::Networking::NetworkMode::Server);
+                    Engine::Networking::NetworkServer::instance().start(7777);
+                }
+                if (ImGui::MenuItem("Connect to localhost", nullptr, false, currentMode == Engine::Networking::NetworkMode::Standalone)) {
+                    Engine::Networking::NetworkContext::setMode(Engine::Networking::NetworkMode::Client);
+                    Engine::Networking::NetworkClient::instance().connect("127.0.0.1", 7777);
+                }
+                if (ImGui::MenuItem("Disconnect / Stop", nullptr, false, currentMode != Engine::Networking::NetworkMode::Standalone)) {
+                    if (currentMode == Engine::Networking::NetworkMode::Server) {
+                        Engine::Networking::NetworkServer::instance().stop();
+                    } else {
+                        Engine::Networking::NetworkClient::instance().disconnect();
+                    }
+                    Engine::Networking::NetworkContext::setMode(Engine::Networking::NetworkMode::Standalone);
                 }
                 ImGui::EndMenu();
             }
@@ -243,6 +321,7 @@ int main(int argc, char** argv) {
         viewport.draw(camera);
         explorer.draw();
         properties.draw();
+        Editor::UI::AssetBrowserPanel::instance().draw();
 
         if (frameCount < 5) std::cout << "[DEBUG] Frame " << frameCount << ": End ImGui" << std::endl;
         ImGuiLayer::instance().endFrame();
@@ -262,6 +341,8 @@ int main(int argc, char** argv) {
     std::cout << "[DEBUG] Physics shutdown.\n";
     Engine::Scripting::LuauVM::instance().shutdown();
     std::cout << "[DEBUG] Luau shutdown.\n";
+    Engine::Assets::ThumbnailCache::instance().shutdown();
+    std::cout << "[DEBUG] Assets shutdown.\n";
     Engine::Renderer::RendererSystem::instance().shutdown();
     std::cout << "[DEBUG] Renderer shutdown.\n";
     bgfx::shutdown();

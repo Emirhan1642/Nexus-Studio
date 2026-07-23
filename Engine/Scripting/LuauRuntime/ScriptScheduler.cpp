@@ -1,4 +1,5 @@
 #include "ScriptScheduler.h"
+#include "ScriptWatchdog.h"
 #include <lualib.h>
 #include <iostream>
 
@@ -19,7 +20,17 @@ void ScriptScheduler::update(float deltaTime) {
 
     // Call lua_resume outside the iterator loop, because wait() can push new threads
     for (const auto& st : readyThreads) {
+        ScriptExecutionContext ctx;
+        ctx.scriptName = "Coroutine";
+        ctx.startTime = std::chrono::steady_clock::now();
+        ctx.phase = ScriptExecutionPhase::Heartbeat;
+        ctx.budget = ScriptWatchdog::getBudgetFor(ctx.phase);
+        ctx.instructionCount = 0;
+
+        ScriptWatchdog::setCurrentContext(&ctx);
         int status = lua_resume(st.thread, nullptr, 0);
+        ScriptWatchdog::setCurrentContext(nullptr);
+        
         if (status != LUA_OK && status != LUA_YIELD) {
             std::cerr << "Luau Resume Error: " << lua_tostring(st.thread, -1) << std::endl;
         }

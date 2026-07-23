@@ -12,6 +12,7 @@ public:
     virtual ~Instance() = default;
 
     std::string name = "Instance";
+    bool alwaysRelevant = false;
 
     virtual std::string getClassName() const { return "Instance"; }
 

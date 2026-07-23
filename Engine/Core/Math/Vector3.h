@@ -1,4 +1,5 @@
 #pragma once
+#include <cmath>
 
 namespace Engine::Math {
 
@@ -20,6 +21,10 @@ struct Vector3 {
     
     Vector3 operator-(const Vector3& other) const {
         return Vector3(x - other.x, y - other.y, z - other.z);
+    }
+    
+    float length() const {
+        return std::sqrt(x * x + y * y + z * z);
     }
 };
 

@@ -21,7 +21,11 @@ class ClassBuilder {
 public:
     explicit ClassBuilder(const std::string& name) {
         descriptor = &TypeRegistry::instance().registerClass(name);
-        descriptor->factory = []() -> void* { return new T(); };
+        if constexpr (std::is_abstract_v<T>) {
+            descriptor->factory = nullptr;
+        } else {
+            descriptor->factory = []() -> void* { return new T(); };
+        }
     }
 
     ClassBuilder& base(const std::string& baseName) {
@@ -40,9 +44,11 @@ public:
             T* obj = static_cast<T*>(instance);
             return obj->*member;
         };
-        desc.setter = [member](void* instance, const std::any& value) {
+        desc.setter = [member, name](void* instance, const std::any& value) {
             T* obj = static_cast<T*>(instance);
             obj->*member = std::any_cast<MemberT>(value);
+            if (TypeRegistry::instance().onPropertyDirty)
+                TypeRegistry::instance().onPropertyDirty(instance, name);
         };
 
         descriptor->properties.push_back(std::move(desc));
@@ -60,9 +66,11 @@ public:
             T* obj = static_cast<T*>(instance);
             return (obj->*getter)();
         };
-        desc.setter = [setter](void* instance, const std::any& value) {
+        desc.setter = [setter, name](void* instance, const std::any& value) {
             T* obj = static_cast<T*>(instance);
             (obj->*setter)(std::any_cast<MemberT>(value));
+            if (TypeRegistry::instance().onPropertyDirty)
+                TypeRegistry::instance().onPropertyDirty(instance, name);
         };
 
         descriptor->properties.push_back(std::move(desc));
@@ -79,8 +87,10 @@ public:
         desc.getter = [member](void* instance) -> std::any {
             return static_cast<int>(static_cast<T*>(instance)->*member);
         };
-        desc.setter = [member](void* instance, const std::any& value) {
+        desc.setter = [member, name](void* instance, const std::any& value) {
             static_cast<T*>(instance)->*member = static_cast<EnumT>(std::any_cast<int>(value));
+            if (TypeRegistry::instance().onPropertyDirty)
+                TypeRegistry::instance().onPropertyDirty(instance, name);
         };
 
         descriptor->properties.push_back(std::move(desc));
@@ -123,6 +133,26 @@ public:
         return *this;
     }
 
+    ClassBuilder& objectPropertyAccessor(const std::string& name, 
+                                         std::shared_ptr<Instance> (T::*getter)() const, 
+                                         void (T::*setter)(const std::shared_ptr<Instance>&)) {
+        PropertyDescriptor desc;
+        desc.name = name;
+        desc.kind = PropertyDescriptor::Kind::ObjectRef;
+
+        desc.objectGetter = [getter](void* instance) -> std::shared_ptr<Instance> {
+            T* obj = static_cast<T*>(instance);
+            return (obj->*getter)();
+        };
+        desc.objectSetter = [setter](void* instance, std::shared_ptr<Instance> value) {
+            T* obj = static_cast<T*>(instance);
+            (obj->*setter)(value);
+        };
+
+        descriptor->properties.push_back(std::move(desc));
+        return *this;
+    }
+
     ClassBuilder& category(const std::string& cat) {
         if (!descriptor->properties.empty())
             descriptor->properties.back().category = cat;
@@ -135,6 +165,12 @@ public:
         return *this;
     }
 
+    ClassBuilder& noReplicate() {
+        if (!descriptor->properties.empty())
+            descriptor->properties.back().replicated = false;
+        return *this;
+    }
+
     template<typename Ret, typename... Args>
     ClassBuilder& method(const std::string& name, Ret (T::*fn)(Args...)) {
         MethodDescriptor desc;
@@ -144,6 +180,16 @@ public:
             return invokeWithUnpackedArgs(obj, fn, args, std::index_sequence_for<Args...>{});
         };
         descriptor->methods.push_back(std::move(desc));
+        return *this;
+    }
+
+    ClassBuilder& signal(const std::string& name, Engine::Signal T::* member) {
+        SignalDescriptor desc;
+        desc.name = name;
+        desc.getSignal = [member](void* instance) -> Engine::Signal& {
+            return static_cast<T*>(instance)->*member;
+        };
+        descriptor->signals.push_back(std::move(desc));
         return *this;
     }
 

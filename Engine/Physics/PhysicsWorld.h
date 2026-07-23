@@ -90,7 +90,11 @@ public:
     void shutdown();
     void step(float deltaTime);
 
+    void addConstraint(JPH::Constraint* constraint);
+    void removeConstraint(JPH::Constraint* constraint);
+
     JPH::BodyInterface& getBodyInterface() { return physicsSystem.GetBodyInterface(); }
+    JPH::PhysicsSystem& getPhysicsSystem() { return physicsSystem; }
 
 private:
     PhysicsWorld() = default;

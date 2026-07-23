@@ -2,8 +2,10 @@
 #include "../Reflection/ClassBuilder.h"
 #include "../Reflection/EnumRegistry.h"
 #include "../../Renderer/SceneGraph/RenderScene.h"
+#include "../../Renderer/Renderer.h"
 #include "../../Physics/PhysicsWorld.h"
 #include "../../Physics/PhysicsConversions.h"
+#include "../../Assets/AssetDependencyTracker.h"
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 
@@ -26,16 +28,62 @@ void Part::setSize(const Engine::Math::Vector3& newSize) {
     // For MVP, we might skip dynamic resizing of physics bodies.
 }
 
+void Part::setMeshFromAsset(const Engine::Assets::AssetGuid& guid) {
+    if (meshAssetGuid.isValid()) {
+        Engine::Assets::AssetDependencyTracker::instance().unregisterUsage(meshAssetGuid, getInstanceId());
+    }
+    
+    meshAssetGuid = guid;
+    
+    if (meshAssetGuid.isValid()) {
+        Engine::Assets::AssetDependencyTracker::instance().registerUsage(meshAssetGuid, getInstanceId());
+        
+        // MVP: update texture if it's a texture asset, or just trigger render update
+        const auto* meta = Engine::Assets::AssetDatabase::instance().find(guid);
+        if (meta) {
+            if (meta->importerType == "Texture") {
+                setAlbedoTexturePath(Engine::Assets::AssetDatabase::instance().getAbsolutePath(meta->relativePath));
+            }
+        }
+    }
+}
+
 void Part::markRenderDirty() {
     if (renderProxyIndex != Engine::Renderer::InvalidHandle) {
         Engine::Math::Matrix4 transform = Engine::Math::Matrix4::fromPositionAndSize(position, size);
+        Engine::Renderer::RenderProxy proxy;
+        proxy.worldTransform = transform;
+        proxy.material.albedo = albedoColor;
+        proxy.material.metallic = metallic;
+        proxy.material.roughness = roughness;
+        proxy.material.emissiveStrength = emissiveStrength;
+        // Textures will be loaded/assigned via strings. We can store paths or pass them.
+        // Wait, RenderProxy only has MaterialData, which holds TextureHandles.
+        // We need to request the Renderer to load the texture and return the handle.
+        // Let's call RendererSystem::instance().getTexture(path)
+        proxy.material.albedoTexture = Engine::Renderer::RendererSystem::instance().getTexture(albedoTexturePath);
+        proxy.material.normalTexture = Engine::Renderer::RendererSystem::instance().getTexture(normalTexturePath);
+        proxy.material.metallicTexture = Engine::Renderer::RendererSystem::instance().getTexture(metallicTexturePath);
+        proxy.material.roughnessTexture = Engine::Renderer::RendererSystem::instance().getTexture(roughnessTexturePath);
+
         Engine::Renderer::RenderScene::instance().markDirty(renderProxyIndex, transform);
+        // Wait, RenderScene::markDirty only updates the transform!
+        // We need an updateProxy method in RenderScene.
+        Engine::Renderer::RenderScene::instance().updateProxy(renderProxyIndex, proxy);
     }
 }
 
 void Part::onAddedToWorkspace() {
     Engine::Renderer::RenderProxy proxy;
     proxy.worldTransform = Engine::Math::Matrix4::fromPositionAndSize(position, size);
+    proxy.material.albedo = albedoColor;
+    proxy.material.metallic = metallic;
+    proxy.material.roughness = roughness;
+    proxy.material.emissiveStrength = emissiveStrength;
+    proxy.material.albedoTexture = Engine::Renderer::RendererSystem::instance().getTexture(albedoTexturePath);
+    proxy.material.normalTexture = Engine::Renderer::RendererSystem::instance().getTexture(normalTexturePath);
+    proxy.material.metallicTexture = Engine::Renderer::RendererSystem::instance().getTexture(metallicTexturePath);
+    proxy.material.roughnessTexture = Engine::Renderer::RendererSystem::instance().getTexture(roughnessTexturePath);
     renderProxyIndex = Engine::Renderer::RenderScene::instance().registerProxy(getInstanceId(), proxy);
     
     JPH::BodyCreationSettings bodySettings(
@@ -87,19 +135,6 @@ void Part::setAnchored(const bool& value) {
 }
 
 namespace {
-    struct MaterialEnumInit {
-        MaterialEnumInit() {
-            using namespace Engine::Reflection;
-            auto& e = EnumRegistry::instance().registerEnum("Material");
-            e.values = {
-                {"Wood", (int)Material::Wood},
-                {"Metal", (int)Material::Metal},
-                {"Plastic", (int)Material::Plastic},
-                {"Concrete", (int)Material::Concrete}
-            };
-        }
-    } g_materialEnumInit;
-
     struct PartReflectionInit {
         PartReflectionInit() {
             using namespace Engine::Reflection;
@@ -109,7 +144,19 @@ namespace {
                 .propertyAccessor("Size", &Part::getSize, &Part::setSize).category("Data")
                 .property("Transparency", &Part::transparency).category("Appearance")
                 .propertyAccessor("Anchored", &Part::getAnchored, &Part::setAnchored).category("Behavior")
-                .enumProperty("Material", &Part::material, "Material").category("Appearance");
+                
+                // Texture & Material Properties
+                .propertyAccessor("AlbedoColor", &Part::getAlbedoColor, &Part::setAlbedoColor).category("Appearance")
+                .propertyAccessor("Metallic", &Part::getMetallic, &Part::setMetallic).category("Appearance")
+                .propertyAccessor("Roughness", &Part::getRoughness, &Part::setRoughness).category("Appearance")
+                .propertyAccessor("EmissiveStrength", &Part::getEmissiveStrength, &Part::setEmissiveStrength).category("Appearance")
+                
+                .propertyAccessor("AlbedoTexture", &Part::getAlbedoTexturePath, &Part::setAlbedoTexturePath).category("Appearance")
+                .propertyAccessor("NormalTexture", &Part::getNormalTexturePath, &Part::setNormalTexturePath).category("Appearance")
+                .propertyAccessor("MetallicTexture", &Part::getMetallicTexturePath, &Part::setMetallicTexturePath).category("Appearance")
+                .propertyAccessor("RoughnessTexture", &Part::getRoughnessTexturePath, &Part::setRoughnessTexturePath).category("Appearance")
+
+                .signal("Touched", &Part::Touched);
         }
     } g_partReflectionInit;
 }

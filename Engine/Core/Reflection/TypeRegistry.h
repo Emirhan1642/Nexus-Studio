@@ -6,6 +6,7 @@
 #include <vector>
 #include <stdexcept>
 #include <memory>
+#include "../Signal.h"
 
 // Forward declaration of Instance for object references
 class Instance;
@@ -34,11 +35,19 @@ struct PropertyDescriptor {
     std::string category = "Data";
     bool readOnly = false;
     std::string tooltip;
+
+    // Networking
+    bool replicated = true;
 };
 
 struct MethodDescriptor {
     std::string name;
     std::function<std::any(void* instance, std::vector<std::any> args)> invoke;
+};
+
+struct SignalDescriptor {
+    std::string name;
+    std::function<Engine::Signal&(void* instance)> getSignal;
 };
 
 class ClassDescriptor {
@@ -47,12 +56,20 @@ public:
     ClassDescriptor* baseClass = nullptr;
     std::vector<PropertyDescriptor> properties;
     std::vector<MethodDescriptor> methods;
+    std::vector<SignalDescriptor> signals;
     std::function<void*()> factory;
 
     const PropertyDescriptor* findProperty(const std::string& name) const {
         for (const auto& p : properties)
             if (p.name == name) return &p;
         if (baseClass) return baseClass->findProperty(name);
+        return nullptr;
+    }
+
+    const SignalDescriptor* findSignal(const std::string& name) const {
+        for (const auto& s : signals)
+            if (s.name == name) return &s;
+        if (baseClass) return baseClass->findSignal(name);
         return nullptr;
     }
 
@@ -80,6 +97,9 @@ public:
     void finalize();
     
     ClassDescriptor* find(const std::string& name);
+
+    // Networking hook
+    std::function<void(void* instance, const std::string& propertyName)> onPropertyDirty;
 
 private:
     TypeRegistry() = default;

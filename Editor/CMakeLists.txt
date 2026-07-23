@@ -7,6 +7,7 @@ set(EDITOR_SOURCES
     UI/ExplorerPanel.cpp
     UI/PropertiesPanel.cpp
     UI/SelectionManager.cpp
+    UI/AssetBrowserPanel.cpp
     Undo/UndoStack.cpp
 )
 
@@ -27,6 +28,8 @@ target_link_libraries(NexusStudioEditor PRIVATE
     Jolt
     EngineRenderer
     EngineScripting
+    EngineAssets
+    EngineNetworking
     example-common
     glfw
     bgfx

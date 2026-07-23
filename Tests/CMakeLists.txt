@@ -12,8 +12,12 @@ target_include_directories(NexusStudioTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/
 # Link dependencies
 target_link_libraries(NexusStudioTests PRIVATE
     EngineCore
+    EnginePhysics
+    Jolt
+    EngineAssets
     EngineRenderer
     EngineScripting
+    EngineNetworking
     GTest::gtest_main
 )
 

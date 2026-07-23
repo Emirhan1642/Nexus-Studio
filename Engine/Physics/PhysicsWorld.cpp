@@ -85,20 +85,11 @@ void PhysicsWorld::step(float deltaTime) {
     }
 
     if (stepped) {
-        // Sync back active bodies to DataModel
-        JPH::BodyIDVector activeBodies;
-        physicsSystem.GetActiveBodies(JPH::EBodyType::RigidBody, activeBodies);
-        
-        for (JPH::BodyID bodyId : activeBodies) {
-            uint64_t ownerId = physicsSystem.GetBodyInterface().GetUserData(bodyId);
-            if (ownerId == 0) continue;
-            
-            // Search all instances for the matching ID
-            // Since we don't have a fast O(1) instance registry yet, we have to search the DataModel tree
-            // For MVP, we can recursively search DataModel
+        // Helper function to find a part by its instance ID
+        auto findPartById = [&](uint64_t id) -> std::shared_ptr<Part> {
             std::shared_ptr<Part> foundPart;
             auto search = [&](auto& self, const std::shared_ptr<Instance>& inst) -> void {
-                if (inst->getInstanceId() == ownerId) {
+                if (inst->getInstanceId() == id) {
                     foundPart = std::dynamic_pointer_cast<Part>(inst);
                     return;
                 }
@@ -108,6 +99,18 @@ void PhysicsWorld::step(float deltaTime) {
                 }
             };
             search(search, DataModel::instance());
+            return foundPart;
+        };
+
+        // Sync back active bodies to DataModel
+        JPH::BodyIDVector activeBodies;
+        physicsSystem.GetActiveBodies(JPH::EBodyType::RigidBody, activeBodies);
+        
+        for (JPH::BodyID bodyId : activeBodies) {
+            uint64_t ownerId = physicsSystem.GetBodyInterface().GetUserData(bodyId);
+            if (ownerId == 0) continue;
+            
+            std::shared_ptr<Part> foundPart = findPartById(ownerId);
 
             if (foundPart) {
                 JPH::RVec3 joltPos = physicsSystem.GetBodyInterface().GetPosition(bodyId);
@@ -119,6 +122,31 @@ void PhysicsWorld::step(float deltaTime) {
                 foundPart->markRenderDirty();
             }
         }
+
+        // Process Contact Events
+        auto contactEvents = PendingContactEvents::instance().drainAll();
+        for (const auto& ce : contactEvents) {
+            auto part1 = findPartById(ce.id1);
+            auto part2 = findPartById(ce.id2);
+            if (part1 && part2) {
+                std::shared_ptr<Instance> inst1 = std::static_pointer_cast<Instance>(part1);
+                std::shared_ptr<Instance> inst2 = std::static_pointer_cast<Instance>(part2);
+                part1->Touched.fire({inst2});
+                part2->Touched.fire({inst1});
+            }
+        }
+    }
+}
+
+void PhysicsWorld::addConstraint(JPH::Constraint* constraint) {
+    if (constraint) {
+        physicsSystem.AddConstraint(constraint);
+    }
+}
+
+void PhysicsWorld::removeConstraint(JPH::Constraint* constraint) {
+    if (constraint) {
+        physicsSystem.RemoveConstraint(constraint);
     }
 }
 

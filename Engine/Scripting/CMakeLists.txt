@@ -11,6 +11,7 @@ file(GLOB_RECURSE SCRIPTING_SOURCES
 
 # We might not have files yet, so this could fail on Windows if sources is empty.
 # Let's add a dummy cpp or just create the files soon.
+# Triggering CMake re-configure to catch ScriptWatchdog.cpp
 
 add_library(EngineScripting STATIC ${SCRIPTING_SOURCES})
 

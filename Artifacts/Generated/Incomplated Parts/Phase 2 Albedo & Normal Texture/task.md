@@ -1,0 +1,9 @@
+- `[x]` Update `Part.h/.cpp` with texture paths (`albedo`, `normal`, `metallic`, `roughness`) and scalar values.
+- `[x]` Expose properties via `ClassBuilder` reflection.
+- `[x]` Create `Material.h` with `MaterialData` struct.
+- `[x]` Update `RenderProxy.h` to store `MaterialData`.
+- `[x]` Update `Renderer.h/.cpp` with samplers, UV coordinates for cube, and texture caching/loading via `bgfx_utils.h`.
+- `[x]` Update `vs_pbr.sc` to pass `v_texcoord0`.
+- `[x]` Update `fs_pbr.sc` to sample `s_texColor`, `s_texNormal`, `s_texMetallic`, `s_texRoughness`.
+- `[x]` Update Properties Panel to display texture paths (InputText).
+- `[x]` Compile and test.

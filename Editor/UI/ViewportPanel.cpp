@@ -7,6 +7,10 @@
 #include "../Undo/UndoStack.h"
 #include "Engine/Renderer/Renderer.h"
 #include "Engine/Core/DataModel/Part.h"
+#include "Engine/Core/DataModel/DataModel.h"
+#include "Engine/Core/DataModel/Constraint.h"
+#include "Engine/Assets/AssetDatabase.h"
+#include <functional>
 
 void ViewportPanel::resize(uint16_t width, uint16_t height) {
     if (width == currentWidth && height == currentHeight) return;
@@ -48,8 +52,75 @@ void ViewportPanel::draw(Engine::Renderer::Camera& camera) {
         Engine::Renderer::RendererSystem::instance().renderFrame(camera, currentWidth, currentHeight, frameBuffer);
 
         // Display the frame buffer in ImGui
-        // We MUST use the overloaded ImGui::Image that takes bgfx::TextureHandle provided by example-common's imgui.h
+        ImVec2 screenPos = ImGui::GetCursorScreenPos();
         ImGui::Image(colorTexture, availSize);
+
+        if (ImGui::BeginDragDropTarget()) {
+            if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ASSET_GUID")) {
+                Engine::Assets::AssetGuid droppedGuid = *(Engine::Assets::AssetGuid*)payload->Data;
+                
+                auto part = std::make_shared<Part>();
+                part->name = "ImportedAsset";
+                part->setMeshFromAsset(droppedGuid);
+                
+                // Place it slightly in front of the camera
+                part->setPosition(camera.position + camera.forward * 5.0f);
+                
+                part->setParent(DataModel::instance());
+                UndoStack::instance().pushCreateCommand(part, DataModel::instance());
+            }
+            ImGui::EndDragDropTarget();
+        }
+
+        static bool showConstraints = true;
+
+        if (showConstraints) {
+            auto drawList = ImGui::GetWindowDrawList();
+            Engine::Math::Matrix4 view = camera.getViewMatrix();
+            Engine::Math::Matrix4 proj = camera.getProjectionMatrix((float)currentWidth / (float)currentHeight);
+            Engine::Math::Matrix4 viewProj = proj * view;
+
+            auto projectToScreen = [&](const Engine::Math::Vector3& pos, ImVec2& outScreen) -> bool {
+                float x = pos.x * viewProj.m[0] + pos.y * viewProj.m[4] + pos.z * viewProj.m[8] + viewProj.m[12];
+                float y = pos.x * viewProj.m[1] + pos.y * viewProj.m[5] + pos.z * viewProj.m[9] + viewProj.m[13];
+                float w = pos.x * viewProj.m[3] + pos.y * viewProj.m[7] + pos.z * viewProj.m[11] + viewProj.m[15];
+
+                if (w < 0.001f) return false;
+
+                x /= w;
+                y /= w;
+
+                // Simple NDC to Screen (bgfx OpenGL style / standard)
+                outScreen.x = screenPos.x + (x * 0.5f + 0.5f) * availSize.x;
+                outScreen.y = screenPos.y + (1.0f - (y * 0.5f + 0.5f)) * availSize.y;
+                return true;
+            };
+
+            std::function<void(const std::shared_ptr<Instance>&)> drawConstraintsRecursive = [&](const std::shared_ptr<Instance>& inst) {
+                if (auto constraint = std::dynamic_pointer_cast<Constraint>(inst)) {
+                    if (constraint->getVisible() && constraint->getEnabled()) {
+                        auto p0 = std::dynamic_pointer_cast<Part>(constraint->getPart0());
+                        auto p1 = std::dynamic_pointer_cast<Part>(constraint->getPart1());
+                        if (p0 && p1) {
+                            ImVec2 s0, s1;
+                            if (projectToScreen(p0->getPosition(), s0) && projectToScreen(p1->getPosition(), s1)) {
+                                drawList->AddLine(s0, s1, IM_COL32(0, 255, 0, 255), 3.0f);
+                                drawList->AddCircleFilled(s0, 5.0f, IM_COL32(255, 255, 0, 255));
+                                drawList->AddCircleFilled(s1, 5.0f, IM_COL32(255, 255, 0, 255));
+                            }
+                        }
+                    }
+                }
+                for (auto& child : inst->getChildren()) {
+                    drawConstraintsRecursive(child);
+                }
+            };
+            drawConstraintsRecursive(DataModel::instance());
+        }
+
+        // Checkbox at the top left
+        ImGui::SetCursorPos(ImVec2(10, 10));
+        ImGui::Checkbox("Show Constraints", &showConstraints);
 
         handleGizmoInput(camera);
     }

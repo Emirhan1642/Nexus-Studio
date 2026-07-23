@@ -12,6 +12,63 @@ struct InstanceUserdata {
     std::shared_ptr<Instance> instance;
 };
 
+struct SignalUserdata {
+    Engine::Signal* signal;
+};
+
+static int signal_connect(lua_State* L) {
+    SignalUserdata* ud = static_cast<SignalUserdata*>(lua_touserdatatagged(L, 1, kSignalTag));
+    if (!ud || !ud->signal) {
+        luaL_error(L, "Invalid Signal");
+        return 0;
+    }
+
+    if (!lua_isfunction(L, 2)) {
+        luaL_error(L, "Connect expects a function");
+        return 0;
+    }
+
+    lua_pushvalue(L, 2);
+    int funcRef = lua_ref(L, -1);
+    lua_State* mainL = lua_mainthread(L);
+
+    ud->signal->connect([mainL, funcRef](const std::vector<std::any>& args) {
+        lua_rawgeti(mainL, LUA_REGISTRYINDEX, funcRef);
+        for (const auto& arg : args) {
+            pushAnyToLuau(mainL, arg);
+        }
+        if (lua_pcall(mainL, args.size(), 0, 0) != 0) {
+            std::cerr << "Error in signal callback: " << lua_tostring(mainL, -1) << std::endl;
+            lua_pop(mainL, 1);
+        }
+    });
+
+    return 0;
+}
+
+static int signal_index(lua_State* L) {
+    const char* key = luaL_checkstring(L, 2);
+    if (strcmp(key, "Connect") == 0) {
+        lua_pushcfunction(L, signal_connect, "Connect");
+        return 1;
+    }
+    return 0;
+}
+
+void registerSignalBinding(lua_State* L) {
+    luaL_newmetatable(L, "SignalMetatable");
+    lua_pushcfunction(L, signal_index, "__index");
+    lua_setfield(L, -2, "__index");
+    lua_pop(L, 1);
+}
+
+void pushSignal(lua_State* L, Engine::Signal* signal) {
+    void* mem = lua_newuserdatatagged(L, sizeof(SignalUserdata), kSignalTag);
+    new (mem) SignalUserdata{signal};
+    luaL_getmetatable(L, "SignalMetatable");
+    lua_setmetatable(L, -2);
+}
+
 // --- Generic Metamethods ---
 
 static int instance_index(lua_State* L) {
@@ -31,8 +88,13 @@ static int instance_index(lua_State* L) {
             pushAnyToLuau(L, value);
             return 1;
         }
+        if (auto sigDesc = classDesc->findSignal(key)) {
+            Engine::Signal& sig = sigDesc->getSignal(ud->instance.get());
+            pushSignal(L, &sig);
+            return 1;
+        }
         
-        // TODO: Methods, Signals, etc.
+        // TODO: Methods, etc.
     }
 
     luaL_error(L, "'%s' is not a valid member of %s", key, ud->instance->getClassName().c_str());

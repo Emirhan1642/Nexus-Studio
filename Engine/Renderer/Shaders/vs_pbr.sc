@@ -1,5 +1,5 @@
-$input a_position, a_color0, a_normal
-$output v_position, v_color0, v_normal
+$input a_position, a_color0, a_normal, a_texcoord0
+$output v_position, v_color0, v_normal, v_texcoord0
 
 #include <bgfx_shader.sh>
 
@@ -9,4 +9,5 @@ void main() {
     v_position = wpos;
     v_color0 = a_color0;
     v_normal = mul(u_model[0], vec4(a_normal, 0.0)).xyz;
+    v_texcoord0 = a_texcoord0;
 }
