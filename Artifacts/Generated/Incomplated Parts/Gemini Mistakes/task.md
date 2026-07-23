@@ -1,0 +1,21 @@
+# Aşama: Eksiklikleri Giderme - Görev Listesi
+
+- `[x]` **Grup 1: Reflection & Scripting**
+  - `[x]` Method Binding: `InstanceBinding.cpp` içinde method çağrısı (invoke) mekanizmasının yazılması.
+  - `[x]` task.* API: `ScriptScheduler.h` & `.cpp`'ye `spawnThread`, `delayThread` eklenmesi.
+  - `[x]` task.* API: `LuauVM.cpp` içinde `task` tablosunun Lua'ya sunulması.
+- `[x]` **Grup 2: InstanceRegistry**
+  - `[x]` `InstanceRegistry.h` & `.cpp` yazılması.
+  - `[x]` `Instance.cpp` içinde register/unregister çağrılarının bağlanması.
+  - `[x]` `Engine/Core/CMakeLists.txt`'ye dosyanın eklenmesi.
+- `[x]` **Grup 3: GNS Entegrasyonu**
+  - `[x]` `ThirdParty/CMakeLists.txt`'den ENet kaldırılıp GNS eklenmesi.
+  - `[x]` `Engine/Networking/CMakeLists.txt`'de link kütüphanesinin güncellenmesi.
+  - `[x]` `NetworkServer.h` & `.cpp`'nin GNS API'sine göre baştan yazılması.
+  - `[x]` `NetworkClient.h` & `.cpp`'nin GNS API'sine göre baştan yazılması.
+- `[x]` **Grup 4: Play/Stop Tam Serialization**
+  - `[x]` `DataModelSnapshot.h` oluşturulması.
+  - `[x]` `Editor/Main.cpp` içinde tam ağaç serialization/deserialization uygulanması.
+- `[x]` **Derleme ve Test**
+  - `[x]` CMake konfigürasyonunun çalıştırılması.
+  - `[x]` Projenin derlenmesi ve testlerin çalıştırılması.

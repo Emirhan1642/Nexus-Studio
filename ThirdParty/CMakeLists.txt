@@ -77,11 +77,40 @@ set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 set(BUILD_STATIC_LIBS ON CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(efsw)
 
-# 8. ENet (Reliable UDP Networking)
+# 8. Protobuf (Required for GNS)
 FetchContent_Declare(
-    enet
-    GIT_REPOSITORY https://github.com/lsalzman/enet.git
+    protobuf
+    GIT_REPOSITORY https://github.com/protocolbuffers/protobuf.git
+    GIT_TAG        v21.12 # Version 21.12 doesn't require abseil
+    SOURCE_SUBDIR  cmake
+)
+set(protobuf_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(protobuf_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(protobuf_BUILD_PROTOC_BINARIES ON CACHE BOOL "" FORCE)
+set(protobuf_WITH_ZLIB OFF CACHE BOOL "" FORCE)
+set(protobuf_MSVC_STATIC_RUNTIME OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(protobuf)
+
+# Provide variables for FindProtobuf to succeed without actually searching
+set(Protobuf_INCLUDE_DIR "${protobuf_SOURCE_DIR}/src" CACHE PATH "" FORCE)
+set(Protobuf_LIBRARY "libprotobuf" CACHE FILEPATH "" FORCE)
+set(Protobuf_PROTOC_EXECUTABLE "$<TARGET_FILE:protoc>" CACHE FILEPATH "" FORCE)
+set(Protobuf_FOUND TRUE CACHE BOOL "" FORCE)
+set(PROTOBUF_FOUND TRUE CACHE BOOL "" FORCE)
+set(Protobuf_USE_STATIC_LIBS ON CACHE BOOL "" FORCE)
+# GNS uses Protobuf::libprotobuf
+if(NOT TARGET Protobuf::libprotobuf AND TARGET libprotobuf)
+    add_library(Protobuf::libprotobuf ALIAS libprotobuf)
+endif()
+
+# 9. GameNetworkingSockets (Reliable UDP Networking + Encryption)
+FetchContent_Declare(
+    GameNetworkingSockets
+    GIT_REPOSITORY https://github.com/ValveSoftware/GameNetworkingSockets.git
     GIT_TAG        master
 )
-FetchContent_MakeAvailable(enet)
-target_include_directories(enet PUBLIC ${enet_SOURCE_DIR}/include)
+# GNS has its own examples and tests, we disable them to speed up build
+set(STEAMNETWORKINGSOCKETS_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(STEAMNETWORKINGSOCKETS_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(USE_CRYPTO "BCrypt" CACHE STRING "" FORCE)
+FetchContent_MakeAvailable(GameNetworkingSockets)

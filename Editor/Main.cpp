@@ -22,6 +22,7 @@
 #include "Engine/Core/Reflection/TypeRegistry.h"
 #include "Engine/Core/DataModel/DataModel.h"
 #include "Engine/Core/DataModel/Part.h"
+#include "Engine/Core/DataModel/DataModelSnapshot.h"
 #include "Engine/Renderer/Renderer.h"
 #include "Engine/Renderer/Camera.h"
 #include "Engine/Scripting/LuauRuntime/LuauVM.h"
@@ -181,7 +182,7 @@ int main(int argc, char** argv) {
 
     // 4. Main Loop
     bool isSimulating = false;
-    std::map<uint64_t, Engine::Math::Vector3> savedPositions;
+    DataModelSnapshot snapshot;
 
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
@@ -286,34 +287,13 @@ int main(int argc, char** argv) {
 
         if (toggleSim) {
             if (!isSimulating) {
-                // START PLAY: snapshot positions
-                savedPositions.clear();
-                auto savePos = [&](auto& self, const std::shared_ptr<Instance>& inst) -> void {
-                    if (auto part = std::dynamic_pointer_cast<Part>(inst)) {
-                        savedPositions[part->getInstanceId()] = part->getPosition();
-                    }
-                    for (const auto& child : inst->getChildren()) {
-                        self(self, child);
-                    }
-                };
-                savePos(savePos, DataModel::instance());
+                // START PLAY: snapshot entire DataModel
+                snapshot.capture(DataModel::instance());
                 isSimulating = true;
             } else {
-                // STOP PLAY: restore positions
+                // STOP PLAY: restore entire DataModel
                 isSimulating = false;
-                auto restorePos = [&](auto& self, const std::shared_ptr<Instance>& inst) -> void {
-                    if (auto part = std::dynamic_pointer_cast<Part>(inst)) {
-                        auto it = savedPositions.find(part->getInstanceId());
-                        if (it != savedPositions.end()) {
-                            part->setPosition(it->second);
-                            part->resetPhysics();
-                        }
-                    }
-                    for (const auto& child : inst->getChildren()) {
-                        self(self, child);
-                    }
-                };
-                restorePos(restorePos, DataModel::instance());
+                snapshot.restore(DataModel::instance());
             }
         }
 

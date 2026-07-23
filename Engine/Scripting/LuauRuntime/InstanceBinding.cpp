@@ -71,6 +71,43 @@ void pushSignal(lua_State* L, Engine::Signal* signal) {
 
 // --- Generic Metamethods ---
 
+static int instance_method_invoke(lua_State* L) {
+    auto* methodDesc = static_cast<const Engine::Reflection::MethodDescriptor*>(lua_touserdata(L, lua_upvalueindex(1)));
+    
+    InstanceUserdata* ud = static_cast<InstanceUserdata*>(lua_touserdatatagged(L, 1, kInstanceTag));
+    if (!ud || !ud->instance) {
+        luaL_error(L, "Expected instance as first argument (use ':' instead of '.')");
+        return 0;
+    }
+
+    int numArgs = lua_gettop(L);
+    std::vector<std::any> args;
+    for (int i = 2; i <= numArgs; ++i) {
+        if (lua_isnumber(L, i)) {
+            args.push_back((float)lua_tonumber(L, i));
+        } else if (lua_isboolean(L, i)) {
+            args.push_back((bool)lua_toboolean(L, i));
+        } else if (lua_isstring(L, i)) {
+            args.push_back(std::string(lua_tostring(L, i)));
+        } else if (lua_touserdatatagged(L, i, kVector3Tag)) {
+            args.push_back(checkVector3(L, i));
+        } else if (InstanceUserdata* argUd = static_cast<InstanceUserdata*>(lua_touserdatatagged(L, i, kInstanceTag))) {
+            args.push_back(argUd->instance);
+        } else {
+            args.push_back(std::any{}); // Fallback
+        }
+    }
+
+    try {
+        std::any result = methodDesc->invoke(ud->instance.get(), args);
+        pushAnyToLuau(L, result);
+        return result.has_value() ? 1 : 0;
+    } catch (const std::exception& e) {
+        luaL_error(L, "Method invocation error: %s", e.what());
+        return 0;
+    }
+}
+
 static int instance_index(lua_State* L) {
     InstanceUserdata* ud = static_cast<InstanceUserdata*>(lua_touserdatatagged(L, 1, kInstanceTag));
     if (!ud || !ud->instance) {
@@ -93,8 +130,11 @@ static int instance_index(lua_State* L) {
             pushSignal(L, &sig);
             return 1;
         }
-        
-        // TODO: Methods, etc.
+        if (auto methodDesc = classDesc->findMethod(key)) {
+            lua_pushlightuserdata(L, (void*)methodDesc);
+            lua_pushcclosure(L, instance_method_invoke, methodDesc->name.c_str(), 1);
+            return 1;
+        }
     }
 
     luaL_error(L, "'%s' is not a valid member of %s", key, ud->instance->getClassName().c_str());

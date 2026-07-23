@@ -1,5 +1,6 @@
 #include "NetworkServer.h"
 #include <iostream>
+#include <cassert>
 
 namespace Engine::Networking {
 
@@ -8,84 +9,144 @@ namespace Engine::Networking {
         return s_instance;
     }
 
+    void NetworkServer::s_onConnectionStatusChanged(SteamNetConnectionStatusChangedCallback_t* pInfo) {
+        instance().onConnectionStatusChanged(pInfo);
+    }
+
     bool NetworkServer::start(uint16_t port, size_t maxClients) {
-        if (enet_initialize() != 0) {
-            std::cerr << "[NetworkServer] An error occurred while initializing ENet.\n";
+        SteamNetworkingErrMsg errMsg;
+        if (!GameNetworkingSockets_Init(nullptr, errMsg)) {
+            std::cerr << "GameNetworkingSockets_Init failed: " << errMsg << std::endl;
             return false;
         }
 
-        ENetAddress address;
-        address.host = ENET_HOST_ANY;
-        address.port = port;
+        m_interface = SteamNetworkingSockets();
+        if (!m_interface) return false;
 
-        m_host = enet_host_create(&address, maxClients, static_cast<size_t>(NetChannel::ChannelCount), 0, 0);
-        if (m_host == nullptr) {
-            std::cerr << "[NetworkServer] An error occurred while trying to create an ENet server host.\n";
+        SteamNetworkingIPAddr serverLocalAddr;
+        serverLocalAddr.Clear();
+        serverLocalAddr.m_port = port;
+
+        SteamNetworkingConfigValue_t opt;
+        opt.SetPtr(k_ESteamNetworkingConfig_Callback_ConnectionStatusChanged, (void*)s_onConnectionStatusChanged);
+
+        m_listenSocket = m_interface->CreateListenSocketIP(serverLocalAddr, 1, &opt);
+        if (m_listenSocket == k_HSteamListenSocket_Invalid) {
+            std::cerr << "Failed to listen on port " << port << std::endl;
             return false;
         }
 
-        std::cout << "[NetworkServer] Started on port " << port << "\n";
+        m_pollGroup = m_interface->CreatePollGroup();
+        if (m_pollGroup == k_HSteamNetPollGroup_Invalid) {
+            std::cerr << "Failed to create poll group" << std::endl;
+            return false;
+        }
+
+        std::cout << "[Server] Listening on port " << port << std::endl;
         return true;
     }
 
     void NetworkServer::stop() {
-        if (m_host) {
-            enet_host_destroy(m_host);
-            m_host = nullptr;
-            enet_deinitialize();
-            std::cout << "[NetworkServer] Stopped.\n";
+        if (m_interface) {
+            if (m_listenSocket != k_HSteamListenSocket_Invalid) {
+                m_interface->CloseListenSocket(m_listenSocket);
+                m_listenSocket = k_HSteamListenSocket_Invalid;
+            }
+            if (m_pollGroup != k_HSteamNetPollGroup_Invalid) {
+                m_interface->DestroyPollGroup(m_pollGroup);
+                m_pollGroup = k_HSteamNetPollGroup_Invalid;
+            }
+            // Close all connections
+            for (auto& client : m_clients) {
+                m_interface->CloseConnection(client.connection, 0, "Server Shutdown", true);
+            }
+            m_clients.clear();
+            GameNetworkingSockets_Kill();
+            m_interface = nullptr;
+        }
+    }
+
+    void NetworkServer::onConnectionStatusChanged(SteamNetConnectionStatusChangedCallback_t* pInfo) {
+        switch (pInfo->m_info.m_eState) {
+            case k_ESteamNetworkingConnectionState_None:
+                break;
+            case k_ESteamNetworkingConnectionState_Connecting:
+                // Accept new connection
+                if (m_interface->AcceptConnection(pInfo->m_hConn) != k_EResultOK) {
+                    m_interface->CloseConnection(pInfo->m_hConn, 0, "Failed to accept", false);
+                    std::cerr << "[Server] Failed to accept connection." << std::endl;
+                    break;
+                }
+                if (!m_interface->SetConnectionPollGroup(pInfo->m_hConn, m_pollGroup)) {
+                    m_interface->CloseConnection(pInfo->m_hConn, 0, "Failed to set poll group", false);
+                    std::cerr << "[Server] Failed to set poll group." << std::endl;
+                    break;
+                }
+                std::cout << "[Server] Accepted connection " << pInfo->m_hConn << std::endl;
+                break;
+            case k_ESteamNetworkingConnectionState_FindingRoute:
+                break;
+            case k_ESteamNetworkingConnectionState_Connected: {
+                ClientConnection client;
+                client.connection = pInfo->m_hConn;
+                client.id = m_nextClientId++;
+                m_clients.push_back(client);
+                std::cout << "[Server] Client " << client.id << " fully connected." << std::endl;
+                break;
+            }
+            case k_ESteamNetworkingConnectionState_ClosedByPeer:
+            case k_ESteamNetworkingConnectionState_ProblemDetectedLocally: {
+                // Client disconnected
+                for (auto it = m_clients.begin(); it != m_clients.end(); ++it) {
+                    if (it->connection == pInfo->m_hConn) {
+                        std::cout << "[Server] Client " << it->id << " disconnected: " << pInfo->m_info.m_szEndDebug << std::endl;
+                        m_clients.erase(it);
+                        break;
+                    }
+                }
+                m_interface->CloseConnection(pInfo->m_hConn, 0, nullptr, false);
+                break;
+            }
+            default:
+                break;
         }
     }
 
     void NetworkServer::poll() {
-        if (!m_host) return;
+        if (!m_interface) return;
 
-        ENetEvent event;
-        while (enet_host_service(m_host, &event, 0) > 0) {
-            switch (event.type) {
-                case ENET_EVENT_TYPE_CONNECT: {
-                    std::cout << "[NetworkServer] A new client connected from " 
-                              << event.peer->address.host << ":" << event.peer->address.port << "\n";
-                    ClientConnection conn;
-                    conn.peer = event.peer;
-                    conn.id = m_nextClientId++;
-                    event.peer->data = reinterpret_cast<void*>(static_cast<uintptr_t>(conn.id));
-                    m_clients.push_back(conn);
-                    break;
-                }
-                case ENET_EVENT_TYPE_RECEIVE: {
-                    if (m_packetHandler) {
-                        m_packetHandler(event.peer, event.packet->data, event.packet->dataLength, static_cast<NetChannel>(event.channelID));
-                    }
-                    enet_packet_destroy(event.packet);
-                    break;
-                }
-                case ENET_EVENT_TYPE_DISCONNECT: {
-                    std::cout << "[NetworkServer] Client disconnected.\n";
-                    uint32_t id = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(event.peer->data));
-                    event.peer->data = nullptr;
-                    // Remove from m_clients
-                    std::erase_if(m_clients, [id](const ClientConnection& c) { return c.id == id; });
-                    break;
-                }
-                case ENET_EVENT_TYPE_NONE:
-                    break;
+        m_interface->RunCallbacks();
+
+        while (true) {
+            ISteamNetworkingMessage* pIncomingMsg = nullptr;
+            int numMsgs = m_interface->ReceiveMessagesOnPollGroup(m_pollGroup, &pIncomingMsg, 1);
+            if (numMsgs == 0) break;
+            if (numMsgs < 0) {
+                std::cerr << "[Server] Error checking for messages." << std::endl;
+                break;
             }
+
+            if (m_packetHandler) {
+                NetChannel channel = NetChannel::Unreliable_State; // Default to unreliable for GNS unless custom struct passed
+                // In GNS, send flags determine reliability, but when receiving we can just assume based on our protocol or ignore channel
+                m_packetHandler(pIncomingMsg->m_conn, (const uint8_t*)pIncomingMsg->m_pData, pIncomingMsg->m_cbSize, channel);
+            }
+
+            pIncomingMsg->Release();
         }
     }
 
-    void NetworkServer::sendTo(ENetPeer* peer, NetChannel channel, const void* data, size_t length) {
-        if (!peer) return;
-        uint32_t flags = (channel == NetChannel::Reliable_Ordered) ? ENET_PACKET_FLAG_RELIABLE : 0;
-        ENetPacket* packet = enet_packet_create(data, length, flags);
-        enet_peer_send(peer, static_cast<enet_uint8>(channel), packet);
+    void NetworkServer::sendTo(HSteamNetConnection conn, NetChannel channel, const void* data, size_t length) {
+        if (!m_interface) return;
+        int flags = (channel == NetChannel::Reliable_Ordered) ? k_nSteamNetworkingSend_Reliable : k_nSteamNetworkingSend_Unreliable;
+        m_interface->SendMessageToConnection(conn, data, length, flags, nullptr);
     }
 
     void NetworkServer::broadcast(NetChannel channel, const void* data, size_t length) {
-        if (!m_host) return;
-        uint32_t flags = (channel == NetChannel::Reliable_Ordered) ? ENET_PACKET_FLAG_RELIABLE : 0;
-        ENetPacket* packet = enet_packet_create(data, length, flags);
-        enet_host_broadcast(m_host, static_cast<enet_uint8>(channel), packet);
+        if (!m_interface) return;
+        int flags = (channel == NetChannel::Reliable_Ordered) ? k_nSteamNetworkingSend_Reliable : k_nSteamNetworkingSend_Unreliable;
+        for (const auto& client : m_clients) {
+            m_interface->SendMessageToConnection(client.connection, data, length, flags, nullptr);
+        }
     }
-
 }

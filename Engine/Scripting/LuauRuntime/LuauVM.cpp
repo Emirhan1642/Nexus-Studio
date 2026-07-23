@@ -59,9 +59,19 @@ void LuauVM::removeUnsafeLibraries() {
 }
 
 void LuauVM::registerEngineAPI() {
-    // wait, print gibi temel fonksiyonlar buraya eklenebilir.
+    // Legacy global wait
     lua_pushcfunction(L, luau_wait, "wait");
     lua_setglobal(L, "wait");
+
+    // Task API
+    lua_newtable(L);
+    lua_pushcfunction(L, luau_task_wait, "wait");
+    lua_setfield(L, -2, "wait");
+    lua_pushcfunction(L, luau_task_spawn, "spawn");
+    lua_setfield(L, -2, "spawn");
+    lua_pushcfunction(L, luau_task_delay, "delay");
+    lua_setfield(L, -2, "delay");
+    lua_setglobal(L, "task");
 }
 
 bool LuauVM::executeScript(const std::string& source, Script* scriptInstance) {

@@ -1,4 +1,5 @@
 #include "Instance.h"
+#include "InstanceRegistry.h"
 
 void Instance::setParent(const std::shared_ptr<Instance>& newParent) {
     if (auto oldParent = parent.lock()) {
@@ -13,6 +14,7 @@ void Instance::setParent(const std::shared_ptr<Instance>& newParent) {
     parent = newParent;
     if (newParent) {
         newParent->children.push_back(shared_from_this());
+        InstanceRegistry::instance().registerInstance(shared_from_this());
         onAddedToWorkspace();
     }
 }
@@ -25,6 +27,7 @@ std::shared_ptr<Instance> Instance::findFirstChild(const std::string& childName)
 }
 
 void Instance::destroy() {
+    InstanceRegistry::instance().unregisterInstance(getInstanceId());
     setParent(nullptr);
     // Let children handle their own cleanup if needed, but clearing parent
     // effectively removes this instance from the active tree.

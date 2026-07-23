@@ -1,5 +1,7 @@
 #pragma once
-#include <enet/enet.h>
+#include <steam/steamnetworkingsockets.h>
+#include <steam/isteamnetworkingsockets.h>
+#include <steam/isteamnetworkingutils.h>
 #include <vector>
 #include <functional>
 #include <cstdint>
@@ -7,14 +9,14 @@
 
 namespace Engine::Networking {
 
-    enum class NetChannel : enet_uint8 {
+    enum class NetChannel : uint8_t {
         Reliable_Ordered = 0,
         Unreliable_State = 1,
         ChannelCount
     };
 
     struct ClientConnection {
-        ENetPeer* peer = nullptr;
+        HSteamNetConnection connection = k_HSteamNetConnection_Invalid;
         uint32_t id = 0;
         // In the future: relevantInstances, playerCharacterPosition, pendingInitialSync, etc.
     };
@@ -27,17 +29,25 @@ namespace Engine::Networking {
         void stop();
         void poll();
 
-        void sendTo(ENetPeer* peer, NetChannel channel, const void* data, size_t length);
+        void sendTo(HSteamNetConnection conn, NetChannel channel, const void* data, size_t length);
         void broadcast(NetChannel channel, const void* data, size_t length);
 
-        using PacketHandler = std::function<void(ENetPeer*, const uint8_t*, size_t, NetChannel)>;
+        using PacketHandler = std::function<void(HSteamNetConnection, const uint8_t*, size_t, NetChannel)>;
         void setPacketHandler(PacketHandler handler) { m_packetHandler = handler; }
+
+        ISteamNetworkingSockets* getInterface() { return m_interface; }
 
     private:
         NetworkServer() = default;
         ~NetworkServer() { stop(); }
 
-        ENetHost* m_host = nullptr;
+        void onConnectionStatusChanged(SteamNetConnectionStatusChangedCallback_t* pInfo);
+        static void s_onConnectionStatusChanged(SteamNetConnectionStatusChangedCallback_t* pInfo);
+
+        ISteamNetworkingSockets* m_interface = nullptr;
+        HSteamListenSocket m_listenSocket = k_HSteamListenSocket_Invalid;
+        HSteamNetPollGroup m_pollGroup = k_HSteamNetPollGroup_Invalid;
+
         std::vector<ClientConnection> m_clients;
         uint32_t m_nextClientId = 1;
 

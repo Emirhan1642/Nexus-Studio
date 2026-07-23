@@ -73,6 +73,13 @@ public:
         return nullptr;
     }
 
+    const MethodDescriptor* findMethod(const std::string& name) const {
+        for (const auto& m : methods)
+            if (m.name == name) return &m;
+        if (baseClass) return baseClass->findMethod(name);
+        return nullptr;
+    }
+
     bool isA(const std::string& targetClassName) const {
         const ClassDescriptor* current = this;
         while (current) {

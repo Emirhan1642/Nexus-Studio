@@ -8,104 +8,98 @@ namespace Engine::Networking {
         return s_instance;
     }
 
-    bool NetworkClient::connect(const std::string& hostName, uint16_t port) {
-        if (enet_initialize() != 0) {
-            std::cerr << "[NetworkClient] An error occurred while initializing ENet.\n";
+    void NetworkClient::s_onConnectionStatusChanged(SteamNetConnectionStatusChangedCallback_t* pInfo) {
+        instance().onConnectionStatusChanged(pInfo);
+    }
+
+    bool NetworkClient::connect(const std::string& host, uint16_t port) {
+        SteamNetworkingErrMsg errMsg;
+        if (!GameNetworkingSockets_Init(nullptr, errMsg)) {
+            std::cerr << "GameNetworkingSockets_Init failed: " << errMsg << std::endl;
             return false;
         }
 
-        m_host = enet_host_create(nullptr, 1, static_cast<size_t>(NetChannel::ChannelCount), 0, 0);
-        if (m_host == nullptr) {
-            std::cerr << "[NetworkClient] An error occurred while trying to create an ENet client host.\n";
+        m_interface = SteamNetworkingSockets();
+        if (!m_interface) return false;
+
+        SteamNetworkingIPAddr serverAddr;
+        serverAddr.Clear();
+        serverAddr.ParseString(host.c_str());
+        serverAddr.m_port = port;
+
+        SteamNetworkingConfigValue_t opt;
+        opt.SetPtr(k_ESteamNetworkingConfig_Callback_ConnectionStatusChanged, (void*)s_onConnectionStatusChanged);
+
+        m_connection = m_interface->ConnectByIPAddress(serverAddr, 1, &opt);
+        if (m_connection == k_HSteamNetConnection_Invalid) {
+            std::cerr << "[Client] Failed to create connection" << std::endl;
             return false;
         }
 
-        ENetAddress address;
-        enet_address_set_host(&address, hostName.c_str());
-        address.port = port;
-
-        m_peer = enet_host_connect(m_host, &address, static_cast<size_t>(NetChannel::ChannelCount), 0);
-        if (m_peer == nullptr) {
-            std::cerr << "[NetworkClient] No available peers for initiating an ENet connection.\n";
-            return false;
-        }
-
-        ENetEvent event;
-        // Wait up to 5 seconds for the connection attempt to succeed.
-        if (enet_host_service(m_host, &event, 5000) > 0 && event.type == ENET_EVENT_TYPE_CONNECT) {
-            std::cout << "[NetworkClient] Connection to " << hostName << ":" << port << " succeeded.\n";
-            return true;
-        } else {
-            enet_peer_reset(m_peer);
-            m_peer = nullptr;
-            std::cerr << "[NetworkClient] Connection to " << hostName << ":" << port << " failed.\n";
-            return false;
-        }
+        std::cout << "[Client] Connecting to " << host << ":" << port << "..." << std::endl;
+        return true;
     }
 
     void NetworkClient::disconnect() {
-        if (m_peer) {
-            enet_peer_disconnect(m_peer, 0);
-            
-            ENetEvent event;
-            bool disconnected = false;
-            while (enet_host_service(m_host, &event, 3000) > 0) {
-                switch (event.type) {
-                    case ENET_EVENT_TYPE_RECEIVE:
-                        enet_packet_destroy(event.packet);
-                        break;
-                    case ENET_EVENT_TYPE_DISCONNECT:
-                        std::cout << "[NetworkClient] Disconnection succeeded.\n";
-                        disconnected = true;
-                        break;
-                    default:
-                        break;
-                }
-                if (disconnected) break;
+        if (m_interface) {
+            if (m_connection != k_HSteamNetConnection_Invalid) {
+                m_interface->CloseConnection(m_connection, 0, "Disconnect", true);
+                m_connection = k_HSteamNetConnection_Invalid;
             }
-
-            if (!disconnected) {
-                enet_peer_reset(m_peer);
-            }
-            m_peer = nullptr;
+            GameNetworkingSockets_Kill();
+            m_interface = nullptr;
         }
+    }
 
-        if (m_host) {
-            enet_host_destroy(m_host);
-            m_host = nullptr;
+    void NetworkClient::onConnectionStatusChanged(SteamNetConnectionStatusChangedCallback_t* pInfo) {
+        switch (pInfo->m_info.m_eState) {
+            case k_ESteamNetworkingConnectionState_None:
+                break;
+            case k_ESteamNetworkingConnectionState_Connecting:
+                break;
+            case k_ESteamNetworkingConnectionState_FindingRoute:
+                break;
+            case k_ESteamNetworkingConnectionState_Connected:
+                std::cout << "[Client] Connected to server successfully!" << std::endl;
+                break;
+            case k_ESteamNetworkingConnectionState_ClosedByPeer:
+            case k_ESteamNetworkingConnectionState_ProblemDetectedLocally:
+                std::cout << "[Client] Disconnected from server: " << pInfo->m_info.m_szEndDebug << std::endl;
+                m_interface->CloseConnection(pInfo->m_hConn, 0, nullptr, false);
+                m_connection = k_HSteamNetConnection_Invalid;
+                break;
+            default:
+                break;
         }
-        enet_deinitialize();
     }
 
     void NetworkClient::poll() {
-        if (!m_host) return;
+        if (!m_interface || m_connection == k_HSteamNetConnection_Invalid) return;
 
-        ENetEvent event;
-        while (enet_host_service(m_host, &event, 0) > 0) {
-            switch (event.type) {
-                case ENET_EVENT_TYPE_RECEIVE: {
-                    if (m_packetHandler) {
-                        m_packetHandler(event.packet->data, event.packet->dataLength, static_cast<NetChannel>(event.channelID));
-                    }
-                    enet_packet_destroy(event.packet);
-                    break;
-                }
-                case ENET_EVENT_TYPE_DISCONNECT: {
-                    std::cout << "[NetworkClient] Server disconnected.\n";
-                    m_peer = nullptr;
-                    break;
-                }
-                default:
-                    break;
+        m_interface->RunCallbacks();
+
+        while (true) {
+            ISteamNetworkingMessage* pIncomingMsg = nullptr;
+            int numMsgs = m_interface->ReceiveMessagesOnConnection(m_connection, &pIncomingMsg, 1);
+            if (numMsgs == 0) break;
+            if (numMsgs < 0) {
+                std::cerr << "[Client] Error checking for messages." << std::endl;
+                break;
             }
+
+            if (m_packetHandler) {
+                NetChannel channel = NetChannel::Unreliable_State;
+                m_packetHandler((const uint8_t*)pIncomingMsg->m_pData, pIncomingMsg->m_cbSize, channel);
+            }
+
+            pIncomingMsg->Release();
         }
     }
 
     void NetworkClient::send(NetChannel channel, const void* data, size_t length) {
-        if (!m_peer) return;
-        uint32_t flags = (channel == NetChannel::Reliable_Ordered) ? ENET_PACKET_FLAG_RELIABLE : 0;
-        ENetPacket* packet = enet_packet_create(data, length, flags);
-        enet_peer_send(m_peer, static_cast<enet_uint8>(channel), packet);
-    }
+        if (!m_interface || m_connection == k_HSteamNetConnection_Invalid) return;
 
+        int flags = (channel == NetChannel::Reliable_Ordered) ? k_nSteamNetworkingSend_Reliable : k_nSteamNetworkingSend_Unreliable;
+        m_interface->SendMessageToConnection(m_connection, data, length, flags, nullptr);
+    }
 }

@@ -13,7 +13,7 @@ add_library(EngineNetworking OBJECT ${SOURCES})
 target_include_directories(EngineNetworking PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
 
 target_link_libraries(EngineNetworking PUBLIC
-    enet
+    GameNetworkingSockets
     EngineCore
 )
 

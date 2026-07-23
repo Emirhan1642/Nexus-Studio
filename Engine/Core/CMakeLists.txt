@@ -4,6 +4,7 @@ set(CORE_SOURCES
     Reflection/TypeRegistry.cpp
     Reflection/EnumRegistry.cpp
     DataModel/Instance.cpp
+    DataModel/InstanceRegistry.cpp
     DataModel/Part.cpp
     DataModel/Constraint.cpp
     DataModel/WeldConstraint.cpp
@@ -18,6 +19,7 @@ set(CORE_HEADERS
     Reflection/ClassBuilder.h
     Reflection/EnumRegistry.h
     DataModel/Instance.h
+    DataModel/InstanceRegistry.h
     DataModel/DataModel.h
     DataModel/Part.h
     DataModel/Constraint.h
@@ -34,7 +36,7 @@ add_library(EngineCore OBJECT ${CORE_SOURCES} ${CORE_HEADERS})
 # Include directories so that other modules can include "Reflection/TypeRegistry.h"
 target_include_directories(EngineCore PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
-target_link_libraries(EngineCore PUBLIC EnginePhysics Jolt bgfx enet)
+target_link_libraries(EngineCore PUBLIC EnginePhysics Jolt bgfx GameNetworkingSockets)
 
 # For setting folders in IDE
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${CORE_SOURCES} ${CORE_HEADERS})
