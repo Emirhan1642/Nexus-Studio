@@ -26,5 +26,6 @@ echo Compiling Fragment Shader...
 "%SHADERC%" -f fs_bloom_threshold.sc -o fs_bloom_threshold.bin --type fragment --platform windows -p s_5_0 -i "%INCLUDE_PATH%" -i .\
 "%SHADERC%" -f fs_bloom_blur.sc -o fs_bloom_blur.bin --type fragment --platform windows -p s_5_0 -i "%INCLUDE_PATH%" -i .\
 "%SHADERC%" -f fs_tonemap.sc -o fs_tonemap.bin --type fragment --platform windows -p s_5_0 -i "%INCLUDE_PATH%" -i .\
+"%SHADERC%" -f fs_ssgi.sc -o fs_ssgi.bin --type fragment --platform windows -p s_5_0 -i "%INCLUDE_PATH%" -i .\
 
 echo Done!

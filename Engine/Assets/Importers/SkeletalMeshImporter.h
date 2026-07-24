@@ -21,7 +21,7 @@ struct ImportedSkeletalMesh {
     Animation::Skeleton skeleton;
     std::vector<Animation::AnimationClip> clips;
     std::vector<SkinnedVertex> vertices;
-    std::vector<uint32_t> indices;
+    std::vector<std::vector<uint32_t>> lodIndices; // lodIndices[0] is original, [1] is first LOD, etc.
 };
 
 class SkeletalMeshImporter {

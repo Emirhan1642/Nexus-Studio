@@ -11,15 +11,17 @@ namespace Engine::Renderer {
 
 struct MeshData {
     bgfx::VertexBufferHandle vbh = BGFX_INVALID_HANDLE;
-    bgfx::IndexBufferHandle ibh = BGFX_INVALID_HANDLE;
-    uint32_t numIndices = 0;
+    bgfx::IndexBufferHandle ibhLods[3] = { BGFX_INVALID_HANDLE, BGFX_INVALID_HANDLE, BGFX_INVALID_HANDLE };
+    uint32_t numIndicesLods[3] = { 0, 0, 0 };
+    int numLods = 0;
 };
 
 enum RenderView : bgfx::ViewId {
     View_ShadowPass = 0,
     View_MainColor = 1,
-    View_BloomThreshold = 2,
-    View_Tonemap = 30, // Any intermediate passes will use ViewIDs 3-29
+    View_SSGI = 2,
+    View_BloomThreshold = 3,
+    View_Tonemap = 30, // Any intermediate passes will use ViewIDs 4-29
 };
 
 class RendererSystem {
@@ -61,11 +63,17 @@ private:
     bgfx::ProgramHandle m_bloomThresholdProgram = BGFX_INVALID_HANDLE;
     bgfx::ProgramHandle m_bloomBlurProgram = BGFX_INVALID_HANDLE;
     bgfx::ProgramHandle m_tonemapProgram = BGFX_INVALID_HANDLE;
+    bgfx::ProgramHandle m_ssgiProgram = BGFX_INVALID_HANDLE;
+    bgfx::FrameBufferHandle m_ssgiFB = BGFX_INVALID_HANDLE;
 
     bgfx::UniformHandle s_texBloom = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle s_texNormalGBuffer = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle s_texDepth = BGFX_INVALID_HANDLE;
+    
     bgfx::UniformHandle u_bloomParams = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle u_blurParams = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle u_tonemapParams = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle u_ssgiParams = BGFX_INVALID_HANDLE;
 
     int m_width = 0;
     int m_height = 0;

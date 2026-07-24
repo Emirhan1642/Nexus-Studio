@@ -3,6 +3,7 @@
 #include <assimp/Importer.hpp>
 #include <assimp/scene.h>
 #include <assimp/postprocess.h>
+#include <meshoptimizer.h>
 #include <iostream>
 #include <map>
 
@@ -34,6 +35,7 @@ static void processNodeHierarchy(const aiNode* node, const aiScene* scene, Anima
 
 ImportedSkeletalMesh SkeletalMeshImporter::importFBX(const std::string& path) {
     ImportedSkeletalMesh result;
+    std::vector<uint32_t> baseIndices;
     
     Assimp::Importer importer;
     // Limit bone weights to 4 per vertex (aiProcess_LimitBoneWeights)
@@ -76,7 +78,7 @@ ImportedSkeletalMesh SkeletalMeshImporter::importFBX(const std::string& path) {
         for (unsigned int j = 0; j < mesh->mNumFaces; j++) {
             aiFace face = mesh->mFaces[j];
             for (unsigned int k = 0; k < face.mNumIndices; k++) {
-                result.indices.push_back(baseVertex + face.mIndices[k]);
+                baseIndices.push_back(baseVertex + face.mIndices[k]);
             }
         }
         
@@ -162,6 +164,34 @@ ImportedSkeletalMesh SkeletalMeshImporter::importFBX(const std::string& path) {
             }
             result.clips.push_back(clip);
         }
+    }
+    
+    // Generate LODs using meshoptimizer
+    result.lodIndices.push_back(baseIndices); // LOD0 (Original)
+    
+    float lodRatios[] = {0.5f, 0.15f}; // LOD1 = 50%, LOD2 = 15%
+    for (float ratio : lodRatios) {
+        size_t targetIndexCount = size_t(baseIndices.size() * ratio);
+        std::vector<uint32_t> simplifiedIndices(baseIndices.size());
+        
+        float lodError = 0.0f;
+        size_t newCount = meshopt_simplify(
+            simplifiedIndices.data(),
+            baseIndices.data(),
+            baseIndices.size(),
+            &result.vertices[0].x,
+            result.vertices.size(),
+            sizeof(SkinnedVertex),
+            targetIndexCount,
+            0.02f, // targetError
+            0, // options
+            &lodError
+        );
+        
+        simplifiedIndices.resize(newCount);
+        // Optimize index buffer for vertex cache
+        meshopt_optimizeVertexCache(simplifiedIndices.data(), simplifiedIndices.data(), simplifiedIndices.size(), result.vertices.size());
+        result.lodIndices.push_back(simplifiedIndices);
     }
 
     return result;

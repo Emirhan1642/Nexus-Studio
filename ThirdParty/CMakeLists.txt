@@ -127,3 +127,12 @@ set(ASSIMP_BUILD_ZLIB ON CACHE BOOL "" FORCE) # We might need internal zlib for 
 set(ASSIMP_INSTALL OFF CACHE BOOL "" FORCE)
 set(ASSIMP_INJECT_DEBUG_POSTFIX OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(assimp)
+
+# 11. Meshoptimizer (LOD Generation)
+FetchContent_Declare(
+    meshoptimizer
+    GIT_REPOSITORY https://github.com/zeux/meshoptimizer.git
+    GIT_TAG        v0.21
+)
+set(MESHOPT_BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(meshoptimizer)

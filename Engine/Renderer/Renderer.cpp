@@ -163,10 +163,13 @@ void RendererSystem::init() {
     s_texMetallic = bgfx::createUniform("s_texMetallic", bgfx::UniformType::Sampler);
     s_texRoughness = bgfx::createUniform("s_texRoughness", bgfx::UniformType::Sampler);
     s_texBloom = bgfx::createUniform("s_texBloom", bgfx::UniformType::Sampler);
+    s_texNormalGBuffer = bgfx::createUniform("s_texNormalGBuffer", bgfx::UniformType::Sampler);
+    s_texDepth = bgfx::createUniform("s_texDepth", bgfx::UniformType::Sampler);
     
     u_bloomParams = bgfx::createUniform("u_bloomParams", bgfx::UniformType::Vec4);
     u_blurParams = bgfx::createUniform("u_blurParams", bgfx::UniformType::Vec4);
     u_tonemapParams = bgfx::createUniform("u_tonemapParams", bgfx::UniformType::Vec4);
+    u_ssgiParams = bgfx::createUniform("u_ssgiParams", bgfx::UniformType::Vec4);
     
     // Create Bone Transforms uniform (Array of 64 Mat4)
     u_boneTransforms = bgfx::createUniform("u_boneTransforms", bgfx::UniformType::Mat4, 64);
@@ -218,6 +221,7 @@ void RendererSystem::init() {
     bgfx::ShaderHandle fsBloomThreshold = loadShader("Engine/Renderer/Shaders/fs_bloom_threshold.bin");
     bgfx::ShaderHandle fsBloomBlur = loadShader("Engine/Renderer/Shaders/fs_bloom_blur.bin");
     bgfx::ShaderHandle fsTonemap = loadShader("Engine/Renderer/Shaders/fs_tonemap.bin");
+    bgfx::ShaderHandle fsSsgi = loadShader("Engine/Renderer/Shaders/fs_ssgi.bin");
     
     if (bgfx::isValid(vsFullscreen)) {
         if (bgfx::isValid(fsBloomThreshold)) m_bloomThresholdProgram = bgfx::createProgram(vsFullscreen, fsBloomThreshold, true);
@@ -232,6 +236,11 @@ void RendererSystem::init() {
     vsFullscreen = loadShader("Engine/Renderer/Shaders/vs_fullscreen.bin");
     if (bgfx::isValid(vsFullscreen) && bgfx::isValid(fsTonemap)) {
         m_tonemapProgram = bgfx::createProgram(vsFullscreen, fsTonemap, true);
+    }
+    
+    vsFullscreen = loadShader("Engine/Renderer/Shaders/vs_fullscreen.bin");
+    if (bgfx::isValid(vsFullscreen) && bgfx::isValid(fsSsgi)) {
+        m_ssgiProgram = bgfx::createProgram(vsFullscreen, fsSsgi, true);
     }
 
     bgfx::setViewClear(View_MainColor, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, 0x303030ff, 1.0f, 0);
@@ -258,16 +267,21 @@ void RendererSystem::shutdown() {
     bgfx::destroy(s_texMetallic);
     bgfx::destroy(s_texRoughness);
     bgfx::destroy(s_texBloom);
+    bgfx::destroy(s_texNormalGBuffer);
+    bgfx::destroy(s_texDepth);
     
     bgfx::destroy(u_bloomParams);
     bgfx::destroy(u_blurParams);
     bgfx::destroy(u_tonemapParams);
+    bgfx::destroy(u_ssgiParams);
     
     if (bgfx::isValid(m_bloomThresholdProgram)) bgfx::destroy(m_bloomThresholdProgram);
     if (bgfx::isValid(m_bloomBlurProgram)) bgfx::destroy(m_bloomBlurProgram);
     if (bgfx::isValid(m_tonemapProgram)) bgfx::destroy(m_tonemapProgram);
+    if (bgfx::isValid(m_ssgiProgram)) bgfx::destroy(m_ssgiProgram);
     
     if (bgfx::isValid(m_hdrFB)) bgfx::destroy(m_hdrFB);
+    if (bgfx::isValid(m_ssgiFB)) bgfx::destroy(m_ssgiFB);
     for (int i = 0; i < 5; ++i) {
         if (bgfx::isValid(m_bloomFBs[i])) bgfx::destroy(m_bloomFBs[i]);
         if (bgfx::isValid(m_bloomBlurFBs[i])) bgfx::destroy(m_bloomBlurFBs[i]);
@@ -284,7 +298,9 @@ void RendererSystem::shutdown() {
     
     for (auto& [handle, meshData] : m_meshes) {
         if (bgfx::isValid(meshData.vbh)) bgfx::destroy(meshData.vbh);
-        if (bgfx::isValid(meshData.ibh)) bgfx::destroy(meshData.ibh);
+        for (int i = 0; i < meshData.numLods; ++i) {
+            if (bgfx::isValid(meshData.ibhLods[i])) bgfx::destroy(meshData.ibhLods[i]);
+        }
     }
     m_meshes.clear();
     m_meshGuidToHandle.clear();
@@ -346,7 +362,20 @@ void RendererSystem::renderFrame(const Camera& camera, int width, int height, bg
             auto it = m_meshes.find(proxy.mesh);
             if (it != m_meshes.end()) {
                 bgfx::setVertexBuffer(0, it->second.vbh);
-                bgfx::setIndexBuffer(it->second.ibh);
+                
+                // Select LOD based on distance
+                float distSq = (proxy.boundsCenter.x - camera.position.x) * (proxy.boundsCenter.x - camera.position.x) +
+                               (proxy.boundsCenter.y - camera.position.y) * (proxy.boundsCenter.y - camera.position.y) +
+                               (proxy.boundsCenter.z - camera.position.z) * (proxy.boundsCenter.z - camera.position.z);
+                
+                int lodIndex = 0;
+                if (distSq > 10000.0f) lodIndex = 2; // > 100 units
+                else if (distSq > 2500.0f) lodIndex = 1; // > 50 units
+                
+                if (lodIndex >= it->second.numLods) lodIndex = it->second.numLods - 1;
+                if (lodIndex < 0) lodIndex = 0;
+                
+                bgfx::setIndexBuffer(it->second.ibhLods[lodIndex]);
             } else {
                 bgfx::setVertexBuffer(0, m_vbh);
                 bgfx::setIndexBuffer(m_ibh);
@@ -373,15 +402,20 @@ void RendererSystem::renderFrame(const Camera& camera, int width, int height, bg
         m_height = height;
 
         if (bgfx::isValid(m_hdrFB)) bgfx::destroy(m_hdrFB);
+        if (bgfx::isValid(m_ssgiFB)) bgfx::destroy(m_ssgiFB);
         for (int i = 0; i < 5; ++i) {
             if (bgfx::isValid(m_bloomFBs[i])) bgfx::destroy(m_bloomFBs[i]);
             if (bgfx::isValid(m_bloomBlurFBs[i])) bgfx::destroy(m_bloomBlurFBs[i]);
         }
 
         bgfx::TextureHandle hdrColorTex = bgfx::createTexture2D(width, height, false, 1, bgfx::TextureFormat::RGBA16F, BGFX_TEXTURE_RT | BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP);
+        bgfx::TextureHandle hdrNormalTex = bgfx::createTexture2D(width, height, false, 1, bgfx::TextureFormat::RGBA8, BGFX_TEXTURE_RT | BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP);
         bgfx::TextureHandle hdrDepthTex = bgfx::createTexture2D(width, height, false, 1, bgfx::TextureFormat::D24, BGFX_TEXTURE_RT | BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP);
-        bgfx::TextureHandle hdrTextures[] = { hdrColorTex, hdrDepthTex };
-        m_hdrFB = bgfx::createFrameBuffer(2, hdrTextures, true);
+        bgfx::TextureHandle hdrTextures[] = { hdrColorTex, hdrNormalTex, hdrDepthTex };
+        m_hdrFB = bgfx::createFrameBuffer(3, hdrTextures, true);
+
+        bgfx::TextureHandle ssgiColorTex = bgfx::createTexture2D(width, height, false, 1, bgfx::TextureFormat::RGBA16F, BGFX_TEXTURE_RT | BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP);
+        m_ssgiFB = bgfx::createFrameBuffer(1, &ssgiColorTex, true);
 
         int bw = width;
         int bh = height;
@@ -420,7 +454,20 @@ void RendererSystem::renderFrame(const Camera& camera, int width, int height, bg
             auto it = m_meshes.find(proxy.mesh);
             if (it != m_meshes.end()) {
                 bgfx::setVertexBuffer(0, it->second.vbh);
-                bgfx::setIndexBuffer(it->second.ibh);
+                
+                // Select LOD based on distance
+                float distSq = (proxy.boundsCenter.x - camera.position.x) * (proxy.boundsCenter.x - camera.position.x) +
+                               (proxy.boundsCenter.y - camera.position.y) * (proxy.boundsCenter.y - camera.position.y) +
+                               (proxy.boundsCenter.z - camera.position.z) * (proxy.boundsCenter.z - camera.position.z);
+                
+                int lodIndex = 0;
+                if (distSq > 10000.0f) lodIndex = 2; // > 100 units
+                else if (distSq > 2500.0f) lodIndex = 1; // > 50 units
+                
+                if (lodIndex >= it->second.numLods) lodIndex = it->second.numLods - 1;
+                if (lodIndex < 0) lodIndex = 0;
+                
+                bgfx::setIndexBuffer(it->second.ibhLods[lodIndex]);
             } else {
                 bgfx::setVertexBuffer(0, m_vbh);
                 bgfx::setIndexBuffer(m_ibh);
@@ -479,14 +526,32 @@ void RendererSystem::renderFrame(const Camera& camera, int width, int height, bg
     }
     
     // -----------------------------------------
-    // PASS 3: POST-PROCESSING (Bloom & Tonemap)
+    // PASS 3: SSGI & POST-PROCESSING (Bloom & Tonemap)
     // -----------------------------------------
     bgfx::TextureHandle hdrColorTex = bgfx::getTexture(m_hdrFB, 0);
+    bgfx::TextureHandle hdrNormalTex = bgfx::getTexture(m_hdrFB, 1);
+    bgfx::TextureHandle hdrDepthTex = bgfx::getTexture(m_hdrFB, 2);
     
-    // 3.1 Bloom Threshold
+    // 3.1 SSGI Pass
+    float ssgiParams[4] = { 0.5f /* radius */, 1.2f /* ssgi intensity */, 2.0f /* ssao intensity */, 1.0f };
+    bgfx::setUniform(u_ssgiParams, ssgiParams);
+    bgfx::setTexture(0, s_texColor, hdrColorTex);
+    bgfx::setTexture(1, s_texNormalGBuffer, hdrNormalTex);
+    bgfx::setTexture(2, s_texDepth, hdrDepthTex);
+    bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A);
+    bgfx::setViewRect(View_SSGI, 0, 0, uint16_t(width), uint16_t(height));
+    bgfx::setViewFrameBuffer(View_SSGI, m_ssgiFB);
+    bgfx::setViewClear(View_SSGI, BGFX_CLEAR_COLOR, 0x00000000, 1.0f, 0);
+    bgfx::setVertexBuffer(0, m_vbh, 0, 4);
+    bgfx::setIndexBuffer(m_ibh, 0, 6);
+    bgfx::submit(View_SSGI, m_ssgiProgram);
+
+    // 3.2 Bloom Threshold
     float bloomParams[4] = { 1.5f, 0.0f, 0.0f, 0.0f }; // threshold
     bgfx::setUniform(u_bloomParams, bloomParams);
-    bgfx::setTexture(0, s_texColor, hdrColorTex);
+    // Read from SSGI combined buffer
+    bgfx::TextureHandle ssgiOutputTex = bgfx::getTexture(m_ssgiFB, 0);
+    bgfx::setTexture(0, s_texColor, ssgiOutputTex);
     bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A);
     bgfx::setViewRect(View_BloomThreshold, 0, 0, uint16_t(bx::max(1, width / 2)), uint16_t(bx::max(1, height / 2)));
     bgfx::setViewFrameBuffer(View_BloomThreshold, m_bloomFBs[0]);
@@ -496,10 +561,10 @@ void RendererSystem::renderFrame(const Camera& camera, int width, int height, bg
     bgfx::setIndexBuffer(m_ibh, 0, 6);
     bgfx::submit(View_BloomThreshold, m_bloomThresholdProgram);
 
-    // 3.2 Bloom Downsample & Blur (Ping-Pong)
+    // 3.3 Bloom Downsample & Blur (Ping-Pong)
     int bw = width / 2;
     int bh = height / 2;
-    bgfx::ViewId currentViewId = 3;
+    bgfx::ViewId currentViewId = 4;
     
     for (int i = 0; i < 5; ++i) {
         // Blur X (Write to bloomBlurFBs[i], read from bloomFBs[i])
@@ -548,10 +613,10 @@ void RendererSystem::renderFrame(const Camera& camera, int width, int height, bg
         }
     }
 
-    // 3.3 Tonemap & Additive Blend (Render to Backbuffer)
+    // 3.4 Tonemap & Additive Blend (Render to Backbuffer)
     float tonemapParams[4] = { 1.0f /*exposure*/, 1.0f /*bloom int*/, 0.0f, 0.0f };
     bgfx::setUniform(u_tonemapParams, tonemapParams);
-    bgfx::setTexture(0, s_texColor, hdrColorTex);
+    bgfx::setTexture(0, s_texColor, ssgiOutputTex);
     bgfx::setTexture(1, s_texBloom, bgfx::getTexture(m_bloomFBs[0], 0)); // Add the highest res blurred bloom
 
     bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A);
@@ -581,7 +646,7 @@ MeshHandle RendererSystem::getMeshHandle(const Engine::Assets::AssetGuid& guid) 
     auto importedMesh = Engine::Assets::AssetDatabase::instance().getSkeletalMesh(guid);
     if (!importedMesh) return InvalidHandle;
 
-    if (importedMesh->vertices.empty() || importedMesh->indices.empty()) {
+    if (importedMesh->vertices.empty() || importedMesh->lodIndices.empty() || importedMesh->lodIndices[0].empty()) {
         return InvalidHandle;
     }
 
@@ -605,10 +670,16 @@ MeshHandle RendererSystem::getMeshHandle(const Engine::Assets::AssetGuid& guid) 
         bgfx::copy(vertices.data(), static_cast<uint32_t>(vertices.size() * sizeof(SkinnedVertex))),
         SkinnedVertex::ms_layout
     );
-    meshData.ibh = bgfx::createIndexBuffer(
-        bgfx::copy(importedMesh->indices.data(), static_cast<uint32_t>(importedMesh->indices.size() * sizeof(uint32_t)))
-    );
-    meshData.numIndices = static_cast<uint32_t>(importedMesh->indices.size());
+    
+    meshData.numLods = static_cast<int>(importedMesh->lodIndices.size());
+    if (meshData.numLods > 3) meshData.numLods = 3;
+    
+    for (int i = 0; i < meshData.numLods; ++i) {
+        meshData.ibhLods[i] = bgfx::createIndexBuffer(
+            bgfx::copy(importedMesh->lodIndices[i].data(), static_cast<uint32_t>(importedMesh->lodIndices[i].size() * sizeof(uint32_t)))
+        );
+        meshData.numIndicesLods[i] = static_cast<uint32_t>(importedMesh->lodIndices[i].size());
+    }
 
     MeshHandle handle = m_nextMeshHandle++;
     m_meshes[handle] = meshData;

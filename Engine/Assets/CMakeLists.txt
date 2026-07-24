@@ -22,6 +22,6 @@ add_library(EngineAssets OBJECT ${ASSETS_SOURCES} ${ASSETS_HEADERS})
 
 target_include_directories(EngineAssets PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
-target_link_libraries(EngineAssets PUBLIC nlohmann_json::nlohmann_json efsw EngineCore EngineRenderer EngineAnimation bgfx assimp)
+target_link_libraries(EngineAssets PUBLIC nlohmann_json::nlohmann_json efsw EngineCore EngineRenderer EngineAnimation bgfx assimp meshoptimizer)
 
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${ASSETS_SOURCES} ${ASSETS_HEADERS})
