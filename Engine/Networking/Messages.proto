@@ -1,0 +1,44 @@
+syntax = "proto3";
+
+package Engine.Networking.Proto;
+
+// A generic wrapper for property values (Int, Float, String, Vector3, etc.)
+message PropertyData {
+    oneof value {
+        int32 int_value = 1;
+        float float_value = 2;
+        string string_value = 3;
+        bool bool_value = 4;
+        Vector3 vector3_value = 5;
+    }
+}
+
+message Vector3 {
+    float x = 1;
+    float y = 2;
+    float z = 3;
+}
+
+// Represents a change in a specific instance's properties
+message ReplicationUpdate {
+    uint64 instance_id = 1;
+    string class_name = 2; // Usually only needed if creating the instance
+    map<string, PropertyData> properties = 3;
+}
+
+message ReplicationPacket {
+    repeated ReplicationUpdate updates = 1;
+}
+
+message RemoteEventPacket {
+    uint64 instance_id = 1; // Instance ID of the RemoteEvent
+    repeated PropertyData args = 2;
+}
+
+// Master packet that can hold either replication data or remote events
+message NetworkPacket {
+    oneof payload {
+        ReplicationPacket replication = 1;
+        RemoteEventPacket remote_event = 2;
+    }
+}

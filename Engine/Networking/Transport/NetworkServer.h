@@ -36,6 +36,7 @@ namespace Engine::Networking {
         void setPacketHandler(PacketHandler handler) { m_packetHandler = handler; }
 
         ISteamNetworkingSockets* getInterface() { return m_interface; }
+        const std::vector<ClientConnection>& getClients() const { return m_clients; }
 
     private:
         NetworkServer() = default;

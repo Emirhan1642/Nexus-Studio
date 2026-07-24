@@ -14,7 +14,9 @@ namespace Engine::Physics {
 namespace Layers {
     static constexpr JPH::ObjectLayer NON_MOVING = 0;
     static constexpr JPH::ObjectLayer MOVING = 1;
-    static constexpr JPH::ObjectLayer NUM_LAYERS = 2;
+    static constexpr JPH::ObjectLayer CHARACTER = 2;
+    static constexpr JPH::ObjectLayer RAGDOLL = 3;
+    static constexpr JPH::ObjectLayer NUM_LAYERS = 4;
 }
 
 namespace BroadPhaseLayers {
@@ -28,6 +30,8 @@ public:
     BPLayerInterfaceImpl() {
         mObjectToBroadPhase[Layers::NON_MOVING] = BroadPhaseLayers::NON_MOVING;
         mObjectToBroadPhase[Layers::MOVING] = BroadPhaseLayers::MOVING;
+        mObjectToBroadPhase[Layers::CHARACTER] = BroadPhaseLayers::MOVING;
+        mObjectToBroadPhase[Layers::RAGDOLL] = BroadPhaseLayers::MOVING;
     }
 
     virtual uint32_t GetNumBroadPhaseLayers() const override {
@@ -57,6 +61,8 @@ public:
         case Layers::NON_MOVING:
             return inLayer2 == BroadPhaseLayers::MOVING;
         case Layers::MOVING:
+        case Layers::CHARACTER:
+        case Layers::RAGDOLL:
             return true;
         default:
             return false;
@@ -69,8 +75,10 @@ public:
     virtual bool ShouldCollide(JPH::ObjectLayer inObject1, JPH::ObjectLayer inObject2) const override {
         switch (inObject1) {
         case Layers::NON_MOVING:
-            return inObject2 == Layers::MOVING;
+            return inObject2 == Layers::MOVING || inObject2 == Layers::CHARACTER || inObject2 == Layers::RAGDOLL;
         case Layers::MOVING:
+        case Layers::CHARACTER:
+        case Layers::RAGDOLL:
             return true;
         default:
             return false;
@@ -95,6 +103,11 @@ public:
 
     JPH::BodyInterface& getBodyInterface() { return physicsSystem.GetBodyInterface(); }
     JPH::PhysicsSystem& getPhysicsSystem() { return physicsSystem; }
+
+    JPH::TempAllocatorImpl* getTempAllocator() { return tempAllocator; }
+    BPLayerInterfaceImpl& getBroadPhaseLayerInterface() { return broadPhaseLayerInterface; }
+    ObjectVsBroadPhaseLayerFilterImpl& getObjectVsBroadPhaseLayerFilter() { return objectVsBroadPhaseFilter; }
+    ObjectLayerPairFilterImpl& getObjectLayerPairFilter() { return objectLayerPairFilter; }
 
 private:
     PhysicsWorld() = default;

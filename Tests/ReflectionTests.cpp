@@ -4,6 +4,7 @@
 #include "Engine/Core/DataModel/DataModel.h"
 #include "Engine/Core/DataModel/Part.h"
 #include "Engine/Physics/PhysicsWorld.h"
+#include "Engine/Core/DataModel/Humanoid.h"
 
 using namespace Engine::Reflection;
 
@@ -112,4 +113,18 @@ TEST_F(ReflectionTest, HierarchyAndWeakPtr) {
     children = root->getChildren();
     EXPECT_EQ(children.size(), 0);
     EXPECT_EQ(part1->getParent(), nullptr);
+}
+
+TEST_F(ReflectionTest, HumanoidReflection) {
+    auto* desc = TypeRegistry::instance().find("Humanoid");
+    ASSERT_NE(desc, nullptr);
+    EXPECT_EQ(desc->className, "Humanoid");
+    EXPECT_TRUE(desc->isA("Instance"));
+    
+    auto* healthProp = desc->findProperty("Health");
+    ASSERT_NE(healthProp, nullptr);
+    
+    auto* enumDesc = EnumRegistry::instance().find("HumanoidState");
+    ASSERT_NE(enumDesc, nullptr);
+    EXPECT_EQ(enumDesc->nameOf(0), "Idle");
 }

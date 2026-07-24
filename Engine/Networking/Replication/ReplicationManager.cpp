@@ -1,6 +1,8 @@
 #define NOMINMAX
 #include "ReplicationManager.h"
 #include <iostream>
+#include "../Serialization/PacketSerializer.h"
+#include "../../Core/DataModel/InstanceRegistry.h"
 
 namespace Engine::Networking {
 
@@ -29,14 +31,50 @@ namespace Engine::Networking {
             while (!state.pendingInitialSync.empty() && sentInitial < INITIAL_SYNC_BATCH_SIZE) {
                 InstanceId id = state.pendingInitialSync.back();
                 state.pendingInitialSync.pop_back();
-                // NetworkServer::instance().sendTo(..., buildFullPacket(id));
+                
+                auto inst = InstanceRegistry::instance().findById(id);
+                if (inst) {
+                    std::set<std::string> allProps; // Need all props for initial sync. Will simplify by sending a mock full sync
+                    auto classDesc = Reflection::TypeRegistry::instance().find(inst->getClassName());
+                    if (classDesc) {
+                        for (auto& prop : classDesc->properties) {
+                            if (prop.replicated) allProps.insert(prop.name);
+                        }
+                    }
+                    auto repPacket = PacketSerializer::buildReplicationPacket(inst, allProps);
+                    Proto::NetworkPacket masterPacket;
+                    *masterPacket.mutable_replication() = repPacket;
+                    std::string outData;
+                    masterPacket.SerializeToString(&outData);
+
+                    // Find connection for client
+                    auto clients = NetworkServer::instance().getClients();
+                    auto it = std::find_if(clients.begin(), clients.end(), [clientId](const ClientConnection& c) { return c.id == clientId; });
+                    if (it != clients.end()) {
+                        NetworkServer::instance().sendTo(it->connection, NetChannel::Reliable_Ordered, outData.data(), outData.size());
+                    }
+                }
                 sentInitial++;
             }
 
             // 2. Always Relevant Objects
             for (InstanceId id : AlwaysRelevantRegistry::instance().getAll()) {
                 if (m_dirtyProperties.contains(id)) {
-                    // Send updates
+                    auto inst = InstanceRegistry::instance().findById(id);
+                    if (inst) {
+                        std::set<std::string> dirtyProps(m_dirtyProperties[id].begin(), m_dirtyProperties[id].end());
+                        auto repPacket = PacketSerializer::buildReplicationPacket(inst, dirtyProps);
+                        Proto::NetworkPacket masterPacket;
+                        *masterPacket.mutable_replication() = repPacket;
+                        std::string outData;
+                        masterPacket.SerializeToString(&outData);
+
+                        auto clients = NetworkServer::instance().getClients();
+                        auto it = std::find_if(clients.begin(), clients.end(), [clientId](const ClientConnection& c) { return c.id == clientId; });
+                        if (it != clients.end()) {
+                            NetworkServer::instance().sendTo(it->connection, NetChannel::Reliable_Ordered, outData.data(), outData.size());
+                        }
+                    }
                 }
             }
 
@@ -76,7 +114,24 @@ namespace Engine::Networking {
 
             for (int i = 0; i < std::min((int)MAX_UPDATES_PER_CLIENT_PER_TICK, (int)prioritized.size()); i++) {
                 InstanceId id = prioritized[i].first;
-                // Send partial packet...
+                
+                auto inst = InstanceRegistry::instance().findById(id);
+                if (inst) {
+                    std::set<std::string> dirtyProps(m_dirtyProperties[id].begin(), m_dirtyProperties[id].end());
+                    auto repPacket = PacketSerializer::buildReplicationPacket(inst, dirtyProps);
+                    
+                    Proto::NetworkPacket masterPacket;
+                    *masterPacket.mutable_replication() = repPacket;
+                    std::string outData;
+                    masterPacket.SerializeToString(&outData);
+
+                    auto clients = NetworkServer::instance().getClients();
+                    auto it = std::find_if(clients.begin(), clients.end(), [clientId](const ClientConnection& c) { return c.id == clientId; });
+                    if (it != clients.end()) {
+                        NetworkServer::instance().sendTo(it->connection, NetChannel::Unreliable_State, outData.data(), outData.size());
+                    }
+                }
+                
                 m_lastSentTimes[clientId][id] = m_currentServerTime;
             }
         }

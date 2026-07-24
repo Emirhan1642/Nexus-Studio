@@ -14,6 +14,10 @@ public:
     void registerInstance(const std::shared_ptr<Instance>& inst);
     void unregisterInstance(InstanceId id);
     std::shared_ptr<Instance> findById(InstanceId id) const;
+    void clear() {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        m_registry.clear();
+    }
 
 private:
     InstanceRegistry() = default;

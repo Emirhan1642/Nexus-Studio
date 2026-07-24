@@ -1,35 +1,53 @@
 #include "RemoteEvent.h"
 #include <iostream>
+#include "../../Networking/Serialization/PacketSerializer.h"
 
-void RemoteEvent::FireServer(const std::string& data) {
+void RemoteEvent::FireServer(const std::vector<std::any>& args) {
     if (Engine::Networking::NetworkContext::mode() != Engine::Networking::NetworkMode::Client) {
         std::cerr << "[RemoteEvent] FireServer can only be called from the Client.\n";
         return;
     }
 
-    // Example payload construct
-    // NetworkClient::instance().send(NetChannel::Reliable_Ordered, data.data(), data.size());
-    std::cout << "[RemoteEvent] " << name << " firing Server with: " << data << "\n";
+    auto rePacket = Engine::Networking::PacketSerializer::buildRemoteEventPacket(getInstanceId(), args);
+    Engine::Networking::Proto::NetworkPacket masterPacket;
+    *masterPacket.mutable_remote_event() = rePacket;
+    std::string outData;
+    masterPacket.SerializeToString(&outData);
+
+    Engine::Networking::NetworkClient::instance().send(Engine::Networking::NetChannel::Reliable_Ordered, outData.data(), outData.size());
 }
 
-void RemoteEvent::FireClient(uint32_t clientId, const std::string& data) {
+void RemoteEvent::FireClient(uint32_t clientId, const std::vector<std::any>& args) {
     if (Engine::Networking::NetworkContext::mode() != Engine::Networking::NetworkMode::Server) {
         std::cerr << "[RemoteEvent] FireClient can only be called from the Server.\n";
         return;
     }
 
-    // NetworkServer::instance().sendTo(..., data);
-    std::cout << "[RemoteEvent] " << name << " firing Client " << clientId << " with: " << data << "\n";
+    auto clients = Engine::Networking::NetworkServer::instance().getClients();
+    auto it = std::find_if(clients.begin(), clients.end(), [clientId](const Engine::Networking::ClientConnection& c) { return c.id == clientId; });
+    if (it != clients.end()) {
+        auto rePacket = Engine::Networking::PacketSerializer::buildRemoteEventPacket(getInstanceId(), args);
+        Engine::Networking::Proto::NetworkPacket masterPacket;
+        *masterPacket.mutable_remote_event() = rePacket;
+        std::string outData;
+        masterPacket.SerializeToString(&outData);
+        Engine::Networking::NetworkServer::instance().sendTo(it->connection, Engine::Networking::NetChannel::Reliable_Ordered, outData.data(), outData.size());
+    }
 }
 
-void RemoteEvent::FireAllClients(const std::string& data) {
+void RemoteEvent::FireAllClients(const std::vector<std::any>& args) {
     if (Engine::Networking::NetworkContext::mode() != Engine::Networking::NetworkMode::Server) {
         std::cerr << "[RemoteEvent] FireAllClients can only be called from the Server.\n";
         return;
     }
 
-    // NetworkServer::instance().broadcast(NetChannel::Reliable_Ordered, data.data(), data.size());
-    std::cout << "[RemoteEvent] " << name << " firing ALL Clients with: " << data << "\n";
+    auto rePacket = Engine::Networking::PacketSerializer::buildRemoteEventPacket(getInstanceId(), args);
+    Engine::Networking::Proto::NetworkPacket masterPacket;
+    *masterPacket.mutable_remote_event() = rePacket;
+    std::string outData;
+    masterPacket.SerializeToString(&outData);
+
+    Engine::Networking::NetworkServer::instance().broadcast(Engine::Networking::NetChannel::Reliable_Ordered, outData.data(), outData.size());
 }
 
 void RemoteEvent::registerClass() {

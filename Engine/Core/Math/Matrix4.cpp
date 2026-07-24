@@ -1,4 +1,5 @@
 #include "Matrix4.h"
+#include "Quaternion.h"
 #include <cmath>
 #include <cstring>
 
@@ -120,6 +121,172 @@ Matrix4 Matrix4::orthographic(float left, float right, float bottom, float top, 
     return mat;
 }
 
+Vector3 Matrix4::getTranslation() const {
+    return Vector3(m[12], m[13], m[14]);
+}
+
+Matrix4 Matrix4::fromRotation(const Quaternion& rot) {
+    Matrix4 res = identity();
+    float xx = rot.x * rot.x;
+    float yy = rot.y * rot.y;
+    float zz = rot.z * rot.z;
+    float xy = rot.x * rot.y;
+    float xz = rot.x * rot.z;
+    float yz = rot.y * rot.z;
+    float wx = rot.w * rot.x;
+    float wy = rot.w * rot.y;
+    float wz = rot.w * rot.z;
+
+    res.m[0] = 1.0f - 2.0f * (yy + zz);
+    res.m[1] = 2.0f * (xy + wz);
+    res.m[2] = 2.0f * (xz - wy);
+
+    res.m[4] = 2.0f * (xy - wz);
+    res.m[5] = 1.0f - 2.0f * (xx + zz);
+    res.m[6] = 2.0f * (yz + wx);
+
+    res.m[8] = 2.0f * (xz + wy);
+    res.m[9] = 2.0f * (yz - wx);
+    res.m[10] = 1.0f - 2.0f * (xx + yy);
+
+    return res;
+}
+
+Matrix4 Matrix4::fromTRS(const Vector3& pos, const Quaternion& rot, const Vector3& scaleVector) {
+    Matrix4 mRot = fromRotation(rot);
+    Matrix4 mScale = scale(scaleVector);
+    Matrix4 mTrans = translation(pos);
+    return mTrans * mRot * mScale;
+}
+
+Matrix4 Matrix4::inverse() const {
+    // simplified for brevity: general 4x4 inverse using cramer's rule
+    float inv[16], det;
+    Matrix4 out;
+
+    inv[0] = m[5]  * m[10] * m[15] - 
+             m[5]  * m[11] * m[14] - 
+             m[9]  * m[6]  * m[15] + 
+             m[9]  * m[7]  * m[14] +
+             m[13] * m[6]  * m[11] - 
+             m[13] * m[7]  * m[10];
+
+    inv[4] = -m[4]  * m[10] * m[15] + 
+              m[4]  * m[11] * m[14] + 
+              m[8]  * m[6]  * m[15] - 
+              m[8]  * m[7]  * m[14] - 
+              m[12] * m[6]  * m[11] + 
+              m[12] * m[7]  * m[10];
+
+    inv[8] = m[4]  * m[9] * m[15] - 
+             m[4]  * m[11] * m[13] - 
+             m[8]  * m[5] * m[15] + 
+             m[8]  * m[7] * m[13] + 
+             m[12] * m[5] * m[11] - 
+             m[12] * m[7] * m[9];
+
+    inv[12] = -m[4]  * m[9] * m[14] + 
+               m[4]  * m[10] * m[13] +
+               m[8]  * m[5] * m[14] - 
+               m[8]  * m[6] * m[13] - 
+               m[12] * m[5] * m[10] + 
+               m[12] * m[6] * m[9];
+
+    inv[1] = -m[1]  * m[10] * m[15] + 
+              m[1]  * m[11] * m[14] + 
+              m[9]  * m[2] * m[15] - 
+              m[9]  * m[3] * m[14] - 
+              m[13] * m[2] * m[11] + 
+              m[13] * m[3] * m[10];
+
+    inv[5] = m[0]  * m[10] * m[15] - 
+             m[0]  * m[11] * m[14] - 
+             m[8]  * m[2] * m[15] + 
+             m[8]  * m[3] * m[14] + 
+             m[12] * m[2] * m[11] - 
+             m[12] * m[3] * m[10];
+
+    inv[9] = -m[0]  * m[9] * m[15] + 
+              m[0]  * m[11] * m[13] + 
+              m[8]  * m[1] * m[15] - 
+              m[8]  * m[3] * m[13] - 
+              m[12] * m[1] * m[11] + 
+              m[12] * m[3] * m[9];
+
+    inv[13] = m[0]  * m[9] * m[14] - 
+              m[0]  * m[10] * m[13] - 
+              m[8]  * m[1] * m[14] + 
+              m[8]  * m[2] * m[13] + 
+              m[12] * m[1] * m[10] - 
+              m[12] * m[2] * m[9];
+
+    inv[2] = m[1]  * m[6] * m[15] - 
+             m[1]  * m[7] * m[14] - 
+             m[5]  * m[2] * m[15] + 
+             m[5]  * m[3] * m[14] + 
+             m[13] * m[2] * m[7] - 
+             m[13] * m[3] * m[6];
+
+    inv[6] = -m[0]  * m[6] * m[15] + 
+              m[0]  * m[7] * m[14] + 
+              m[4]  * m[2] * m[15] - 
+              m[4]  * m[3] * m[14] - 
+              m[12] * m[2] * m[7] + 
+              m[12] * m[3] * m[6];
+
+    inv[10] = m[0]  * m[5] * m[15] - 
+              m[0]  * m[7] * m[13] - 
+              m[4]  * m[1] * m[15] + 
+              m[4]  * m[3] * m[13] + 
+              m[12] * m[1] * m[7] - 
+              m[12] * m[3] * m[5];
+
+    inv[14] = -m[0]  * m[5] * m[14] + 
+               m[0]  * m[6] * m[13] + 
+               m[4]  * m[1] * m[14] - 
+               m[4]  * m[2] * m[13] - 
+               m[12] * m[1] * m[6] + 
+               m[12] * m[2] * m[5];
+
+    inv[3] = -m[1] * m[6] * m[11] + 
+              m[1] * m[7] * m[10] + 
+              m[5] * m[2] * m[11] - 
+              m[5] * m[3] * m[10] - 
+              m[9] * m[2] * m[7] + 
+              m[9] * m[3] * m[6];
+
+    inv[7] = m[0] * m[6] * m[11] - 
+             m[0] * m[7] * m[10] - 
+             m[4] * m[2] * m[11] + 
+             m[4] * m[3] * m[10] + 
+             m[8] * m[2] * m[7] - 
+             m[8] * m[3] * m[6];
+
+    inv[11] = -m[0] * m[5] * m[11] + 
+               m[0] * m[7] * m[9] + 
+               m[4] * m[1] * m[11] - 
+               m[4] * m[3] * m[9] - 
+               m[8] * m[1] * m[7] + 
+               m[8] * m[3] * m[5];
+
+    inv[15] = m[0] * m[5] * m[10] - 
+              m[0] * m[6] * m[9] - 
+              m[4] * m[1] * m[10] + 
+              m[4] * m[2] * m[9] + 
+              m[8] * m[1] * m[6] - 
+              m[8] * m[2] * m[5];
+
+    det = m[0] * inv[0] + m[1] * inv[4] + m[2] * inv[8] + m[3] * inv[12];
+
+    if (det == 0) return identity();
+
+    det = 1.0f / det;
+    for (int i = 0; i < 16; i++) {
+        out.m[i] = inv[i] * det;
+    }
+    return out;
+}
+
 Matrix4 Matrix4::operator*(const Matrix4& rhs) const {
     Matrix4 result;
     for (int i = 0; i < 4; ++i) {
@@ -132,10 +299,6 @@ Matrix4 Matrix4::operator*(const Matrix4& rhs) const {
         }
     }
     return result;
-}
-
-Vector3 Matrix4::getTranslation() const {
-    return Vector3{m[12], m[13], m[14]};
 }
 
 } // namespace Engine::Math

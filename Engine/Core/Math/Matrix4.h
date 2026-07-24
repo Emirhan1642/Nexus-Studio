@@ -4,6 +4,8 @@
 
 namespace Engine::Math {
 
+struct Quaternion;
+
 struct Matrix4 {
     std::array<float, 16> m;
 
@@ -30,7 +32,16 @@ struct Matrix4 {
     // Create from position and scale (for simple transform)
     static Matrix4 fromPositionAndSize(const Vector3& pos, const Vector3& size);
 
+    // Create from Rotation
+    static Matrix4 fromRotation(const Quaternion& rot);
+
+    // Create from Position, Rotation, and Scale
+    static Matrix4 fromTRS(const Vector3& pos, const Quaternion& rot, const Vector3& scale);
+
     Vector3 getTranslation() const;
+
+    // Inverse matrix
+    Matrix4 inverse() const;
 
     // Multiply two matrices
     Matrix4 operator*(const Matrix4& rhs) const;

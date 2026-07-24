@@ -1,6 +1,10 @@
 #include "NetworkServer.h"
 #include <iostream>
 #include <cassert>
+#include "../Serialization/PacketSerializer.h"
+#include "../../Core/DataModel/InstanceRegistry.h"
+#include "../../Core/DataModel/RemoteEvent.h"
+#include "../../build/Engine/Networking/Messages.pb.h"
 
 namespace Engine::Networking {
 
@@ -61,7 +65,7 @@ namespace Engine::Networking {
                 m_interface->CloseConnection(client.connection, 0, "Server Shutdown", true);
             }
             m_clients.clear();
-            GameNetworkingSockets_Kill();
+            // GameNetworkingSockets_Kill();
             m_interface = nullptr;
         }
     }
@@ -128,8 +132,19 @@ namespace Engine::Networking {
 
             if (m_packetHandler) {
                 NetChannel channel = NetChannel::Unreliable_State; // Default to unreliable for GNS unless custom struct passed
-                // In GNS, send flags determine reliability, but when receiving we can just assume based on our protocol or ignore channel
                 m_packetHandler(pIncomingMsg->m_conn, (const uint8_t*)pIncomingMsg->m_pData, pIncomingMsg->m_cbSize, channel);
+            } else {
+                Proto::NetworkPacket packet;
+                if (packet.ParseFromArray(pIncomingMsg->m_pData, pIncomingMsg->m_cbSize)) {
+                    if (packet.has_remote_event()) {
+                        auto inst = InstanceRegistry::instance().findById(packet.remote_event().instance_id());
+                        if (inst && inst->getClassName() == "RemoteEvent") {
+                            auto re = std::static_pointer_cast<RemoteEvent>(inst);
+                            std::vector<std::any> args = PacketSerializer::deserializeRemoteEventArgs(packet.remote_event());
+                            re->triggerServerEvent(args);
+                        }
+                    }
+                }
             }
 
             pIncomingMsg->Release();

@@ -10,8 +10,12 @@ set(CORE_SOURCES
     DataModel/WeldConstraint.cpp
     DataModel/HingeConstraint.cpp
     DataModel/SpringConstraint.cpp
+    DataModel/Humanoid.cpp
+    DataModel/HumanoidStateMachine.cpp
     DataModel/RemoteEvent.cpp
+    DataModel/AnimationTrack.cpp
     Math/Matrix4.cpp
+    Math/Quaternion.cpp
 )
 
 set(CORE_HEADERS
@@ -27,8 +31,10 @@ set(CORE_HEADERS
     DataModel/HingeConstraint.h
     DataModel/SpringConstraint.h
     DataModel/RemoteEvent.h
+    DataModel/AnimationTrack.h
     Math/Vector3.h
     Math/Matrix4.h
+    Math/Quaternion.h
 )
 
 add_library(EngineCore OBJECT ${CORE_SOURCES} ${CORE_HEADERS})

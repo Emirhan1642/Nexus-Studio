@@ -30,6 +30,7 @@ target_link_libraries(NexusStudioEditor PRIVATE
     EngineScripting
     EngineAssets
     EngineNetworking
+    EngineAnimation
     example-common
     glfw
     bgfx

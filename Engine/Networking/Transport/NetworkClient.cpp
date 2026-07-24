@@ -1,5 +1,9 @@
 #include "NetworkClient.h"
 #include <iostream>
+#include "../Serialization/PacketSerializer.h"
+#include "../../Core/DataModel/InstanceRegistry.h"
+#include "../../Core/DataModel/RemoteEvent.h"
+#include "../../build/Engine/Networking/Messages.pb.h"
 
 namespace Engine::Networking {
 
@@ -46,7 +50,7 @@ namespace Engine::Networking {
                 m_interface->CloseConnection(m_connection, 0, "Disconnect", true);
                 m_connection = k_HSteamNetConnection_Invalid;
             }
-            GameNetworkingSockets_Kill();
+            // GameNetworkingSockets_Kill();
             m_interface = nullptr;
         }
     }
@@ -90,6 +94,27 @@ namespace Engine::Networking {
             if (m_packetHandler) {
                 NetChannel channel = NetChannel::Unreliable_State;
                 m_packetHandler((const uint8_t*)pIncomingMsg->m_pData, pIncomingMsg->m_cbSize, channel);
+            } else {
+                Proto::NetworkPacket packet;
+                if (packet.ParseFromArray(pIncomingMsg->m_pData, pIncomingMsg->m_cbSize)) {
+                    if (packet.has_replication()) {
+                        for (const auto& update : packet.replication().updates()) {
+                            auto inst = InstanceRegistry::instance().findById(update.instance_id());
+                            if (!inst) {
+                                // Normally we would instantiate here via a generic factory. For now just lookup.
+                                continue;
+                            }
+                            PacketSerializer::applyReplicationUpdate(inst, update);
+                        }
+                    } else if (packet.has_remote_event()) {
+                        auto inst = InstanceRegistry::instance().findById(packet.remote_event().instance_id());
+                        if (inst && inst->getClassName() == "RemoteEvent") {
+                            auto re = std::static_pointer_cast<RemoteEvent>(inst);
+                            std::vector<std::any> args = PacketSerializer::deserializeRemoteEventArgs(packet.remote_event());
+                            re->triggerClientEvent(args);
+                        }
+                    }
+                }
             }
 
             pIncomingMsg->Release();

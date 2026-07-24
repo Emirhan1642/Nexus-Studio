@@ -114,3 +114,16 @@ set(STEAMNETWORKINGSOCKETS_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(STEAMNETWORKINGSOCKETS_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(USE_CRYPTO "BCrypt" CACHE STRING "" FORCE)
 FetchContent_MakeAvailable(GameNetworkingSockets)
+
+# 10. Assimp (Asset Importer for Skeletal Meshes and FBX)
+FetchContent_Declare(
+    assimp
+    GIT_REPOSITORY https://github.com/assimp/assimp.git
+    GIT_TAG        v5.3.1
+)
+set(ASSIMP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(ASSIMP_BUILD_ASSIMP_TOOLS OFF CACHE BOOL "" FORCE)
+set(ASSIMP_BUILD_ZLIB ON CACHE BOOL "" FORCE) # We might need internal zlib for FBX
+set(ASSIMP_INSTALL OFF CACHE BOOL "" FORCE)
+set(ASSIMP_INJECT_DEBUG_POSTFIX OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(assimp)

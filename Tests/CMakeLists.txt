@@ -2,6 +2,8 @@ cmake_minimum_required(VERSION 3.24)
 
 set(TEST_SOURCES
     ReflectionTests.cpp
+    AnimationTests.cpp
+    NetworkingTests.cpp
 )
 
 add_executable(NexusStudioTests ${TEST_SOURCES})
@@ -18,6 +20,7 @@ target_link_libraries(NexusStudioTests PRIVATE
     EngineRenderer
     EngineScripting
     EngineNetworking
+    EngineAnimation
     GTest::gtest_main
 )
 
