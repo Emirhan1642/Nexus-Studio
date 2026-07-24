@@ -18,11 +18,14 @@ struct MeshData {
 };
 
 enum RenderView : bgfx::ViewId {
-    View_ShadowPass = 0,
-    View_MainColor = 1,
-    View_SSGI = 2,
-    View_BloomThreshold = 3,
-    View_Tonemap = 30, // Any intermediate passes will use ViewIDs 4-29
+    View_ShadowCascade0 = 0,
+    View_ShadowCascade1 = 1,
+    View_ShadowCascade2 = 2,
+    View_MainColor = 3,
+    View_SSGI = 4,
+    View_BloomThreshold = 5,
+    View_Tonemap = 30, // Any intermediate passes will use ViewIDs 6-29
+    View_FXAA = 31,
 };
 
 class RendererSystem {
@@ -55,13 +58,17 @@ private:
     bgfx::ProgramHandle m_skinnedShadowProgram = BGFX_INVALID_HANDLE;
     bgfx::ProgramHandle m_overrideMaterial = BGFX_INVALID_HANDLE;
 
-    // Shadow Map
-    bgfx::FrameBufferHandle m_shadowMapFB = BGFX_INVALID_HANDLE;
-    bgfx::UniformHandle u_lightMtx = BGFX_INVALID_HANDLE;
-    bgfx::UniformHandle s_texShadow = BGFX_INVALID_HANDLE;
+    // Shadow Map (CSM)
+    bgfx::FrameBufferHandle m_shadowMapFBs[3] = { BGFX_INVALID_HANDLE, BGFX_INVALID_HANDLE, BGFX_INVALID_HANDLE };
+    bgfx::UniformHandle u_lightMtx = BGFX_INVALID_HANDLE; // Array of 3 matrices
+    bgfx::UniformHandle s_texShadow0 = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle s_texShadow1 = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle s_texShadow2 = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle u_csmParams = BGFX_INVALID_HANDLE;
 
     // Post-Processing
     bgfx::FrameBufferHandle m_hdrFB = BGFX_INVALID_HANDLE;
+    bgfx::FrameBufferHandle m_tonemapFB = BGFX_INVALID_HANDLE;
     bgfx::FrameBufferHandle m_bloomFBs[5] = { BGFX_INVALID_HANDLE, BGFX_INVALID_HANDLE, BGFX_INVALID_HANDLE, BGFX_INVALID_HANDLE, BGFX_INVALID_HANDLE };
     bgfx::FrameBufferHandle m_bloomBlurFBs[5] = { BGFX_INVALID_HANDLE, BGFX_INVALID_HANDLE, BGFX_INVALID_HANDLE, BGFX_INVALID_HANDLE, BGFX_INVALID_HANDLE };
     
@@ -69,16 +76,20 @@ private:
     bgfx::ProgramHandle m_bloomBlurProgram = BGFX_INVALID_HANDLE;
     bgfx::ProgramHandle m_tonemapProgram = BGFX_INVALID_HANDLE;
     bgfx::ProgramHandle m_ssgiProgram = BGFX_INVALID_HANDLE;
+    bgfx::ProgramHandle m_fxaaProgram = BGFX_INVALID_HANDLE;
     bgfx::FrameBufferHandle m_ssgiFB = BGFX_INVALID_HANDLE;
 
     bgfx::UniformHandle s_texBloom = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle s_texNormalGBuffer = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle s_texDepth = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle s_texTonemap = BGFX_INVALID_HANDLE;
     
     bgfx::UniformHandle u_bloomParams = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle u_blurParams = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle u_tonemapParams = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle u_ssgiParams = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle u_fxaaParams = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle u_lodParams = BGFX_INVALID_HANDLE;
 
     int m_width = 0;
     int m_height = 0;

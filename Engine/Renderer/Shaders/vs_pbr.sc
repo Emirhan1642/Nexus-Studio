@@ -1,10 +1,9 @@
 $input a_position, a_color0, a_normal, a_texcoord0, a_weight, a_indices
-$output v_position, v_color0, v_normal, v_texcoord0, v_posLightSpace
+$output v_position, v_color0, v_normal, v_texcoord0, v_viewDepth
 
 #include <bgfx_shader.sh>
 
 uniform mat4 u_boneTransforms[64];
-uniform mat4 u_lightMtx;
 
 void main() {
     float totalWeight = a_weight[0] + a_weight[1] + a_weight[2] + a_weight[3];
@@ -24,7 +23,7 @@ void main() {
     vec3 wpos = mul(u_model[0], localPos).xyz;
     gl_Position = mul(u_viewProj, vec4(wpos, 1.0));
     v_position = wpos;
-    v_posLightSpace = mul(u_lightMtx, vec4(wpos, 1.0));
+    v_viewDepth = mul(u_view, vec4(wpos, 1.0)).z;
     v_color0 = a_color0;
     v_normal = mul(u_model[0], localNorm).xyz;
     v_texcoord0 = a_texcoord0;

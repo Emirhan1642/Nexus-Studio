@@ -30,5 +30,6 @@ echo Compiling Fragment Shader...
 "%SHADERC%" -f fs_tonemap.sc -o fs_tonemap.bin --type fragment --platform windows -p s_5_0 -i "%INCLUDE_PATH%" -i .\
 "%SHADERC%" -f fs_ssgi.sc -o fs_ssgi.bin --type fragment --platform windows -p s_5_0 -i "%INCLUDE_PATH%" -i .\
 "%SHADERC%" -f fs_voxelize.sc -o fs_voxelize.bin --type fragment --platform windows -p s_5_0 -i "%INCLUDE_PATH%" -i .\
+"%SHADERC%" -f fs_fxaa.sc -o fs_fxaa.bin --type fragment --platform windows -p s_5_0 -i "%INCLUDE_PATH%" -i .\
 
 echo Done!

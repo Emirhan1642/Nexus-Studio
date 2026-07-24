@@ -166,25 +166,33 @@ void RendererSystem::init() {
     s_texNormalGBuffer = bgfx::createUniform("s_texNormalGBuffer", bgfx::UniformType::Sampler);
     s_texDepth = bgfx::createUniform("s_texDepth", bgfx::UniformType::Sampler);
     s_texVoxel = bgfx::createUniform("s_texVoxel", bgfx::UniformType::Sampler);
+    s_texTonemap = bgfx::createUniform("s_texTonemap", bgfx::UniformType::Sampler);
     
     u_bloomParams = bgfx::createUniform("u_bloomParams", bgfx::UniformType::Vec4);
     u_blurParams = bgfx::createUniform("u_blurParams", bgfx::UniformType::Vec4);
     u_tonemapParams = bgfx::createUniform("u_tonemapParams", bgfx::UniformType::Vec4);
     u_ssgiParams = bgfx::createUniform("u_ssgiParams", bgfx::UniformType::Vec4);
+    u_fxaaParams = bgfx::createUniform("u_fxaaParams", bgfx::UniformType::Vec4);
+    u_lodParams = bgfx::createUniform("u_lodParams", bgfx::UniformType::Vec4);
     
     // Create Bone Transforms uniform (Array of 64 Mat4)
     u_boneTransforms = bgfx::createUniform("u_boneTransforms", bgfx::UniformType::Mat4, 64);
     
-    // Shadow Map Setup
-    u_lightMtx = bgfx::createUniform("u_lightMtx", bgfx::UniformType::Mat4);
-    s_texShadow = bgfx::createUniform("s_texShadow", bgfx::UniformType::Sampler);
+    // Shadow Map Setup (CSM)
+    u_lightMtx = bgfx::createUniform("u_lightMtx", bgfx::UniformType::Mat4, 3);
+    s_texShadow0 = bgfx::createUniform("s_texShadow0", bgfx::UniformType::Sampler);
+    s_texShadow1 = bgfx::createUniform("s_texShadow1", bgfx::UniformType::Sampler);
+    s_texShadow2 = bgfx::createUniform("s_texShadow2", bgfx::UniformType::Sampler);
+    u_csmParams = bgfx::createUniform("u_csmParams", bgfx::UniformType::Vec4);
     
-    // Create shadow map texture (D16 is widely supported for shadow maps)
-    bgfx::TextureHandle shadowMapTexture = bgfx::createTexture2D(
-        2048, 2048, false, 1, bgfx::TextureFormat::D16,
-        BGFX_TEXTURE_RT | BGFX_SAMPLER_COMPARE_LEQUAL | BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP
-    );
-    m_shadowMapFB = bgfx::createFrameBuffer(1, &shadowMapTexture, true);
+    // Create shadow map textures (D16 is widely supported for shadow maps)
+    for (int i = 0; i < 3; ++i) {
+        bgfx::TextureHandle shadowMapTexture = bgfx::createTexture2D(
+            2048, 2048, false, 1, bgfx::TextureFormat::D16,
+            BGFX_TEXTURE_RT | BGFX_SAMPLER_COMPARE_LEQUAL | BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP
+        );
+        m_shadowMapFBs[i] = bgfx::createFrameBuffer(1, &shadowMapTexture, true);
+    }
 
     const bgfx::Memory* memAlbedo = bgfx::copy("\xff\xff\xff\xff", 4);
     m_defaultAlbedo = bgfx::createTexture2D(1, 1, false, 1, bgfx::TextureFormat::RGBA8, BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP, memAlbedo);
@@ -243,9 +251,17 @@ void RendererSystem::init() {
     if (bgfx::isValid(vsFullscreen) && bgfx::isValid(fsSsgi)) {
         m_ssgiProgram = bgfx::createProgram(vsFullscreen, fsSsgi, true);
     }
+    
+    vsFullscreen = loadShader("Engine/Renderer/Shaders/vs_fullscreen.bin");
+    bgfx::ShaderHandle fsFxaa = loadShader("Engine/Renderer/Shaders/fs_fxaa.bin");
+    if (bgfx::isValid(vsFullscreen) && bgfx::isValid(fsFxaa)) {
+        m_fxaaProgram = bgfx::createProgram(vsFullscreen, fsFxaa, true);
+    }
 
     bgfx::setViewClear(View_MainColor, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, 0x303030ff, 1.0f, 0);
-    bgfx::setViewClear(View_ShadowPass, BGFX_CLEAR_DEPTH, 0x303030ff, 1.0f, 0);
+    bgfx::setViewClear(View_ShadowCascade0, BGFX_CLEAR_DEPTH, 0x303030ff, 1.0f, 0);
+    bgfx::setViewClear(View_ShadowCascade1, BGFX_CLEAR_DEPTH, 0x303030ff, 1.0f, 0);
+    bgfx::setViewClear(View_ShadowCascade2, BGFX_CLEAR_DEPTH, 0x303030ff, 1.0f, 0);
 
     m_voxelizer.init();
 }
@@ -258,10 +274,14 @@ void RendererSystem::shutdown() {
     bgfx::destroy(m_program);
     if (bgfx::isValid(m_shadowProgram)) bgfx::destroy(m_shadowProgram);
     if (bgfx::isValid(m_skinnedShadowProgram)) bgfx::destroy(m_skinnedShadowProgram);
-    
-    if (bgfx::isValid(m_shadowMapFB)) bgfx::destroy(m_shadowMapFB);
+    for (int i = 0; i < 3; ++i) {
+        if (bgfx::isValid(m_shadowMapFBs[i])) bgfx::destroy(m_shadowMapFBs[i]);
+    }
     if (bgfx::isValid(u_lightMtx)) bgfx::destroy(u_lightMtx);
-    if (bgfx::isValid(s_texShadow)) bgfx::destroy(s_texShadow);
+    if (bgfx::isValid(u_csmParams)) bgfx::destroy(u_csmParams);
+    if (bgfx::isValid(s_texShadow0)) bgfx::destroy(s_texShadow0);
+    if (bgfx::isValid(s_texShadow1)) bgfx::destroy(s_texShadow1);
+    if (bgfx::isValid(s_texShadow2)) bgfx::destroy(s_texShadow2);
     
     bgfx::destroy(u_albedoRoughness);
     bgfx::destroy(u_metallicEmissive);
@@ -274,18 +294,23 @@ void RendererSystem::shutdown() {
     bgfx::destroy(s_texBloom);
     bgfx::destroy(s_texNormalGBuffer);
     bgfx::destroy(s_texDepth);
+    bgfx::destroy(s_texTonemap);
     
     bgfx::destroy(u_bloomParams);
     bgfx::destroy(u_blurParams);
     bgfx::destroy(u_tonemapParams);
     bgfx::destroy(u_ssgiParams);
+    bgfx::destroy(u_fxaaParams);
+    bgfx::destroy(u_lodParams);
     
     if (bgfx::isValid(m_bloomThresholdProgram)) bgfx::destroy(m_bloomThresholdProgram);
     if (bgfx::isValid(m_bloomBlurProgram)) bgfx::destroy(m_bloomBlurProgram);
     if (bgfx::isValid(m_tonemapProgram)) bgfx::destroy(m_tonemapProgram);
     if (bgfx::isValid(m_ssgiProgram)) bgfx::destroy(m_ssgiProgram);
+    if (bgfx::isValid(m_fxaaProgram)) bgfx::destroy(m_fxaaProgram);
     
     if (bgfx::isValid(m_hdrFB)) bgfx::destroy(m_hdrFB);
+    if (bgfx::isValid(m_tonemapFB)) bgfx::destroy(m_tonemapFB);
     if (bgfx::isValid(m_ssgiFB)) bgfx::destroy(m_ssgiFB);
     for (int i = 0; i < 5; ++i) {
         if (bgfx::isValid(m_bloomFBs[i])) bgfx::destroy(m_bloomFBs[i]);
@@ -303,9 +328,6 @@ void RendererSystem::shutdown() {
     if (bgfx::isValid(s_texVoxel)) {
         bgfx::destroy(s_texVoxel);
         s_texVoxel = BGFX_INVALID_HANDLE;
-    }
-    if (bgfx::isValid(s_texShadow)) {
-        bgfx::destroy(s_texShadow);
     }
     m_textureCache.clear();
     
@@ -331,81 +353,117 @@ void RendererSystem::renderFrame(const Camera& camera, int width, int height, bg
     m_voxelizer.voxelizeScene(proxies, m_vbh, m_ibh);
 
     // -----------------------------------------
-    // PASS 1: SHADOW MAP PASS
+    // PASS 1: CASCADED SHADOW MAP PASS
     // -----------------------------------------
     const int shadowMapSize = 2048;
-    bgfx::setViewRect(View_ShadowPass, 0, 0, shadowMapSize, shadowMapSize);
-    bgfx::setViewFrameBuffer(View_ShadowPass, m_shadowMapFB);
-    bgfx::setViewClear(View_ShadowPass, BGFX_CLEAR_DEPTH, 0x303030ff, 1.0f, 0);
-
     // Directional Light Settings (Hardcoded for MVP)
-    Engine::Math::Vector3 lightDir = {1.0f, 1.0f, -1.0f}; // Must match L in fs_pbr.sc
-    Engine::Math::Vector3 lightPos = { -lightDir.x * 50.0f, -lightDir.y * 50.0f, -lightDir.z * 50.0f };
+    Engine::Math::Vector3 lightDir = {0.577f, 0.577f, -0.577f}; // Normalized {1, 1, -1}
     
-    float lightView[16];
-    bx::mtxLookAt(lightView, 
-        {lightPos.x, lightPos.y, lightPos.z},
-        {0.0f, 0.0f, 0.0f},
-        {0.0f, 1.0f, 0.0f}
-    );
+    float cascadeDistances[4] = { 1.0f, 15.0f, 50.0f, 150.0f }; // Near, C0, C1, C2
+    float csmParams[4] = { cascadeDistances[1], cascadeDistances[2], cascadeDistances[3], 0.0f };
+    bgfx::setUniform(u_csmParams, csmParams);
 
-    float lightProj[16];
-    bx::mtxOrtho(lightProj, -30.0f, 30.0f, -30.0f, 30.0f, 1.0f, 100.0f, 0.0f, bgfx::getCaps()->homogeneousDepth);
-    bgfx::setViewTransform(View_ShadowPass, lightView, lightProj);
+    float lightVPs[48]; // 3 * 16
 
-    // Calculate lightMtx for shadow sampling in Main Pass
-    float lightVP[16];
-    bx::mtxMul(lightVP, lightView, lightProj);
+    for (int cascadeIdx = 0; cascadeIdx < 3; ++cascadeIdx) {
+        bgfx::ViewId viewId = View_ShadowCascade0 + cascadeIdx;
+        bgfx::setViewRect(viewId, 0, 0, shadowMapSize, shadowMapSize);
+        bgfx::setViewFrameBuffer(viewId, m_shadowMapFBs[cascadeIdx]);
+        bgfx::setViewClear(viewId, BGFX_CLEAR_DEPTH, 0x303030ff, 1.0f, 0);
 
-    bgfx::setUniform(u_lightMtx, lightVP);
+        float dist = cascadeDistances[cascadeIdx + 1];
+        float boxSize = dist * 1.5f;
+        
+        Engine::Math::Vector3 lightPos = { 
+            camera.position.x - lightDir.x * boxSize, 
+            camera.position.y - lightDir.y * boxSize, 
+            camera.position.z - lightDir.z * boxSize 
+        };
+        
+        float lightView[16];
+        bx::mtxLookAt(lightView, 
+            {lightPos.x, lightPos.y, lightPos.z},
+            {camera.position.x, camera.position.y, camera.position.z},
+            {0.0f, 1.0f, 0.0f}
+        );
 
-    bgfx::touch(View_ShadowPass);
+        float lightProj[16];
+        bx::mtxOrtho(lightProj, -boxSize, boxSize, -boxSize, boxSize, 1.0f, boxSize * 2.0f, 0.0f, bgfx::getCaps()->homogeneousDepth);
+        bgfx::setViewTransform(viewId, lightView, lightProj);
 
-    // Fetch Proxies
+        float lightVP[16];
+        bx::mtxMul(lightVP, lightView, lightProj);
+        memcpy(&lightVPs[cascadeIdx * 16], lightVP, sizeof(float) * 16);
+
+        bgfx::touch(viewId);
+    }
+
+    bgfx::setUniform(u_lightMtx, lightVPs, 3);
+
     RenderScene::instance().flushDirtyTransforms();
 
     for (const auto& proxy : proxies) {
         if (!proxy.visible) continue;
         
-        bgfx::ProgramHandle shadowProg = proxy.boneTransforms.empty() ? m_shadowProgram : m_skinnedShadowProgram;
-        if (!bgfx::isValid(shadowProg)) continue;
+        float distSq = (proxy.boundsCenter.x - camera.position.x) * (proxy.boundsCenter.x - camera.position.x) +
+                       (proxy.boundsCenter.y - camera.position.y) * (proxy.boundsCenter.y - camera.position.y) +
+                       (proxy.boundsCenter.z - camera.position.z) * (proxy.boundsCenter.z - camera.position.z);
+        float dist = std::sqrt(distSq);
 
-        bgfx::setTransform(proxy.worldTransform.m.data());
+        int lodIndex0 = 0;
+        int lodIndex1 = -1;
+        float fade = 1.0f; // 1.0 means fully lodIndex0
+        float transitionRange = 5.0f;
 
-        if (proxy.mesh != InvalidHandle) {
-            auto it = m_meshes.find(proxy.mesh);
-            if (it != m_meshes.end()) {
-                bgfx::setVertexBuffer(0, it->second.vbh);
-                
-                // Select LOD based on distance
-                float distSq = (proxy.boundsCenter.x - camera.position.x) * (proxy.boundsCenter.x - camera.position.x) +
-                               (proxy.boundsCenter.y - camera.position.y) * (proxy.boundsCenter.y - camera.position.y) +
-                               (proxy.boundsCenter.z - camera.position.z) * (proxy.boundsCenter.z - camera.position.z);
-                
-                int lodIndex = 0;
-                if (distSq > 10000.0f) lodIndex = 2; // > 100 units
-                else if (distSq > 2500.0f) lodIndex = 1; // > 50 units
-                
-                if (lodIndex >= it->second.numLods) lodIndex = it->second.numLods - 1;
-                if (lodIndex < 0) lodIndex = 0;
-                
-                bgfx::setIndexBuffer(it->second.ibhLods[lodIndex]);
+        if (dist > 100.0f) {
+            lodIndex0 = 2;
+        } else if (dist > 100.0f - transitionRange) {
+            lodIndex0 = 2; lodIndex1 = 1;
+            fade = (dist - (100.0f - transitionRange)) / transitionRange;
+        } else if (dist > 50.0f) {
+            lodIndex0 = 1;
+        } else if (dist > 50.0f - transitionRange) {
+            lodIndex0 = 1; lodIndex1 = 0;
+            fade = (dist - (50.0f - transitionRange)) / transitionRange;
+        }
+
+        auto submitShadowMesh = [&](int lod, float lodFade, int cascadeIdx, bgfx::ProgramHandle shadowProg) {
+            bgfx::setTransform(proxy.worldTransform.m.data());
+            if (proxy.mesh != InvalidHandle) {
+                auto it = m_meshes.find(proxy.mesh);
+                if (it != m_meshes.end()) {
+                    bgfx::setVertexBuffer(0, it->second.vbh);
+                    int safeLod = lod;
+                    if (safeLod >= it->second.numLods) safeLod = it->second.numLods - 1;
+                    if (safeLod < 0) safeLod = 0;
+                    bgfx::setIndexBuffer(it->second.ibhLods[safeLod]);
+                } else {
+                    bgfx::setVertexBuffer(0, m_vbh);
+                    bgfx::setIndexBuffer(m_ibh);
+                }
             } else {
                 bgfx::setVertexBuffer(0, m_vbh);
                 bgfx::setIndexBuffer(m_ibh);
             }
-        } else {
-            bgfx::setVertexBuffer(0, m_vbh);
-            bgfx::setIndexBuffer(m_ibh);
-        }
+            if (!proxy.boneTransforms.empty()) {
+                uint16_t numBones = static_cast<uint16_t>(std::min(proxy.boneTransforms.size(), size_t(64)));
+                bgfx::setUniform(u_boneTransforms, proxy.boneTransforms.data(), numBones);
+            }
+            float lodParams[4] = { lodFade, 0.0f, 0.0f, 0.0f };
+            bgfx::setUniform(u_lodParams, lodParams);
+            bgfx::setState(BGFX_STATE_DEFAULT | BGFX_STATE_DEPTH_TEST_LESS | BGFX_STATE_WRITE_Z);
+            bgfx::submit(View_ShadowCascade0 + cascadeIdx, shadowProg);
+        };
 
-        if (!proxy.boneTransforms.empty()) {
-            uint16_t numBones = static_cast<uint16_t>(std::min(proxy.boneTransforms.size(), size_t(64)));
-            bgfx::setUniform(u_boneTransforms, proxy.boneTransforms.data(), numBones);
+        bgfx::ProgramHandle shadowProg = proxy.boneTransforms.empty() ? m_shadowProgram : m_skinnedShadowProgram;
+        if (bgfx::isValid(shadowProg)) {
+            for (int cascadeIdx = 0; cascadeIdx < 3; ++cascadeIdx) {
+                submitShadowMesh(lodIndex0, fade, cascadeIdx, shadowProg);
+                if (lodIndex1 != -1) {
+                    submitShadowMesh(lodIndex1, 1.0f - fade, cascadeIdx, shadowProg);
+                }
+            }
         }
-
-        bgfx::setState(BGFX_STATE_DEFAULT | BGFX_STATE_DEPTH_TEST_LESS | BGFX_STATE_WRITE_Z);
-        bgfx::submit(View_ShadowPass, shadowProg);
     }
 
     // -----------------------------------------
@@ -416,6 +474,7 @@ void RendererSystem::renderFrame(const Camera& camera, int width, int height, bg
         m_height = height;
 
         if (bgfx::isValid(m_hdrFB)) bgfx::destroy(m_hdrFB);
+        if (bgfx::isValid(m_tonemapFB)) bgfx::destroy(m_tonemapFB);
         if (bgfx::isValid(m_ssgiFB)) bgfx::destroy(m_ssgiFB);
         for (int i = 0; i < 5; ++i) {
             if (bgfx::isValid(m_bloomFBs[i])) bgfx::destroy(m_bloomFBs[i]);
@@ -427,6 +486,9 @@ void RendererSystem::renderFrame(const Camera& camera, int width, int height, bg
         bgfx::TextureHandle hdrDepthTex = bgfx::createTexture2D(width, height, false, 1, bgfx::TextureFormat::D24, BGFX_TEXTURE_RT | BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP);
         bgfx::TextureHandle hdrTextures[] = { hdrColorTex, hdrNormalTex, hdrDepthTex };
         m_hdrFB = bgfx::createFrameBuffer(3, hdrTextures, true);
+
+        bgfx::TextureHandle tonemapColorTex = bgfx::createTexture2D(width, height, false, 1, bgfx::TextureFormat::RGBA8, BGFX_TEXTURE_RT | BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP);
+        m_tonemapFB = bgfx::createFrameBuffer(1, &tonemapColorTex, true);
 
         bgfx::TextureHandle ssgiColorTex = bgfx::createTexture2D(width, height, false, 1, bgfx::TextureFormat::RGBA16F, BGFX_TEXTURE_RT | BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP);
         m_ssgiFB = bgfx::createFrameBuffer(1, &ssgiColorTex, true);
@@ -456,70 +518,95 @@ void RendererSystem::renderFrame(const Camera& camera, int width, int height, bg
 
     bgfx::touch(View_MainColor);
 
-    bgfx::TextureHandle shadowMapTexture = bgfx::getTexture(m_shadowMapFB, 0);
+    bgfx::TextureHandle shadowMapTextures[3] = {
+        bgfx::getTexture(m_shadowMapFBs[0], 0),
+        bgfx::getTexture(m_shadowMapFBs[1], 0),
+        bgfx::getTexture(m_shadowMapFBs[2], 0)
+    };
 
     for (const auto& proxy : proxies) {
         if (!proxy.visible) continue;
         if (!bgfx::isValid(m_program)) continue;
+        
+        float distSq = (proxy.boundsCenter.x - camera.position.x) * (proxy.boundsCenter.x - camera.position.x) +
+                       (proxy.boundsCenter.y - camera.position.y) * (proxy.boundsCenter.y - camera.position.y) +
+                       (proxy.boundsCenter.z - camera.position.z) * (proxy.boundsCenter.z - camera.position.z);
+        float dist = std::sqrt(distSq);
 
-        bgfx::setTransform(proxy.worldTransform.m.data());
+        int lodIndex0 = 0;
+        int lodIndex1 = -1;
+        float fade = 1.0f; // 1.0 means fully lodIndex0
+        float transitionRange = 5.0f;
 
-        if (proxy.mesh != InvalidHandle) {
-            auto it = m_meshes.find(proxy.mesh);
-            if (it != m_meshes.end()) {
-                bgfx::setVertexBuffer(0, it->second.vbh);
-                
-                // Select LOD based on distance
-                float distSq = (proxy.boundsCenter.x - camera.position.x) * (proxy.boundsCenter.x - camera.position.x) +
-                               (proxy.boundsCenter.y - camera.position.y) * (proxy.boundsCenter.y - camera.position.y) +
-                               (proxy.boundsCenter.z - camera.position.z) * (proxy.boundsCenter.z - camera.position.z);
-                
-                int lodIndex = 0;
-                if (distSq > 10000.0f) lodIndex = 2; // > 100 units
-                else if (distSq > 2500.0f) lodIndex = 1; // > 50 units
-                
-                if (lodIndex >= it->second.numLods) lodIndex = it->second.numLods - 1;
-                if (lodIndex < 0) lodIndex = 0;
-                
-                bgfx::setIndexBuffer(it->second.ibhLods[lodIndex]);
+        if (dist > 100.0f) {
+            lodIndex0 = 2;
+        } else if (dist > 100.0f - transitionRange) {
+            lodIndex0 = 2; lodIndex1 = 1;
+            fade = (dist - (100.0f - transitionRange)) / transitionRange;
+        } else if (dist > 50.0f) {
+            lodIndex0 = 1;
+        } else if (dist > 50.0f - transitionRange) {
+            lodIndex0 = 1; lodIndex1 = 0;
+            fade = (dist - (50.0f - transitionRange)) / transitionRange;
+        }
+        
+        auto submitColorMesh = [&](int lod, float lodFade) {
+            bgfx::setTransform(proxy.worldTransform.m.data());
+            
+            if (proxy.mesh != InvalidHandle) {
+                auto it = m_meshes.find(proxy.mesh);
+                if (it != m_meshes.end()) {
+                    bgfx::setVertexBuffer(0, it->second.vbh);
+                    int safeLod = lod;
+                    if (safeLod >= it->second.numLods) safeLod = it->second.numLods - 1;
+                    if (safeLod < 0) safeLod = 0;
+                    bgfx::setIndexBuffer(it->second.ibhLods[safeLod]);
+                } else {
+                    bgfx::setVertexBuffer(0, m_vbh);
+                    bgfx::setIndexBuffer(m_ibh);
+                }
             } else {
                 bgfx::setVertexBuffer(0, m_vbh);
                 bgfx::setIndexBuffer(m_ibh);
             }
-        } else {
-            bgfx::setVertexBuffer(0, m_vbh);
-            bgfx::setIndexBuffer(m_ibh);
+
+            if (!proxy.boneTransforms.empty()) {
+                uint16_t numBones = static_cast<uint16_t>(std::min(proxy.boneTransforms.size(), size_t(64)));
+                bgfx::setUniform(u_boneTransforms, proxy.boneTransforms.data(), numBones);
+            }
+
+            float albedoRoughness[4] = { proxy.material.albedo.x, proxy.material.albedo.y, proxy.material.albedo.z, proxy.material.roughness };
+            float metallicEmissive[4] = { proxy.material.metallic, proxy.material.emissiveStrength, 0.0f, 0.0f };
+            float textureFlags[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+            float lodParams[4] = { lodFade, 0.0f, 0.0f, 0.0f };
+            
+            bgfx::setTexture(0, s_texColor, bgfx::isValid(proxy.material.albedoTexture) ? proxy.material.albedoTexture : m_defaultAlbedo);
+            bgfx::setTexture(1, s_texNormal, bgfx::isValid(proxy.material.normalTexture) ? proxy.material.normalTexture : m_defaultNormal);
+            bgfx::setTexture(2, s_texMetallic, bgfx::isValid(proxy.material.metallicTexture) ? proxy.material.metallicTexture : m_defaultMetallic);
+            bgfx::setTexture(3, s_texRoughness, bgfx::isValid(proxy.material.roughnessTexture) ? proxy.material.roughnessTexture : m_defaultRoughness);
+            
+            bgfx::setTexture(4, s_texShadow0, shadowMapTextures[0]);
+            bgfx::setTexture(5, s_texShadow1, shadowMapTextures[1]);
+            bgfx::setTexture(6, s_texShadow2, shadowMapTextures[2]);
+            if (bgfx::isValid(m_voxelizer.getVoxelTexture())) {
+                bgfx::setTexture(7, s_texVoxel, m_voxelizer.getVoxelTexture());
+            }
+
+            bgfx::setUniform(u_albedoRoughness, albedoRoughness);
+            bgfx::setUniform(u_metallicEmissive, metallicEmissive);
+            bgfx::setUniform(u_textureFlags, textureFlags);
+            bgfx::setUniform(u_lodParams, lodParams);
+
+            bgfx::setState(BGFX_STATE_DEFAULT);
+            
+            bgfx::ProgramHandle activeProgram = bgfx::isValid(m_overrideMaterial) ? m_overrideMaterial : m_program;
+            bgfx::submit(View_MainColor, activeProgram);
+        };
+
+        submitColorMesh(lodIndex0, fade);
+        if (lodIndex1 != -1) {
+            submitColorMesh(lodIndex1, 1.0f - fade);
         }
-
-        if (!proxy.boneTransforms.empty()) {
-            uint16_t numBones = static_cast<uint16_t>(std::min(proxy.boneTransforms.size(), size_t(64)));
-            bgfx::setUniform(u_boneTransforms, proxy.boneTransforms.data(), numBones);
-        }
-
-        float albedoRoughness[4] = { proxy.material.albedo.x, proxy.material.albedo.y, proxy.material.albedo.z, proxy.material.roughness };
-        float metallicEmissive[4] = { proxy.material.metallic, proxy.material.emissiveStrength, 0.0f, 0.0f };
-        float textureFlags[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
-        
-        // Texture'ları bağla
-        bgfx::setTexture(0, s_texColor, bgfx::isValid(proxy.material.albedoTexture) ? proxy.material.albedoTexture : m_defaultAlbedo);
-        bgfx::setTexture(1, s_texNormal, bgfx::isValid(proxy.material.normalTexture) ? proxy.material.normalTexture : m_defaultNormal);
-        bgfx::setTexture(2, s_texMetallic, bgfx::isValid(proxy.material.metallicTexture) ? proxy.material.metallicTexture : m_defaultMetallic);
-        bgfx::setTexture(3, s_texRoughness, bgfx::isValid(proxy.material.roughnessTexture) ? proxy.material.roughnessTexture : m_defaultRoughness);
-        
-        // Shadow map ve Voxel 3D texture
-        bgfx::setTexture(4, s_texShadow, shadowMapTexture);
-        if (bgfx::isValid(m_voxelizer.getVoxelTexture())) {
-            bgfx::setTexture(5, s_texVoxel, m_voxelizer.getVoxelTexture());
-        }
-
-        bgfx::setUniform(u_albedoRoughness, albedoRoughness);
-        bgfx::setUniform(u_metallicEmissive, metallicEmissive);
-        bgfx::setUniform(u_textureFlags, textureFlags);
-
-        bgfx::setState(BGFX_STATE_DEFAULT);
-        
-        bgfx::ProgramHandle activeProgram = bgfx::isValid(m_overrideMaterial) ? m_overrideMaterial : m_program;
-        bgfx::submit(View_MainColor, activeProgram);
     }
     
     // -----------------------------------------
@@ -618,12 +705,31 @@ void RendererSystem::renderFrame(const Camera& camera, int width, int height, bg
 
     bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A);
     bgfx::setViewRect(View_Tonemap, 0, 0, uint16_t(width), uint16_t(height));
-    bgfx::setViewFrameBuffer(View_Tonemap, fb); // Default backbuffer
+    bgfx::setViewFrameBuffer(View_Tonemap, m_tonemapFB); // Tonemap now renders to an offscreen buffer
     bgfx::setViewClear(View_Tonemap, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, 0x000000ff, 1.0f, 0);
     
     bgfx::setVertexBuffer(0, m_vbh, 0, 4);
     bgfx::setIndexBuffer(m_ibh, 0, 6);
     bgfx::submit(View_Tonemap, m_tonemapProgram);
+    
+    // 3.5 FXAA (Render to Backbuffer)
+    if (bgfx::isValid(m_fxaaProgram)) {
+        float fxaaParams[4] = { 1.0f / width, 1.0f / height, 0.0f, 0.0f };
+        bgfx::setUniform(u_fxaaParams, fxaaParams);
+        bgfx::setTexture(0, s_texTonemap, bgfx::getTexture(m_tonemapFB, 0));
+
+        bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A);
+        bgfx::setViewRect(View_FXAA, 0, 0, uint16_t(width), uint16_t(height));
+        bgfx::setViewFrameBuffer(View_FXAA, fb); // Default backbuffer
+        bgfx::setViewClear(View_FXAA, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, 0x000000ff, 1.0f, 0);
+        
+        bgfx::setVertexBuffer(0, m_vbh, 0, 4);
+        bgfx::setIndexBuffer(m_ibh, 0, 6);
+        bgfx::submit(View_FXAA, m_fxaaProgram);
+    } else {
+        // Fallback in case FXAA shader fails
+        bgfx::blit(View_FXAA, bgfx::getTexture(fb), 0, 0, bgfx::getTexture(m_tonemapFB, 0));
+    }
     
     bgfx::frame();
 }

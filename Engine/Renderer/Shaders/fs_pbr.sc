@@ -1,17 +1,22 @@
-$input v_position, v_color0, v_normal, v_texcoord0, v_posLightSpace
+$input v_position, v_color0, v_normal, v_texcoord0, v_viewDepth
 
 #include <bgfx_shader.sh>
 
 uniform vec4 u_albedoRoughness;
 uniform vec4 u_metallicEmissive;
 uniform vec4 u_textureFlags;
+uniform mat4 u_lightMtx[3];
+uniform vec4 u_csmParams;
+uniform vec4 u_lodParams;
 
 SAMPLER2D(s_texColor, 0);
 SAMPLER2D(s_texNormal, 1);
 SAMPLER2D(s_texMetallic, 2);
 SAMPLER2D(s_texRoughness, 3);
-SAMPLER2D(s_texShadow, 4);
-SAMPLER3D(s_texVoxel, 5);
+SAMPLER2D(s_texShadow0, 4);
+SAMPLER2D(s_texShadow1, 5);
+SAMPLER2D(s_texShadow2, 6);
+SAMPLER3D(s_texVoxel, 7);
 
 vec4 traceCone(vec3 origin, vec3 direction, float aperture) {
     vec4 accColor = vec4(0.0, 0.0, 0.0, 0.0);
@@ -38,6 +43,13 @@ vec4 traceCone(vec3 origin, vec3 direction, float aperture) {
 }
 
 void main() {
+    if (u_lodParams.x < 0.999) {
+        float dither = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
+        if (u_lodParams.x < dither) {
+            discard;
+        }
+    }
+
     vec3 albedo = u_albedoRoughness.xyz * v_color0.xyz;
     if (u_textureFlags.x > 0.5) {
         albedo = texture2D(s_texColor, v_texcoord0).xyz * u_albedoRoughness.xyz;
@@ -63,7 +75,12 @@ void main() {
     float ndotl = max(0.0, dot(N, L));
     
     // Gölgeleme (Shadow Mapping) Hesaplaması
-    vec3 projCoords = v_posLightSpace.xyz / v_posLightSpace.w;
+    int cascadeIdx = 0;
+    if (v_viewDepth > u_csmParams.y) cascadeIdx = 2;
+    else if (v_viewDepth > u_csmParams.x) cascadeIdx = 1;
+
+    vec4 posLightSpace = mul(u_lightMtx[cascadeIdx], vec4(v_position, 1.0));
+    vec3 projCoords = posLightSpace.xyz / posLightSpace.w;
     
     // Homojen koordinatları [0, 1] aralığına çevir
     // bgfx (DirectX / OpenGL / Vulkan) için y ekseni ayarı:
@@ -86,7 +103,11 @@ void main() {
         // 3x3 PCF
         for(int x = -1; x <= 1; ++x) {
             for(int y = -1; y <= 1; ++y) {
-                float pcfDepth = texture2D(s_texShadow, projCoords.xy + vec2(x, y) * texelSize).x;
+                float pcfDepth = 1.0;
+                if (cascadeIdx == 0) pcfDepth = texture2D(s_texShadow0, projCoords.xy + vec2(x, y) * texelSize).x;
+                else if (cascadeIdx == 1) pcfDepth = texture2D(s_texShadow1, projCoords.xy + vec2(x, y) * texelSize).x;
+                else pcfDepth = texture2D(s_texShadow2, projCoords.xy + vec2(x, y) * texelSize).x;
+                
                 // If light space depth is greater than shadow map depth, it's in shadow
                 shadow += projCoords.z - bias > pcfDepth ? 0.0 : 1.0;
             }
