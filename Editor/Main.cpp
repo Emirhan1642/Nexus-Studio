@@ -38,6 +38,7 @@
 #include "UI/ExplorerPanel.h"
 #include "UI/PropertiesPanel.h"
 #include "UI/AssetBrowserPanel.h"
+#include "UI/MaterialEditorPanel.h"
 #include "Undo/UndoStack.h"
 
 #include "Engine/Assets/AssetDatabase.h"
@@ -156,6 +157,7 @@ int main(int argc, char** argv) {
     ViewportPanel viewport;
     ExplorerPanel explorer;
     PropertiesPanel properties;
+    Editor::UI::MaterialEditorPanel materialEditor;
 
     // Create Test Parts
     std::cout << "[INIT] Create Test Parts" << std::endl;
@@ -327,6 +329,9 @@ int main(int argc, char** argv) {
         explorer.draw();
         properties.draw();
         Editor::UI::AssetBrowserPanel::instance().draw();
+        
+        static bool showMaterialEditor = true;
+        materialEditor.draw(&showMaterialEditor);
 
         if (frameCount < 5) std::cout << "[DEBUG] Frame " << frameCount << ": End ImGui" << std::endl;
         

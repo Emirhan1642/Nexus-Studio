@@ -1,8 +1,8 @@
 # Task: Faz 7.1 LOD Sistemi (meshoptimizer)
 
-- `[ ]` **Görev 1: Bağımlılıkların Eklenmesi (CMake)**
-  - `[ ]` `CMakeLists.txt` dosyasına `FetchContent` ile `zeux/meshoptimizer` eklenecek.
-  - `[ ]` `EngineAssets` (veya `EngineRenderer`) hedefine linklenecek.
+- `[x]` **Görev 1: Kütüphane Entegrasyonu (CMake)**
+  - `[x]` `ThirdParty/CMakeLists.txt` dosyasına `FetchContent` ile `Nelarius/imnodes` kütüphanesi eklenecek.
+  - `[x]` `imnodes`, `Editor` modülüne (veya ImGuiLayer'a) linklenecek.
 
 - `[ ]` **Görev 2: Asset Import Sırasında LOD Üretimi**
   - `[ ]` `AssetImportPipeline` (veya `SkeletalMeshImporter`) içerisinde `meshopt_simplify` fonksiyonu çağrılarak LOD zinciri oluşturulacak.

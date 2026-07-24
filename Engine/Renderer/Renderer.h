@@ -6,6 +6,7 @@
 #include <string>
 #include <unordered_map>
 #include "../Assets/AssetDatabase.h"
+#include "GI/Voxelizer.h"
 
 namespace Engine::Renderer {
 
@@ -39,6 +40,9 @@ public:
 
     // Bone Uniforms access
     bgfx::UniformHandle getBoneUniform() const { return u_boneTransforms; }
+    
+    // MVP Material Editor Override
+    void setOverrideMaterial(bgfx::ProgramHandle handle) { m_overrideMaterial = handle; }
 
 private:
     RendererSystem() = default;
@@ -49,6 +53,7 @@ private:
     bgfx::ProgramHandle m_program = BGFX_INVALID_HANDLE;
     bgfx::ProgramHandle m_shadowProgram = BGFX_INVALID_HANDLE;
     bgfx::ProgramHandle m_skinnedShadowProgram = BGFX_INVALID_HANDLE;
+    bgfx::ProgramHandle m_overrideMaterial = BGFX_INVALID_HANDLE;
 
     // Shadow Map
     bgfx::FrameBufferHandle m_shadowMapFB = BGFX_INVALID_HANDLE;
@@ -85,6 +90,7 @@ private:
     bgfx::UniformHandle s_texNormal = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle s_texMetallic = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle s_texRoughness = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle s_texVoxel = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle u_textureFlags = BGFX_INVALID_HANDLE;
 
     bgfx::TextureHandle m_defaultAlbedo = BGFX_INVALID_HANDLE;
@@ -100,6 +106,9 @@ private:
     uint32_t m_nextMeshHandle = 1;
 
     bgfx::UniformHandle u_boneTransforms = BGFX_INVALID_HANDLE;
+
+    // VCT
+    Voxelizer m_voxelizer;
 };
 
 struct SkinnedVertex {

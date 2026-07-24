@@ -136,3 +136,15 @@ FetchContent_Declare(
 )
 set(MESHOPT_BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(meshoptimizer)
+
+# 12. ImNodes (Node-Based Material Editor UI)
+FetchContent_Declare(
+    imnodes
+    GIT_REPOSITORY https://github.com/Nelarius/imnodes.git
+    GIT_TAG        master
+)
+FetchContent_GetProperties(imnodes)
+if(NOT imnodes_POPULATED)
+    FetchContent_Populate(imnodes)
+endif()
+

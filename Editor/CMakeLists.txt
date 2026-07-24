@@ -8,10 +8,15 @@ set(EDITOR_SOURCES
     UI/PropertiesPanel.cpp
     UI/SelectionManager.cpp
     UI/AssetBrowserPanel.cpp
+    UI/MaterialEditorPanel.cpp
     Undo/UndoStack.cpp
 )
 
-add_executable(NexusStudioEditor ${EDITOR_SOURCES})
+set(EDITOR_EXTERNAL_SOURCES
+    ${CMAKE_BINARY_DIR}/_deps/imnodes-src/imnodes.cpp
+)
+
+add_executable(NexusStudioEditor ${EDITOR_SOURCES} ${EDITOR_EXTERNAL_SOURCES})
 
 # Target properties
 target_include_directories(NexusStudioEditor PRIVATE 
@@ -19,6 +24,7 @@ target_include_directories(NexusStudioEditor PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/..
     ${CMAKE_BINARY_DIR}/_deps/bgfx-src/examples/common
     ${CMAKE_BINARY_DIR}/_deps/bgfx-src/bgfx/3rdparty/dear-imgui
+    ${CMAKE_BINARY_DIR}/_deps/imnodes-src
 )
 
 # Link dependencies

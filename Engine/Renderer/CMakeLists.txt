@@ -3,6 +3,8 @@ cmake_minimum_required(VERSION 3.24)
 set(RENDERER_SOURCES
     SceneGraph/RenderScene.cpp
     Renderer.cpp
+    Materials/ShaderGraphCompiler.cpp
+    GI/Voxelizer.cpp
 )
 
 set(RENDERER_HEADERS

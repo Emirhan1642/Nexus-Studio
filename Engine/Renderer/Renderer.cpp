@@ -165,6 +165,7 @@ void RendererSystem::init() {
     s_texBloom = bgfx::createUniform("s_texBloom", bgfx::UniformType::Sampler);
     s_texNormalGBuffer = bgfx::createUniform("s_texNormalGBuffer", bgfx::UniformType::Sampler);
     s_texDepth = bgfx::createUniform("s_texDepth", bgfx::UniformType::Sampler);
+    s_texVoxel = bgfx::createUniform("s_texVoxel", bgfx::UniformType::Sampler);
     
     u_bloomParams = bgfx::createUniform("u_bloomParams", bgfx::UniformType::Vec4);
     u_blurParams = bgfx::createUniform("u_blurParams", bgfx::UniformType::Vec4);
@@ -245,9 +246,13 @@ void RendererSystem::init() {
 
     bgfx::setViewClear(View_MainColor, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, 0x303030ff, 1.0f, 0);
     bgfx::setViewClear(View_ShadowPass, BGFX_CLEAR_DEPTH, 0x303030ff, 1.0f, 0);
+
+    m_voxelizer.init();
 }
 
 void RendererSystem::shutdown() {
+    m_voxelizer.shutdown();
+
     bgfx::destroy(m_ibh);
     bgfx::destroy(m_vbh);
     bgfx::destroy(m_program);
@@ -287,12 +292,20 @@ void RendererSystem::shutdown() {
         if (bgfx::isValid(m_bloomBlurFBs[i])) bgfx::destroy(m_bloomBlurFBs[i]);
     }
     
-    if (bgfx::isValid(u_boneTransforms)) {
-        bgfx::destroy(u_boneTransforms);
+    if (bgfx::isValid(s_texNormalGBuffer)) {
+        bgfx::destroy(s_texNormalGBuffer);
+        s_texNormalGBuffer = BGFX_INVALID_HANDLE;
     }
-
-    for (auto& [path, handle] : m_textureCache) {
-        if (bgfx::isValid(handle)) bgfx::destroy(handle);
+    if (bgfx::isValid(s_texDepth)) {
+        bgfx::destroy(s_texDepth);
+        s_texDepth = BGFX_INVALID_HANDLE;
+    }
+    if (bgfx::isValid(s_texVoxel)) {
+        bgfx::destroy(s_texVoxel);
+        s_texVoxel = BGFX_INVALID_HANDLE;
+    }
+    if (bgfx::isValid(s_texShadow)) {
+        bgfx::destroy(s_texShadow);
     }
     m_textureCache.clear();
     
@@ -312,6 +325,11 @@ void RendererSystem::shutdown() {
 }
 
 void RendererSystem::renderFrame(const Camera& camera, int width, int height, bgfx::FrameBufferHandle fb) {
+    const auto& proxies = RenderScene::instance().getProxies();
+    
+    // 1. Voxelize Scene
+    m_voxelizer.voxelizeScene(proxies, m_vbh, m_ibh);
+
     // -----------------------------------------
     // PASS 1: SHADOW MAP PASS
     // -----------------------------------------
@@ -339,22 +357,18 @@ void RendererSystem::renderFrame(const Camera& camera, int width, int height, bg
     float lightVP[16];
     bx::mtxMul(lightVP, lightView, lightProj);
 
-    // Some APIs need half-pixel offset or NDC adjustment for texture sampling.
-    // bx::mtxMul usually handles standard projection. For shadow mapping, 
-    // it's common to pass the raw VP matrix and do the *0.5+0.5 bias in the shader.
     bgfx::setUniform(u_lightMtx, lightVP);
 
     bgfx::touch(View_ShadowPass);
 
     // Fetch Proxies
     RenderScene::instance().flushDirtyTransforms();
-    const auto& proxies = RenderScene::instance().getProxies();
 
     for (const auto& proxy : proxies) {
         if (!proxy.visible) continue;
         
-        bgfx::ProgramHandle prog = proxy.boneTransforms.empty() ? m_shadowProgram : m_skinnedShadowProgram;
-        if (!bgfx::isValid(prog)) continue;
+        bgfx::ProgramHandle shadowProg = proxy.boneTransforms.empty() ? m_shadowProgram : m_skinnedShadowProgram;
+        if (!bgfx::isValid(shadowProg)) continue;
 
         bgfx::setTransform(proxy.worldTransform.m.data());
 
@@ -391,7 +405,7 @@ void RendererSystem::renderFrame(const Camera& camera, int width, int height, bg
         }
 
         bgfx::setState(BGFX_STATE_DEFAULT | BGFX_STATE_DEPTH_TEST_LESS | BGFX_STATE_WRITE_Z);
-        bgfx::submit(View_ShadowPass, prog);
+        bgfx::submit(View_ShadowPass, shadowProg);
     }
 
     // -----------------------------------------
@@ -442,7 +456,7 @@ void RendererSystem::renderFrame(const Camera& camera, int width, int height, bg
 
     bgfx::touch(View_MainColor);
 
-    bgfx::TextureHandle shadowTex = bgfx::getTexture(m_shadowMapFB, 0);
+    bgfx::TextureHandle shadowMapTexture = bgfx::getTexture(m_shadowMapFB, 0);
 
     for (const auto& proxy : proxies) {
         if (!proxy.visible) continue;
@@ -485,44 +499,27 @@ void RendererSystem::renderFrame(const Camera& camera, int width, int height, bg
         float albedoRoughness[4] = { proxy.material.albedo.x, proxy.material.albedo.y, proxy.material.albedo.z, proxy.material.roughness };
         float metallicEmissive[4] = { proxy.material.metallic, proxy.material.emissiveStrength, 0.0f, 0.0f };
         float textureFlags[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
-
-        if (bgfx::isValid(proxy.material.albedoTexture)) {
-            bgfx::setTexture(0, s_texColor, proxy.material.albedoTexture);
-            textureFlags[0] = 1.0f;
-        } else {
-            bgfx::setTexture(0, s_texColor, m_defaultAlbedo);
+        
+        // Texture'ları bağla
+        bgfx::setTexture(0, s_texColor, bgfx::isValid(proxy.material.albedoTexture) ? proxy.material.albedoTexture : m_defaultAlbedo);
+        bgfx::setTexture(1, s_texNormal, bgfx::isValid(proxy.material.normalTexture) ? proxy.material.normalTexture : m_defaultNormal);
+        bgfx::setTexture(2, s_texMetallic, bgfx::isValid(proxy.material.metallicTexture) ? proxy.material.metallicTexture : m_defaultMetallic);
+        bgfx::setTexture(3, s_texRoughness, bgfx::isValid(proxy.material.roughnessTexture) ? proxy.material.roughnessTexture : m_defaultRoughness);
+        
+        // Shadow map ve Voxel 3D texture
+        bgfx::setTexture(4, s_texShadow, shadowMapTexture);
+        if (bgfx::isValid(m_voxelizer.getVoxelTexture())) {
+            bgfx::setTexture(5, s_texVoxel, m_voxelizer.getVoxelTexture());
         }
-
-        if (bgfx::isValid(proxy.material.normalTexture)) {
-            bgfx::setTexture(1, s_texNormal, proxy.material.normalTexture);
-            textureFlags[1] = 1.0f;
-        } else {
-            bgfx::setTexture(1, s_texNormal, m_defaultNormal);
-        }
-
-        if (bgfx::isValid(proxy.material.metallicTexture)) {
-            bgfx::setTexture(2, s_texMetallic, proxy.material.metallicTexture);
-            textureFlags[2] = 1.0f;
-        } else {
-            bgfx::setTexture(2, s_texMetallic, m_defaultMetallic);
-        }
-
-        if (bgfx::isValid(proxy.material.roughnessTexture)) {
-            bgfx::setTexture(3, s_texRoughness, proxy.material.roughnessTexture);
-            textureFlags[3] = 1.0f;
-        } else {
-            bgfx::setTexture(3, s_texRoughness, m_defaultRoughness);
-        }
-
-        // Bind Shadow Map
-        bgfx::setTexture(4, s_texShadow, shadowTex);
 
         bgfx::setUniform(u_albedoRoughness, albedoRoughness);
         bgfx::setUniform(u_metallicEmissive, metallicEmissive);
         bgfx::setUniform(u_textureFlags, textureFlags);
 
         bgfx::setState(BGFX_STATE_DEFAULT);
-        bgfx::submit(View_MainColor, m_program);
+        
+        bgfx::ProgramHandle activeProgram = bgfx::isValid(m_overrideMaterial) ? m_overrideMaterial : m_program;
+        bgfx::submit(View_MainColor, activeProgram);
     }
     
     // -----------------------------------------

@@ -11,6 +11,31 @@ SAMPLER2D(s_texNormal, 1);
 SAMPLER2D(s_texMetallic, 2);
 SAMPLER2D(s_texRoughness, 3);
 SAMPLER2D(s_texShadow, 4);
+SAMPLER3D(s_texVoxel, 5);
+
+vec4 traceCone(vec3 origin, vec3 direction, float aperture) {
+    vec4 accColor = vec4(0.0, 0.0, 0.0, 0.0);
+    float dist = 2.0;
+    
+    for(int i = 0; i < 15 && accColor.w < 1.0; ++i) {
+        vec3 pos = origin + direction * dist;
+        vec3 texCoord = (pos + vec3(50.0, 50.0, 50.0)) / 100.0;
+        
+        if (texCoord.x < 0.0 || texCoord.y < 0.0 || texCoord.z < 0.0 || 
+            texCoord.x > 1.0 || texCoord.y > 1.0 || texCoord.z > 1.0) {
+            break;
+        }
+        
+        vec4 voxel = texture3DLod(s_texVoxel, texCoord, 0.0);
+        float alpha = (1.0 - accColor.w) * voxel.w;
+        accColor.xyz += voxel.xyz * alpha;
+        accColor.w += alpha;
+        
+        dist += 1.5; // Fixed step since we don't have mipmaps yet
+    }
+    
+    return accColor;
+}
 
 void main() {
     vec3 albedo = u_albedoRoughness.xyz * v_color0.xyz;
@@ -71,8 +96,13 @@ void main() {
         shadow = 1.0; // Dışarısı aydınlık
     }
     
-    // Ambient + Diffuse (Gölgeyle çarpılarak)
-    vec3 color = albedo * (ndotl * 0.8 * shadow + 0.2);
+    // VCT Global Illumination
+    vec3 origin = v_position + N * 0.5; // Offset to avoid self-intersection
+    vec4 giData = traceCone(origin, N, 0.2); // Normal direction cone
+    vec3 indirectDiffuse = giData.xyz;
+    
+    // Ambient + Diffuse (Gölgeyle çarpılarak) + Indirect GI
+    vec3 color = albedo * (ndotl * 0.8 * shadow + 0.2) + indirectDiffuse * albedo;
     
     gl_FragData[0] = vec4(color, 1.0);
     gl_FragData[1] = vec4(N * 0.5 + 0.5, 1.0); // Pack normal to [0, 1]

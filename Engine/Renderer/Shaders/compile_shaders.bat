@@ -19,6 +19,8 @@ echo Compiling Vertex Shader...
 "%SHADERC%" -f vs_shadow.sc -o vs_shadow.bin --type vertex --platform windows -p s_5_0 -i "%INCLUDE_PATH%" -i .\
 "%SHADERC%" -f vs_skinned_shadow.sc -o vs_skinned_shadow.bin --type vertex --platform windows -p s_5_0 -i "%INCLUDE_PATH%" -i .\
 "%SHADERC%" -f vs_fullscreen.sc -o vs_fullscreen.bin --type vertex --platform windows -p s_5_0 -i "%INCLUDE_PATH%" -i .\
+"%SHADERC%" -f vs_voxelize.sc -o vs_voxelize.bin --type vertex --platform windows -p s_5_0 -i "%INCLUDE_PATH%" -i .\
+
 
 echo Compiling Fragment Shader...
 "%SHADERC%" -f fs_pbr.sc -o fs_pbr.bin --type fragment --platform windows -p s_5_0 -i "%INCLUDE_PATH%" -i .\
@@ -27,5 +29,6 @@ echo Compiling Fragment Shader...
 "%SHADERC%" -f fs_bloom_blur.sc -o fs_bloom_blur.bin --type fragment --platform windows -p s_5_0 -i "%INCLUDE_PATH%" -i .\
 "%SHADERC%" -f fs_tonemap.sc -o fs_tonemap.bin --type fragment --platform windows -p s_5_0 -i "%INCLUDE_PATH%" -i .\
 "%SHADERC%" -f fs_ssgi.sc -o fs_ssgi.bin --type fragment --platform windows -p s_5_0 -i "%INCLUDE_PATH%" -i .\
+"%SHADERC%" -f fs_voxelize.sc -o fs_voxelize.bin --type fragment --platform windows -p s_5_0 -i "%INCLUDE_PATH%" -i .\
 
 echo Done!
