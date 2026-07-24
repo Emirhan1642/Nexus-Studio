@@ -6,6 +6,7 @@
 #include <functional>
 #include <cstdint>
 #include <string>
+#include "../../Core/DataModel/Instance.h"
 
 namespace Engine::Networking {
 
@@ -18,7 +19,8 @@ namespace Engine::Networking {
     struct ClientConnection {
         HSteamNetConnection connection = k_HSteamNetConnection_Invalid;
         uint32_t id = 0;
-        // In the future: relevantInstances, playerCharacterPosition, pendingInitialSync, etc.
+        InstanceId playerCharacter = 0;
+        // In the future: pendingInitialSync, etc.
     };
 
     class NetworkServer {
@@ -37,6 +39,8 @@ namespace Engine::Networking {
 
         ISteamNetworkingSockets* getInterface() { return m_interface; }
         const std::vector<ClientConnection>& getClients() const { return m_clients; }
+
+        void setPlayerCharacter(uint32_t clientId, InstanceId characterId);
 
     private:
         NetworkServer() = default;

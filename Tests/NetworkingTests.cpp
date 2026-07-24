@@ -5,8 +5,12 @@
 #include "../Engine/Networking/Transport/NetworkClient.h"
 #include "../Engine/Networking/Transport/NetworkContext.h"
 #include "../Engine/Networking/Replication/ReplicationManager.h"
+#include "../Engine/Core/Reflection/TypeRegistry.h"
+#include "../Engine/Core/DataModel/Part.h"
+#include "../build/Engine/Networking/Messages.pb.h"
 #include <thread>
 #include <chrono>
+#include <unordered_set>
 
 using namespace Engine::Networking;
 
@@ -70,4 +74,78 @@ TEST_F(NetworkingTest, TestRemoteEventClientToServer) {
 
     ASSERT_TRUE(serverReceived);
     EXPECT_EQ(receivedString, "Hello Server!");
+}
+
+TEST_F(NetworkingTest, TestInterestManagementSpatialCulling) {
+    // 1. Start Server & Client
+    ASSERT_TRUE(NetworkServer::instance().start(12346));
+    ASSERT_TRUE(NetworkClient::instance().connect("127.0.0.1", 12346));
+
+    for (int i = 0; i < 5; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        NetworkClient::instance().poll();
+        NetworkServer::instance().poll();
+    }
+
+    auto clients = NetworkServer::instance().getClients();
+    ASSERT_FALSE(clients.empty());
+    uint32_t clientId = clients[0].id;
+
+    // 2. Set up Player Character (Position: 0, 0, 0)
+    auto typeDesc = Engine::Reflection::TypeRegistry::instance().find("Part");
+    ASSERT_NE(typeDesc, nullptr) << "Part class not registered in reflection!";
+
+    auto playerChar = std::make_shared<Part>();
+    playerChar->name = "PlayerCharacter";
+    playerChar->setPosition({0, 0, 0});
+    InstanceRegistry::instance().registerInstance(playerChar);
+
+    NetworkServer::instance().setPlayerCharacter(clientId, playerChar->getInstanceId());
+
+    // 3. Set up Close Part (Position: 50, 0, 0) - within 300 Enter Radius
+    auto closePart = std::make_shared<Part>();
+    closePart->name = "ClosePart";
+    closePart->setPosition({50, 0, 0});
+    InstanceRegistry::instance().registerInstance(closePart);
+
+    // 4. Set up Far Part (Position: 500, 0, 0) - outside 300 Enter Radius
+    auto farPart = std::make_shared<Part>();
+    farPart->name = "FarPart";
+    farPart->setPosition({500, 0, 0});
+    InstanceRegistry::instance().registerInstance(farPart);
+
+    // 5. Intercept Client Packets
+    std::unordered_set<InstanceId> replicatedToClient;
+    NetworkClient::instance().setPacketHandler([&](const uint8_t* data, size_t size, NetChannel channel) {
+        Proto::NetworkPacket packet;
+        if (packet.ParseFromArray(data, size)) {
+            if (packet.has_replication()) {
+                for (int i = 0; i < packet.replication().updates_size(); ++i) {
+                    std::cout << "[TestClient] Replicated instance: " << packet.replication().updates(i).instance_id() << std::endl;
+                    replicatedToClient.insert(packet.replication().updates(i).instance_id());
+                }
+            }
+        }
+    });
+
+    // 6. Trigger Replication
+    NetworkContext::setMode(NetworkMode::Server);
+    ReplicationManager::instance().markPropertyDirty(closePart->getInstanceId(), "Position");
+    ReplicationManager::instance().markPropertyDirty(farPart->getInstanceId(), "Position");
+
+    ReplicationManager::instance().flushToAllClients(0.1f); // Trigger Relevancy Check (Action::Create)
+    ReplicationManager::instance().flushToAllClients(0.1f); // Trigger Initial Sync Sending
+
+    // 7. Pump network
+    for (int i = 0; i < 10; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        NetworkServer::instance().poll();
+        NetworkClient::instance().poll();
+    }
+
+    // 8. Verify
+    NetworkClient::instance().setPacketHandler(nullptr); // restore
+
+    EXPECT_TRUE(replicatedToClient.contains(closePart->getInstanceId()));
+    EXPECT_FALSE(replicatedToClient.contains(farPart->getInstanceId()));
 }

@@ -14,6 +14,18 @@ public:
     void registerInstance(const std::shared_ptr<Instance>& inst);
     void unregisterInstance(InstanceId id);
     std::shared_ptr<Instance> findById(InstanceId id) const;
+    
+    std::vector<std::shared_ptr<Instance>> getAllInstances() const {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        std::vector<std::shared_ptr<Instance>> result;
+        for (const auto& [id, weakPtr] : m_registry) {
+            if (auto ptr = weakPtr.lock()) {
+                result.push_back(ptr);
+            }
+        }
+        return result;
+    }
+    
     void clear() {
         std::lock_guard<std::mutex> lock(m_mutex);
         m_registry.clear();

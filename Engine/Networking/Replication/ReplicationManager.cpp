@@ -20,12 +20,29 @@ namespace Engine::Networking {
         if (m_replicationTimer < REPLICATION_INTERVAL) return;
         m_replicationTimer -= REPLICATION_INTERVAL;
 
+        // 0. Update SpatialGrid for all instances that have a Position
+        auto allInstances = InstanceRegistry::instance().getAllInstances();
+        for (const auto& inst : allInstances) {
+            auto typeDesc = Reflection::TypeRegistry::instance().find(inst->getClassName());
+            if (typeDesc) {
+                if (auto prop = typeDesc->findProperty("Position")) {
+                    std::any val = prop->getter(inst.get());
+                    if (val.type() == typeid(Math::Vector3)) {
+                        Math::Vector3 pos = std::any_cast<Math::Vector3>(val);
+                        m_spatialGrid.updateInstancePosition(inst->getInstanceId(), pos);
+                    }
+                }
+            }
+        }
+
         m_dormancyManager.updateDormancy(m_currentServerTime, m_spatialGrid);
 
-        // In a real scenario, we iterate over connected clients from NetworkServer.
-        // For demonstration, assume m_clientStates is populated when a client joins.
+        // Iterate over connected clients from NetworkServer
+        auto clients = NetworkServer::instance().getClients();
+        for (const auto& clientConn : clients) {
+            uint32_t clientId = clientConn.id;
+            ClientRelevancyState& state = m_clientStates[clientId];
 
-        for (auto& [clientId, state] : m_clientStates) {
             // 1. Initial Sync Throttling
             int sentInitial = 0;
             while (!state.pendingInitialSync.empty() && sentInitial < INITIAL_SYNC_BATCH_SIZE) {
@@ -52,6 +69,10 @@ namespace Engine::Networking {
                     auto it = std::find_if(clients.begin(), clients.end(), [clientId](const ClientConnection& c) { return c.id == clientId; });
                     if (it != clients.end()) {
                         NetworkServer::instance().sendTo(it->connection, NetChannel::Reliable_Ordered, outData.data(), outData.size());
+                        
+                        std::cout << "[ReplicationManager] Sent initial sync for ID: " << id << " to Client: " << clientId << std::endl;
+                        
+                        m_lastSentTimes[clientId][id] = m_currentServerTime;
                     }
                 }
                 sentInitial++;
@@ -79,24 +100,56 @@ namespace Engine::Networking {
             }
 
             // 3. Spatial Grid & Priority calculation
-            // Let's assume player's center is (0,0,0) for now.
             Math::Vector3 playerPos(0.0f, 0.0f, 0.0f);
             
-            std::vector<InstanceId> nearby = m_spatialGrid.queryRadius(playerPos, 3);
+            if (clientConn.playerCharacter != 0) {
+                auto charInst = InstanceRegistry::instance().findById(clientConn.playerCharacter);
+                if (charInst) {
+                    auto typeDesc = Reflection::TypeRegistry::instance().find(charInst->getClassName());
+                    if (typeDesc) {
+                        if (auto prop = typeDesc->findProperty("Position")) {
+                            std::any val = prop->getter(charInst.get());
+                            if (val.type() == typeid(Math::Vector3)) {
+                                playerPos = std::any_cast<Math::Vector3>(val);
+                            }
+                        }
+                    }
+                }
+            }
+            
+            std::vector<InstanceId> nearby = m_spatialGrid.queryRadius(playerPos, 5); // 500 studs (5 cells)
             
             std::vector<std::pair<InstanceId, float>> prioritized;
             for (InstanceId id : nearby) {
                 if (m_dormancyManager.isDormant(id)) continue;
                 
                 // distance check
-                float distance = 0.0f; // Mock distance
+                float distance = 0.0f;
+                auto inst = InstanceRegistry::instance().findById(id);
+                if (inst) {
+                    auto typeDesc = Reflection::TypeRegistry::instance().find(inst->getClassName());
+                    if (typeDesc) {
+                        if (auto prop = typeDesc->findProperty("Position")) {
+                            std::any val = prop->getter(inst.get());
+                            if (val.type() == typeid(Math::Vector3)) {
+                                Math::Vector3 pos = std::any_cast<Math::Vector3>(val);
+                                distance = (pos - playerPos).length();
+                            }
+                        }
+                    }
+                }
+                
                 RelevancyTracker::Action action = m_relevancyTracker.update(state, id, distance);
                 
                 if (action == RelevancyTracker::Action::Create) {
-                    // Send Full Packet
+                    std::cout << "[ReplicationManager] Action::Create queued for ID: " << id << std::endl;
+                    // Add to pending initial sync for next tick
+                    if (std::find(state.pendingInitialSync.begin(), state.pendingInitialSync.end(), id) == state.pendingInitialSync.end()) {
+                        state.pendingInitialSync.push_back(id);
+                    }
                     continue;
                 } else if (action == RelevancyTracker::Action::Destroy) {
-                    // Send Destroy Packet
+                    // Send Destroy Packet (Not fully implemented in MVP, just skipping)
                     continue;
                 }
 

@@ -70,6 +70,15 @@ namespace Engine::Networking {
         }
     }
 
+    void NetworkServer::setPlayerCharacter(uint32_t clientId, InstanceId characterId) {
+        for (auto& client : m_clients) {
+            if (client.id == clientId) {
+                client.playerCharacter = characterId;
+                break;
+            }
+        }
+    }
+
     void NetworkServer::onConnectionStatusChanged(SteamNetConnectionStatusChangedCallback_t* pInfo) {
         switch (pInfo->m_info.m_eState) {
             case k_ESteamNetworkingConnectionState_None:
