@@ -48,6 +48,11 @@ void Part::setMeshFromAsset(const Engine::Assets::AssetGuid& guid) {
     }
 }
 
+void Part::setBoneTransforms(const std::vector<Engine::Math::Matrix4>& transforms) {
+    currentBoneTransforms = transforms;
+    markRenderDirty();
+}
+
 void Part::markRenderDirty() {
     if (renderProxyIndex != Engine::Renderer::InvalidHandle) {
         Engine::Math::Matrix4 transform = Engine::Math::Matrix4::fromPositionAndSize(position, size);
@@ -57,6 +62,8 @@ void Part::markRenderDirty() {
         proxy.material.metallic = metallic;
         proxy.material.roughness = roughness;
         proxy.material.emissiveStrength = emissiveStrength;
+        proxy.boneTransforms = currentBoneTransforms;
+        
         // Textures will be loaded/assigned via strings. We can store paths or pass them.
         // Wait, RenderProxy only has MaterialData, which holds TextureHandles.
         // We need to request the Renderer to load the texture and return the handle.
@@ -65,6 +72,10 @@ void Part::markRenderDirty() {
         proxy.material.normalTexture = Engine::Renderer::RendererSystem::instance().getTexture(normalTexturePath);
         proxy.material.metallicTexture = Engine::Renderer::RendererSystem::instance().getTexture(metallicTexturePath);
         proxy.material.roughnessTexture = Engine::Renderer::RendererSystem::instance().getTexture(roughnessTexturePath);
+        
+        if (meshAssetGuid.isValid()) {
+            proxy.mesh = Engine::Renderer::RendererSystem::instance().getMeshHandle(meshAssetGuid);
+        }
 
         Engine::Renderer::RenderScene::instance().markDirty(renderProxyIndex, transform);
         // Wait, RenderScene::markDirty only updates the transform!
@@ -84,6 +95,12 @@ void Part::onAddedToWorkspace() {
     proxy.material.normalTexture = Engine::Renderer::RendererSystem::instance().getTexture(normalTexturePath);
     proxy.material.metallicTexture = Engine::Renderer::RendererSystem::instance().getTexture(metallicTexturePath);
     proxy.material.roughnessTexture = Engine::Renderer::RendererSystem::instance().getTexture(roughnessTexturePath);
+    proxy.boneTransforms = currentBoneTransforms;
+    
+    if (meshAssetGuid.isValid()) {
+        proxy.mesh = Engine::Renderer::RendererSystem::instance().getMeshHandle(meshAssetGuid);
+    }
+    
     renderProxyIndex = Engine::Renderer::RenderScene::instance().registerProxy(getInstanceId(), proxy);
     
     JPH::BodyCreationSettings bodySettings(

@@ -52,7 +52,7 @@ TEST(AnimationTest, TestAnimationPlayer) {
     clip.boneTracks.push_back(keys);
 
     AnimationPlayer player;
-    player.play(&clip, 0.0f);
+    player.play(&clip, nullptr, 1000, 0.0f);
 
     std::vector<Matrix4> localPoses = player.evaluate(skeleton, 0.5f);
     EXPECT_EQ(localPoses.size(), 1);

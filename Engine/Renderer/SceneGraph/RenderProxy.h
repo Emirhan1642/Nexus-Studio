@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include <vector>
 #include "../../Core/Math/Matrix4.h"
 
 #include "../Materials/Material.h"
@@ -20,6 +21,9 @@ struct RenderProxy {
     // Culling için önceden hesaplanmış bounding sphere
     Engine::Math::Vector3 boundsCenter;
     float boundsRadius = 0.0f;
+
+    // GPU Skinning için iskeletin o anki pozu (Max 64 matris)
+    std::vector<Engine::Math::Matrix4> boneTransforms;
 };
 
 } // namespace Engine::Renderer

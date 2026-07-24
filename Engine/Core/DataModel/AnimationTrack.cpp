@@ -26,16 +26,14 @@ void AnimationTrack::onAddedToWorkspace() {
 void AnimationTrack::play(float blendTime) {
     if (auto humanoid = getHumanoidParent()) {
         if (clip) {
-            humanoid->getAnimationPlayer().play(clip.get(), blendTime);
+            humanoid->getAnimationPlayer().play(clip.get(), this, priority, blendTime, weight, boneMask);
         }
     }
 }
 
 void AnimationTrack::stop(float fadeOutTime) {
     if (auto humanoid = getHumanoidParent()) {
-        if (humanoid->getAnimationPlayer().getCurrentClip() == clip.get()) {
-            humanoid->getAnimationPlayer().stop(fadeOutTime);
-        }
+        humanoid->getAnimationPlayer().stop(this, fadeOutTime);
     }
 }
 
@@ -43,6 +41,11 @@ void AnimationTrack::stop(float fadeOutTime) {
 static void registerAnimationTrack() {
     Reflection::ClassBuilder<AnimationTrack>("AnimationTrack")
         .base("Instance")
+        .property("Priority", &AnimationTrack::priority)
+        .property("Weight", &AnimationTrack::weight)
+        // Array property for boneMask could be supported via a different system if not primitives, 
+        // but skipping it in generic reflection if arrays aren't fully tested, or registering it if supported:
+        // .arrayProperty("BoneMask", &AnimationTrack::boneMask)
         .method("Play", &AnimationTrack::play)
         .method("Stop", &AnimationTrack::stop);
 }

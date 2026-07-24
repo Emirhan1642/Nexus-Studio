@@ -62,7 +62,10 @@ public:
     Engine::Assets::AssetGuid meshAssetGuid;
     void setMeshFromAsset(const Engine::Assets::AssetGuid& guid);
 
+    void setBoneTransforms(const std::vector<Engine::Math::Matrix4>& transforms);
+
 private:
+    std::vector<Engine::Math::Matrix4> currentBoneTransforms;
     uint32_t renderProxyIndex = 0xFFFFFFFF; // InvalidHandle
     uint32_t physicsBodyId = 0xFFFFFFFF; // JPH::BodyID::cInvalidBodyID
     bool anchored = false;

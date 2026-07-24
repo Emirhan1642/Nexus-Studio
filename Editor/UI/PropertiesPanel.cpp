@@ -6,6 +6,8 @@
 #include "Engine/Core/Reflection/EnumRegistry.h"
 #include "Engine/Core/DataModel/Instance.h"
 #include "Engine/Core/Math/Vector3.h"
+#include "Engine/Assets/AssetDatabase.h"
+#include "Engine/Assets/AssetDependencyTracker.h"
 #include <string>
 #include <map>
 #include <vector>
@@ -54,6 +56,21 @@ void PropertiesPanel::drawPropertyEditor(const std::shared_ptr<Instance>& inst, 
         if (ImGui::InputText(prop->name.c_str(), buffer, sizeof(buffer))) {
             UndoStack::instance().pushPropertyChangeCommand(inst, prop->name, current, std::string(buffer));
             prop->setter(inst.get(), std::string(buffer));
+        }
+
+        if (ImGui::BeginDragDropTarget()) {
+            if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ASSET_GUID")) {
+                Engine::Assets::AssetGuid dragGuid = *(const Engine::Assets::AssetGuid*)payload->Data;
+                const auto* meta = Engine::Assets::AssetDatabase::instance().find(dragGuid);
+                if (meta) {
+                    UndoStack::instance().pushPropertyChangeCommand(inst, prop->name, current, meta->relativePath);
+                    prop->setter(inst.get(), meta->relativePath);
+                    
+                    // Register usage
+                    Engine::Assets::AssetDependencyTracker::instance().registerUsage(dragGuid, inst->getInstanceId());
+                }
+            }
+            ImGui::EndDragDropTarget();
         }
     }
     else if (current.type() == typeid(float)) {

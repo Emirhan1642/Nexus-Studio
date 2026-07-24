@@ -3,6 +3,8 @@
 #include <unordered_map>
 #include <vector>
 #include <cstdint>
+#include <memory>
+#include "Importers/SkeletalMeshImporter.h"
 
 namespace Engine::Assets {
 
@@ -55,6 +57,9 @@ public:
     
     std::vector<AssetGuid> getAllAssets() const;
 
+    std::shared_ptr<ImportedSkeletalMesh> getSkeletalMesh(AssetGuid guid) const;
+    void setSkeletalMesh(AssetGuid guid, std::shared_ptr<ImportedSkeletalMesh> mesh);
+
 private:
     AssetGuid generateGuid();
     void loadMetaFile(const std::string& metaFilePath);
@@ -65,6 +70,7 @@ private:
     std::string m_projectRoot;
     std::unordered_map<std::string, AssetGuid> m_pathToGuid;
     std::unordered_map<AssetGuid, AssetMetadata> m_metadata;
+    std::unordered_map<AssetGuid, std::shared_ptr<ImportedSkeletalMesh>> m_skeletalMeshes;
 };
 
 } // namespace Engine::Assets

@@ -2,28 +2,37 @@
 #include "../Core/Math/Quaternion.h"
 #include <iostream>
 #include <cmath>
+#include <algorithm>
 
 namespace Engine {
 namespace Animation {
 
-void AnimationPlayer::play(AnimationClip* clip, float blendDuration) {
-    if (currentClip == clip) return;
+void AnimationPlayer::play(AnimationClip* clip, void* sourceTrack, int priority, float blendDuration, float targetWeight, const std::vector<int>& boneMask) {
+    if (!clip) return;
 
-    if (currentClip && blendDuration > 0.0f) {
-        activeTransition = AnimationTransition{blendDuration, 0.0f, currentClip, clip, currentTime, 0.0f};
-    } else {
-        activeTransition.reset();
-    }
-    
-    currentClip = clip;
-    currentTime = 0.0f;
+    // Remove if already exists from this source
+    stop(sourceTrack, 0.0f);
+
+    PlayingTrack track;
+    track.clip = clip;
+    track.time = 0.0f;
+    track.weight = blendDuration > 0.0f ? 0.0f : targetWeight;
+    track.targetWeight = targetWeight;
+    track.weightSpeed = blendDuration > 0.0f ? (1.0f / blendDuration) : 1000.0f;
+    track.priority = priority;
+    track.boneMask = boneMask;
+    track.sourceTrack = sourceTrack;
+
+    activeTracks.push_back(track);
 }
 
-void AnimationPlayer::stop(float fadeOutTime) {
-    // For MVP, just stop immediately
-    currentClip = nullptr;
-    activeTransition.reset();
-    currentTime = 0.0f;
+void AnimationPlayer::stop(void* sourceTrack, float fadeOutTime) {
+    for (auto& track : activeTracks) {
+        if (track.sourceTrack == sourceTrack) {
+            track.targetWeight = 0.0f;
+            track.weightSpeed = fadeOutTime > 0.0f ? (1.0f / fadeOutTime) : 1000.0f;
+        }
+    }
 }
 
 Math::Matrix4 AnimationPlayer::blendTransforms(const Math::Matrix4& fromPose, const Math::Matrix4& toPose, float t) const {
@@ -52,40 +61,77 @@ Math::Matrix4 AnimationPlayer::blendTransforms(const Math::Matrix4& fromPose, co
 }
 
 std::vector<Math::Matrix4> AnimationPlayer::evaluate(const Skeleton& skeleton, float deltaTime) {
-    std::vector<Math::Matrix4> finalPose(skeleton.bones.size());
+    std::vector<Math::Matrix4> finalPoses;
+    finalPoses.resize(skeleton.bones.size());
 
-    if (!currentClip) {
-        for (size_t i = 0; i < skeleton.bones.size(); ++i) {
-            finalPose[i] = skeleton.bones[i].bindPoseLocalTransform;
-        }
-        return finalPose;
+    // Initialize with bind poses
+    for (size_t i = 0; i < skeleton.bones.size(); ++i) {
+        finalPoses[i] = skeleton.bones[i].bindPoseLocalTransform;
     }
 
-    currentTime += deltaTime;
-    if (currentClip->looping && currentClip->duration > 0.0f) {
-        currentTime = std::fmod(currentTime, currentClip->duration);
+    if (activeTracks.empty()) {
+        return finalPoses;
     }
 
-    if (activeTransition && !activeTransition->isComplete()) {
-        activeTransition->elapsedTime += deltaTime;
-        float t = activeTransition->elapsedTime / activeTransition->blendDuration;
+    // Sort tracks by priority (lowest to highest)
+    std::sort(activeTracks.begin(), activeTracks.end(), [](const PlayingTrack& a, const PlayingTrack& b) {
+        return a.priority < b.priority;
+    });
 
-        for (int i = 0; i < (int)skeleton.bones.size(); i++) {
-            Math::Matrix4 fromPose = activeTransition->fromClip->sampleBone(i, activeTransition->fromClipTime);
-            Math::Matrix4 toPose = activeTransition->toClip->sampleBone(i, currentTime);
-            finalPose[i] = blendTransforms(fromPose, toPose, t);
+    for (auto it = activeTracks.begin(); it != activeTracks.end(); ) {
+        auto& track = *it;
+
+        // Update time
+        track.time += deltaTime;
+        if (track.time >= track.clip->duration) {
+            if (track.clip->looping) {
+                track.time = std::fmod(track.time, track.clip->duration);
+            } else {
+                track.time = track.clip->duration; // Keep at last frame
+            }
         }
-        
-        if (activeTransition->isComplete()) {
-            activeTransition.reset();
+
+        // Update weight (Fade in / Fade out)
+        if (track.weight < track.targetWeight) {
+            track.weight += track.weightSpeed * deltaTime;
+            if (track.weight > track.targetWeight) track.weight = track.targetWeight;
+        } else if (track.weight > track.targetWeight) {
+            track.weight -= track.weightSpeed * deltaTime;
+            if (track.weight < track.targetWeight) track.weight = track.targetWeight;
         }
-    } else {
-        for (int i = 0; i < (int)skeleton.bones.size(); i++) {
-            finalPose[i] = currentClip->sampleBone(i, currentTime);
+
+        // Remove if fully faded out
+        if (track.targetWeight <= 0.0f && track.weight <= 0.0f) {
+            it = activeTracks.erase(it);
+            continue;
         }
+
+        // Evaluate and blend track poses
+        if (track.weight > 0.0f) {
+            for (size_t i = 0; i < skeleton.bones.size(); ++i) {
+                // Check if bone is masked
+                if (!track.boneMask.empty()) {
+                    if (std::find(track.boneMask.begin(), track.boneMask.end(), static_cast<int>(i)) == track.boneMask.end()) {
+                        continue; // Bone is masked out, skip it
+                    }
+                }
+
+                Math::Matrix4 trackPose = track.clip->sampleBone(static_cast<int>(i), track.time);
+
+                // Blend with finalPoses[i] based on track weight
+                // Priority ensures we blend on top of lower priority animations
+                if (track.weight >= 1.0f) {
+                    finalPoses[i] = trackPose;
+                } else {
+                    finalPoses[i] = blendTransforms(finalPoses[i], trackPose, track.weight);
+                }
+            }
+        }
+
+        ++it;
     }
-    
-    return finalPose;
+
+    return finalPoses;
 }
 
 } // namespace Animation

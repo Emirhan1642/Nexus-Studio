@@ -23,6 +23,20 @@ void AssetBrowserPanel::draw() {
     ImGui::BeginChild("AssetGrid");
     drawAssetGrid();
     ImGui::EndChild();
+    
+    // Progress Overlay
+    auto& progress = Engine::Assets::AssetImportPipeline::instance().getProgress();
+    if (progress.completedAssets < progress.totalAssets) {
+        // Calculate progress at the bottom right corner
+        ImGui::SetNextWindowPos(ImVec2(ImGui::GetWindowPos().x + ImGui::GetWindowSize().x - 320, ImGui::GetWindowPos().y + ImGui::GetWindowSize().y - 80), ImGuiCond_Always);
+        ImGui::SetNextWindowSize(ImVec2(300, 60), ImGuiCond_Always);
+        if (ImGui::Begin("Importing Assets", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoBackground)) {
+            float fraction = (float)progress.completedAssets / (float)progress.totalAssets;
+            ImGui::ProgressBar(fraction, ImVec2(280, 20), "Importing...");
+            ImGui::Text("%d / %d completed", progress.completedAssets.load(), progress.totalAssets.load());
+            ImGui::End();
+        }
+    }
 
     ImGui::End();
 }

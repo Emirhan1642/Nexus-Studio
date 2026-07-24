@@ -22,7 +22,7 @@
 #include "Engine/Core/Reflection/TypeRegistry.h"
 #include "Engine/Core/DataModel/DataModel.h"
 #include "Engine/Core/DataModel/Part.h"
-#include "Engine/Core/DataModel/DataModelSnapshot.h"
+#include "Engine/Core/DataModel/DataModelSerializer.h"
 #include "Engine/Renderer/Renderer.h"
 #include "Engine/Renderer/Camera.h"
 #include "Engine/Scripting/LuauRuntime/LuauVM.h"
@@ -179,13 +179,25 @@ int main(int argc, char** argv) {
     camera.forward = {0.0f, -0.2f, 1.0f};
 
     double lastTime = glfwGetTime();
+    double lastInputTime = glfwGetTime();
+    double cursorX = 0.0, cursorY = 0.0;
 
     // 4. Main Loop
+    nlohmann::json snapshotJson;
     bool isSimulating = false;
-    DataModelSnapshot snapshot;
 
     while (!glfwWindowShouldClose(window)) {
-        glfwPollEvents();
+        // --- Power Saving / Idle Throttling ---
+        double timeNow = glfwGetTime();
+        bool isIdle = !isSimulating && (timeNow - lastInputTime > 1.0);
+        
+        if (isIdle) {
+            // Tamamen 0 FPS'e dusur. Olay (Event) gelene kadar döngüyü tamamen dondur.
+            // (10 FPS limit, G-Sync/FreeSync (VRR) olan monitorlerde parlaklik dalgalanmasina sebep oluyordu).
+            glfwWaitEvents(); 
+        } else {
+            glfwPollEvents();
+        }
 
         double currentTime = glfwGetTime();
         float deltaTime = static_cast<float>(currentTime - lastTime);
@@ -286,14 +298,27 @@ int main(int argc, char** argv) {
         } else { f5Pressed = false; }
 
         if (toggleSim) {
+            auto workspace = DataModel::instance()->findFirstChild("Workspace");
             if (!isSimulating) {
-                // START PLAY: snapshot entire DataModel
-                snapshot.capture(DataModel::instance());
+                // START PLAY: snapshot Workspace
+                if (workspace) {
+                    snapshotJson = Engine::Core::DataModelSerializer::serialize(workspace);
+                }
                 isSimulating = true;
             } else {
-                // STOP PLAY: restore entire DataModel
+                // STOP PLAY: restore Workspace
                 isSimulating = false;
-                snapshot.restore(DataModel::instance());
+                
+                if (workspace) {
+                    workspace->destroy();
+                }
+                
+                if (!snapshotJson.is_null()) {
+                    auto restoredWorkspace = Engine::Core::DataModelSerializer::deserialize(snapshotJson);
+                    if (restoredWorkspace) {
+                        restoredWorkspace->setParent(DataModel::instance());
+                    }
+                }
             }
         }
 
@@ -304,6 +329,31 @@ int main(int argc, char** argv) {
         Editor::UI::AssetBrowserPanel::instance().draw();
 
         if (frameCount < 5) std::cout << "[DEBUG] Frame " << frameCount << ": End ImGui" << std::endl;
+        
+        // Input Activity Tracking
+        bool hasInput = false;
+        double newCursorX, newCursorY;
+        glfwGetCursorPos(window, &newCursorX, &newCursorY);
+        if (newCursorX != cursorX || newCursorY != cursorY) {
+            hasInput = true;
+            cursorX = newCursorX;
+            cursorY = newCursorY;
+        }
+        if (!hasInput) {
+            for (int i = 32; i < 348; i++) {
+                if (glfwGetKey(window, i) == GLFW_PRESS) { hasInput = true; break; }
+            }
+        }
+        if (!hasInput) {
+            for (int i = 0; i < 8; i++) {
+                if (glfwGetMouseButton(window, i) == GLFW_PRESS) { hasInput = true; break; }
+            }
+        }
+        
+        if (hasInput) {
+            lastInputTime = currentTime;
+        }
+
         ImGuiLayer::instance().endFrame();
 
         // Submit the frame

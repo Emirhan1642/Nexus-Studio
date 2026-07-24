@@ -125,6 +125,15 @@ std::vector<AssetGuid> AssetDatabase::getAllAssets() const {
     return guids;
 }
 
+std::shared_ptr<ImportedSkeletalMesh> AssetDatabase::getSkeletalMesh(AssetGuid guid) const {
+    auto it = m_skeletalMeshes.find(guid);
+    return it != m_skeletalMeshes.end() ? it->second : nullptr;
+}
+
+void AssetDatabase::setSkeletalMesh(AssetGuid guid, std::shared_ptr<ImportedSkeletalMesh> mesh) {
+    m_skeletalMeshes[guid] = mesh;
+}
+
 AssetGuid AssetDatabase::generateGuid() {
     static std::random_device rd;
     static std::mt19937_64 gen(rd());

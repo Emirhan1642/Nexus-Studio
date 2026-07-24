@@ -6,6 +6,7 @@
 #include <filesystem>
 #include <iostream>
 #include <functional>
+#include "Importers/SkeletalMeshImporter.h"
 
 namespace fs = std::filesystem;
 
@@ -68,14 +69,34 @@ void AssetImportPipeline::reimportAsset(AssetGuid guid, const std::string& absol
 }
 
 ImportResult AssetImportPipeline::runImporterForFile(const std::string& absolutePath) {
-    // Simulate expensive background import
-    std::this_thread::sleep_for(std::chrono::milliseconds(200));
-
     ImportResult result;
-    result.success = true;
+    result.success = false;
     
-    // In a real system, we'd extract actual metadata (e.g. LODs, vertices) here
-    // We just return updated metadata. For MVP, we don't modify it heavily here.
+    std::string ext = fs::path(absolutePath).extension().string();
+    if (ext == ".fbx" || ext == ".obj") {
+        auto importedMesh = SkeletalMeshImporter::importFBX(absolutePath);
+        if (!importedMesh.vertices.empty()) {
+            result.success = true;
+            
+            // We can't safely modify AssetDatabase directly from this worker thread in a real engine without locks,
+            // but for this MVP, the result application happens on the main thread anyway.
+            // Wait, we need to pass the mesh data back to the main thread via ImportResult!
+            
+            // We will stash the shared_ptr inside ImportResult's metadata or a new field.
+            // Actually, we can just use std::any for MVP.
+            result.metadata.importSettings = "mesh_data"; // flag
+            result.metadata.importerType = "Mesh";
+            
+            auto ptr = std::make_shared<ImportedSkeletalMesh>(std::move(importedMesh));
+            result.importedMesh = ptr;
+        }
+    } else if (ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".tga") {
+        result.success = true;
+    } else {
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        result.success = true;
+    }
+
     return result;
 }
 
@@ -84,7 +105,9 @@ void AssetImportPipeline::applyImportResult(AssetGuid guid, const ImportResult& 
     
     if (result.success) {
         // The metadata could be updated here if runImporterForFile filled it out
-        // AssetDatabase::instance().updateMetadata(guid, result.metadata);
+        if (result.importedMesh) {
+            AssetDatabase::instance().setSkeletalMesh(guid, result.importedMesh);
+        }
         
         // Invalidate thumbnail
         ThumbnailCache::instance().invalidate(guid);

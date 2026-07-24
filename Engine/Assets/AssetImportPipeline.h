@@ -7,6 +7,8 @@
 #include <queue>
 #include <atomic>
 #include <functional>
+#include <memory>
+#include "Importers/SkeletalMeshImporter.h"
 
 namespace Engine::Assets {
 
@@ -18,6 +20,7 @@ struct ImportProgress {
 struct ImportResult {
     AssetMetadata metadata;
     bool success = false;
+    std::shared_ptr<ImportedSkeletalMesh> importedMesh;
 };
 
 class AssetImportPipeline {

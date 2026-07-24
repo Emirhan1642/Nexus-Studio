@@ -142,8 +142,12 @@ void Humanoid::applyMovement(const Math::Vector3& moveDirection, float deltaTime
         
         std::vector<Math::Matrix4> worldPose = skeleton.computeWorldTransforms(localPose);
         
-        // At this point worldPose + skeleton.bones[i].inverseBindPoseWorldTransform
-        // would be sent to bgfx uniform buffers in the Renderer when rendering this character's skinned mesh.
+        std::vector<Math::Matrix4> finalBoneTransforms(skeleton.bones.size());
+        for (size_t i = 0; i < skeleton.bones.size(); ++i) {
+            finalBoneTransforms[i] = worldPose[i] * skeleton.bones[i].inverseBindPoseWorldTransform;
+        }
+
+        part->setBoneTransforms(finalBoneTransforms);
     }
 }
 
