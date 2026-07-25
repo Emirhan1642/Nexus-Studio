@@ -29,6 +29,7 @@ enum RenderView : bgfx::ViewId {
     View_DOF = 32,
     View_MotionBlur = 33,
     View_SSR = 34,
+    View_TAA = 35,
 };
 
 class RendererSystem {
@@ -77,12 +78,16 @@ private:
     bgfx::FrameBufferHandle m_dofFB = BGFX_INVALID_HANDLE;
     bgfx::FrameBufferHandle m_mbFB = BGFX_INVALID_HANDLE;
     bgfx::FrameBufferHandle m_ssrFB = BGFX_INVALID_HANDLE;
+    bgfx::FrameBufferHandle m_taaFB[2] = { BGFX_INVALID_HANDLE, BGFX_INVALID_HANDLE };
+    int m_taaIndex = 0;
+    int m_frameCount = 0;
     
     bgfx::ProgramHandle m_bloomThresholdProgram = BGFX_INVALID_HANDLE;
     bgfx::ProgramHandle m_bloomBlurProgram = BGFX_INVALID_HANDLE;
     bgfx::ProgramHandle m_dofProgram = BGFX_INVALID_HANDLE;
     bgfx::ProgramHandle m_mbProgram = BGFX_INVALID_HANDLE;
     bgfx::ProgramHandle m_ssrProgram = BGFX_INVALID_HANDLE;
+    bgfx::ProgramHandle m_taaProgram = BGFX_INVALID_HANDLE;
     bgfx::ProgramHandle m_tonemapProgram = BGFX_INVALID_HANDLE;
     bgfx::ProgramHandle m_ssgiProgram = BGFX_INVALID_HANDLE;
     bgfx::ProgramHandle m_fxaaProgram = BGFX_INVALID_HANDLE;
@@ -103,8 +108,10 @@ private:
     bgfx::UniformHandle u_mbParams = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle u_prevViewProj = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle u_invViewProj = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle u_unjitteredInvProj = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle u_lightDir = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle u_ssrParams = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle u_taaParams = BGFX_INVALID_HANDLE;
 
     int m_width = 0;
     int m_height = 0;
