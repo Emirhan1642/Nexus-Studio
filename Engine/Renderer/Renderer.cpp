@@ -263,11 +263,13 @@ void RendererSystem::init() {
         m_bloomBlurProgram = bgfx::createProgram(vsFullscreen, fsBloomBlur, true);
     }
     
+    vsFullscreen = loadShader("Engine/Renderer/Shaders/vs_fullscreen.bin");
     bgfx::ShaderHandle fsSsr = loadShader("Engine/Renderer/Shaders/fs_ssr.bin");
     if (bgfx::isValid(vsFullscreen) && bgfx::isValid(fsSsr)) {
         m_ssrProgram = bgfx::createProgram(vsFullscreen, fsSsr, true);
     }
     
+    vsFullscreen = loadShader("Engine/Renderer/Shaders/vs_fullscreen.bin");
     bgfx::ShaderHandle fsTaa = loadShader("Engine/Renderer/Shaders/fs_taa.bin");
     if (bgfx::isValid(vsFullscreen) && bgfx::isValid(fsTaa)) {
         m_taaProgram = bgfx::createProgram(vsFullscreen, fsTaa, true);
@@ -906,8 +908,9 @@ void RendererSystem::renderFrame(const Camera& camera, int width, int height, bg
         bgfx::setIndexBuffer(m_ibh, 0, 6);
         bgfx::submit(View_FXAA, m_fxaaProgram);
     } else {
-        // Fallback in case FXAA shader fails
-        bgfx::blit(View_FXAA, bgfx::getTexture(fb), 0, 0, bgfx::getTexture(m_tonemapFB, 0));
+        // If FXAA shader is invalid, we don't have a simple copy shader yet.
+        // It's safer to leave the backbuffer as is than to call bgfx::blit,
+        // which crashes if the backbuffer doesn't have BGFX_TEXTURE_BLIT_DST.
     }
     
     // Save current frame's View-Projection matrix for next frame's motion blur
