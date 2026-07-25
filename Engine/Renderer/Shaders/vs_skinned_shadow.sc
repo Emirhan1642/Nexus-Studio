@@ -13,7 +13,7 @@ void main() {
         u_boneTransforms[int(a_indices[3])] * a_weight[3];
 
     vec4 localPos = mul(boneTransform, vec4(a_position, 1.0));
-    vec3 wpos = instMul(u_model[0], localPos).xyz;
+    vec3 wpos = mul(u_model[0], localPos).xyz;
     gl_Position = mul(u_viewProj, vec4(wpos, 1.0));
     v_pos = gl_Position.xyz;
 }

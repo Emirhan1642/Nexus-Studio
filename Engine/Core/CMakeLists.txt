@@ -42,7 +42,10 @@ set(CORE_HEADERS
 add_library(EngineCore OBJECT ${CORE_SOURCES} ${CORE_HEADERS})
 
 # Include directories so that other modules can include "Reflection/TypeRegistry.h"
-target_include_directories(EngineCore PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_include_directories(EngineCore PUBLIC 
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_BINARY_DIR}/../Networking
+)
 
 target_link_libraries(EngineCore PUBLIC EnginePhysics Jolt bgfx GameNetworkingSockets nlohmann_json::nlohmann_json)
 

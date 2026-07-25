@@ -139,6 +139,11 @@ static const uint16_t s_cubeIndices[] = {
 bgfx::ShaderHandle loadShader(const char* filepath) {
     std::ifstream file(filepath, std::ios::ate | std::ios::binary);
     if (!file.is_open()) {
+        // Try fallback for running from build/bin/Debug
+        std::string fallback = std::string("../../../") + filepath;
+        file.open(fallback, std::ios::ate | std::ios::binary);
+    }
+    if (!file.is_open()) {
         std::cerr << "Failed to open shader: " << filepath << std::endl;
         return BGFX_INVALID_HANDLE;
     }
@@ -179,6 +184,7 @@ void RendererSystem::init() {
     s_texDepth = bgfx::createUniform("s_texDepth", bgfx::UniformType::Sampler);
     s_texVoxel = bgfx::createUniform("s_texVoxel", bgfx::UniformType::Sampler);
     s_texTonemap = bgfx::createUniform("s_texTonemap", bgfx::UniformType::Sampler);
+    s_texHistory = bgfx::createUniform("s_texHistory", bgfx::UniformType::Sampler);
     
     u_bloomParams = bgfx::createUniform("u_bloomParams", bgfx::UniformType::Vec4);
     u_blurParams = bgfx::createUniform("u_blurParams", bgfx::UniformType::Vec4);
@@ -210,7 +216,7 @@ void RendererSystem::init() {
     for (int i = 0; i < 3; ++i) {
         bgfx::TextureHandle shadowMapTexture = bgfx::createTexture2D(
             2048, 2048, false, 1, bgfx::TextureFormat::D16,
-            BGFX_TEXTURE_RT | BGFX_SAMPLER_COMPARE_LEQUAL | BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP
+            BGFX_TEXTURE_RT | BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP
         );
         m_shadowMapFBs[i] = bgfx::createFrameBuffer(1, &shadowMapTexture, true);
     }
@@ -340,6 +346,7 @@ void RendererSystem::shutdown() {
     bgfx::destroy(s_texNormalGBuffer);
     bgfx::destroy(s_texDepth);
     bgfx::destroy(s_texTonemap);
+    bgfx::destroy(s_texHistory);
     
     bgfx::destroy(u_bloomParams);
     bgfx::destroy(u_blurParams);
@@ -864,7 +871,7 @@ void RendererSystem::renderFrame(const Camera& camera, int width, int height, bg
     bgfx::TextureHandle taaHistoryTex = bgfx::getTexture(m_taaFB[1 - m_taaIndex], 0);
     
     bgfx::setTexture(0, s_texColor, mbOutputTex);
-    bgfx::setTexture(1, bgfx::createUniform("s_texHistory", bgfx::UniformType::Sampler), taaHistoryTex);
+    bgfx::setTexture(1, s_texHistory, taaHistoryTex);
     bgfx::setTexture(2, s_texDepth, hdrDepthTex);
     
     bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A);
@@ -912,6 +919,7 @@ void RendererSystem::renderFrame(const Camera& camera, int width, int height, bg
         // It's safer to leave the backbuffer as is than to call bgfx::blit,
         // which crashes if the backbuffer doesn't have BGFX_TEXTURE_BLIT_DST.
     }
+
     
     // Save current frame's View-Projection matrix for next frame's motion blur
     m_prevViewProj = viewProj;

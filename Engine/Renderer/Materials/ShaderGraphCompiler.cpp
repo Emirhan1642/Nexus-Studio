@@ -197,6 +197,10 @@ bool ShaderGraphCompiler::runShaderc(const std::string& inputPath, const std::st
 uint16_t ShaderGraphCompiler::loadShaderProgram(const std::string& vsPath, const std::string& fsPath) {
     auto loadMem = [](const std::string& path) -> const bgfx::Memory* {
         std::ifstream file(path, std::ios::binary | std::ios::ate);
+        if (!file.is_open()) {
+            std::string fallback = std::string("../../../") + path;
+            file.open(fallback, std::ios::binary | std::ios::ate);
+        }
         if (!file.is_open()) return nullptr;
         std::streamsize size = file.tellg();
         file.seekg(0, std::ios::beg);

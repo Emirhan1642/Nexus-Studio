@@ -5,7 +5,7 @@
 #include <set>
 #include <any>
 #include <vector>
-#include "../../build/Engine/Networking/Messages.pb.h"
+#include "Messages.pb.h"
 #include "../../Core/DataModel/Instance.h"
 
 namespace Engine {

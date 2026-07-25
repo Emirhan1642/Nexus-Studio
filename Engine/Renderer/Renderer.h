@@ -124,6 +124,7 @@ private:
     bgfx::UniformHandle s_texMetallic = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle s_texRoughness = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle s_texVoxel = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle s_texHistory = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle u_textureFlags = BGFX_INVALID_HANDLE;
 
     bgfx::TextureHandle m_defaultAlbedo = BGFX_INVALID_HANDLE;

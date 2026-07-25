@@ -3,7 +3,7 @@
 #include "../Serialization/PacketSerializer.h"
 #include "../../Core/DataModel/InstanceRegistry.h"
 #include "../../Core/DataModel/RemoteEvent.h"
-#include "../../build/Engine/Networking/Messages.pb.h"
+#include "Messages.pb.h"
 
 namespace Engine::Networking {
 

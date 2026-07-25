@@ -13,6 +13,10 @@ void Voxelizer::init() {
 
     auto loadMem = [](const std::string& path) -> const bgfx::Memory* {
         std::ifstream file(path, std::ios::binary | std::ios::ate);
+        if (!file.is_open()) {
+            std::string fallback = std::string("../../../") + path;
+            file.open(fallback, std::ios::binary | std::ios::ate);
+        }
         if (!file.is_open()) return nullptr;
         std::streamsize size = file.tellg();
         file.seekg(0, std::ios::beg);
@@ -24,8 +28,8 @@ void Voxelizer::init() {
         return nullptr;
     };
 
-    const bgfx::Memory* vsMem = loadMem("bin/Debug/vs_voxelize.bin");
-    const bgfx::Memory* fsMem = loadMem("bin/Debug/fs_voxelize.bin");
+    const bgfx::Memory* vsMem = loadMem("Engine/Renderer/Shaders/vs_voxelize.bin");
+    const bgfx::Memory* fsMem = loadMem("Engine/Renderer/Shaders/fs_voxelize.bin");
     
     if (vsMem && fsMem) {
         bgfx::ShaderHandle vsh = bgfx::createShader(vsMem);

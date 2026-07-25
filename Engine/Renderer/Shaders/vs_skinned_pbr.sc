@@ -1,11 +1,10 @@
 $input a_position, a_color0, a_normal, a_texcoord0, a_weight, a_indices
-$output v_position, v_color0, v_normal, v_texcoord0, v_posLightSpace
+$output v_position, v_color0, v_normal, v_texcoord0
 
 #include <bgfx_shader.sh>
 
 // Uniform buffer for bone matrices (Max 64 bones for MVP)
 uniform mat4 u_boneMatrices[64];
-uniform mat4 u_lightMtx;
 
 void main() {
     mat4 skinMatrix = 
@@ -21,7 +20,6 @@ void main() {
     gl_Position = mul(u_viewProj, vec4(wpos, 1.0));
     
     v_position = wpos;
-    v_posLightSpace = mul(u_lightMtx, vec4(wpos, 1.0));
     v_color0 = a_color0;
     v_normal = mul(u_model[0], vec4(skinnedNormal, 0.0)).xyz;
     v_texcoord0 = a_texcoord0;
