@@ -178,6 +178,7 @@ void RendererSystem::init() {
     u_mbParams = bgfx::createUniform("u_mbParams", bgfx::UniformType::Vec4);
     u_prevViewProj = bgfx::createUniform("u_prevViewProj", bgfx::UniformType::Mat4);
     u_lightDir = bgfx::createUniform("u_lightDir", bgfx::UniformType::Vec4);
+    u_ssrParams = bgfx::createUniform("u_ssrParams", bgfx::UniformType::Vec4);
     
     m_prevViewProj = Engine::Math::Matrix4::identity();
     
@@ -246,6 +247,11 @@ void RendererSystem::init() {
     vsFullscreen = loadShader("Engine/Renderer/Shaders/vs_fullscreen.bin");
     if (bgfx::isValid(vsFullscreen) && bgfx::isValid(fsBloomBlur)) {
         m_bloomBlurProgram = bgfx::createProgram(vsFullscreen, fsBloomBlur, true);
+    }
+    
+    bgfx::ShaderHandle fsSsr = loadShader("Engine/Renderer/Shaders/fs_ssr.bin");
+    if (bgfx::isValid(vsFullscreen) && bgfx::isValid(fsSsr)) {
+        m_ssrProgram = bgfx::createProgram(vsFullscreen, fsSsr, true);
     }
 
     vsFullscreen = loadShader("Engine/Renderer/Shaders/vs_fullscreen.bin");
@@ -324,18 +330,21 @@ void RendererSystem::shutdown() {
     bgfx::destroy(u_mbParams);
     bgfx::destroy(u_prevViewProj);
     bgfx::destroy(u_lightDir);
+    bgfx::destroy(u_ssrParams);
     
     if (bgfx::isValid(m_bloomThresholdProgram)) bgfx::destroy(m_bloomThresholdProgram);
     if (bgfx::isValid(m_bloomBlurProgram)) bgfx::destroy(m_bloomBlurProgram);
     if (bgfx::isValid(m_tonemapProgram)) bgfx::destroy(m_tonemapProgram);
     if (bgfx::isValid(m_ssgiProgram)) bgfx::destroy(m_ssgiProgram);
-    if (bgfx::isValid(m_fxaaProgram)) bgfx::destroy(m_fxaaProgram);
+    if (bgfx::isValid(m_bloomBlurProgram)) bgfx::destroy(m_bloomBlurProgram);
     if (bgfx::isValid(m_dofProgram)) bgfx::destroy(m_dofProgram);
     if (bgfx::isValid(m_mbProgram)) bgfx::destroy(m_mbProgram);
+    if (bgfx::isValid(m_ssrProgram)) bgfx::destroy(m_ssrProgram);
     
     if (bgfx::isValid(m_hdrFB)) bgfx::destroy(m_hdrFB);
     if (bgfx::isValid(m_tonemapFB)) bgfx::destroy(m_tonemapFB);
     if (bgfx::isValid(m_ssgiFB)) bgfx::destroy(m_ssgiFB);
+    if (bgfx::isValid(m_ssrFB)) bgfx::destroy(m_ssrFB);
     if (bgfx::isValid(m_dofFB)) bgfx::destroy(m_dofFB);
     if (bgfx::isValid(m_mbFB)) bgfx::destroy(m_mbFB);
     for (int i = 0; i < 5; ++i) {
@@ -502,6 +511,7 @@ void RendererSystem::renderFrame(const Camera& camera, int width, int height, bg
         if (bgfx::isValid(m_hdrFB)) bgfx::destroy(m_hdrFB);
         if (bgfx::isValid(m_tonemapFB)) bgfx::destroy(m_tonemapFB);
         if (bgfx::isValid(m_ssgiFB)) bgfx::destroy(m_ssgiFB);
+        if (bgfx::isValid(m_ssrFB)) bgfx::destroy(m_ssrFB);
         if (bgfx::isValid(m_dofFB)) bgfx::destroy(m_dofFB);
         if (bgfx::isValid(m_mbFB)) bgfx::destroy(m_mbFB);
         for (int i = 0; i < 5; ++i) {
@@ -520,6 +530,9 @@ void RendererSystem::renderFrame(const Camera& camera, int width, int height, bg
 
         bgfx::TextureHandle ssgiColorTex = bgfx::createTexture2D(width, height, false, 1, bgfx::TextureFormat::RGBA16F, BGFX_TEXTURE_RT | BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP);
         m_ssgiFB = bgfx::createFrameBuffer(1, &ssgiColorTex, true);
+        
+        bgfx::TextureHandle ssrColorTex = bgfx::createTexture2D(width, height, false, 1, bgfx::TextureFormat::RGBA16F, BGFX_TEXTURE_RT | BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP);
+        m_ssrFB = bgfx::createFrameBuffer(1, &ssrColorTex, true);
         
         bgfx::TextureHandle dofColorTex = bgfx::createTexture2D(width, height, false, 1, bgfx::TextureFormat::RGBA16F, BGFX_TEXTURE_RT | BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP);
         m_dofFB = bgfx::createFrameBuffer(1, &dofColorTex, true);
@@ -673,13 +686,32 @@ void RendererSystem::renderFrame(const Camera& camera, int width, int height, bg
     bgfx::setVertexBuffer(0, m_vbh, 0, 4);
     bgfx::setIndexBuffer(m_ibh, 0, 6);
     bgfx::submit(View_SSGI, m_ssgiProgram);
+    
+    // 3.2 SSR Pass
+    bgfx::TextureHandle ssgiOutputTex = bgfx::getTexture(m_ssgiFB, 0);
+    float ssrParams[4] = { 20.0f /* max steps */, 0.05f /* step size */, 0.8f /* roughness threshold */, 0.1f /* thickness */ };
+    bgfx::setUniform(u_ssrParams, ssrParams);
+    
+    bgfx::setTexture(0, s_texColor, ssgiOutputTex);
+    bgfx::setTexture(1, s_texNormalGBuffer, hdrNormalTex);
+    bgfx::setTexture(2, s_texDepth, hdrDepthTex);
+    bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A);
+    bgfx::setViewRect(View_SSR, 0, 0, uint16_t(width), uint16_t(height));
+    bgfx::setViewFrameBuffer(View_SSR, m_ssrFB);
+    bgfx::setViewClear(View_SSR, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, 0x000000ff, 1.0f, 0);
+    Engine::Math::Matrix4 ssrViewMat = camera.getViewMatrix();
+    Engine::Math::Matrix4 ssrProjMat = camera.getProjectionMatrix((float)width/(float)height);
+    bgfx::setViewTransform(View_SSR, ssrViewMat.m.data(), ssrProjMat.m.data());
+    bgfx::setVertexBuffer(0, m_vbh, 0, 4);
+    bgfx::setIndexBuffer(m_ibh, 0, 6);
+    bgfx::submit(View_SSR, m_ssrProgram);
 
-    // 3.2 Bloom Threshold
+    // 3.3 Bloom Threshold
     float bloomParams[4] = { 1.5f, 0.0f, 0.0f, 0.0f }; // threshold
     bgfx::setUniform(u_bloomParams, bloomParams);
-    // Read from SSGI combined buffer
-    bgfx::TextureHandle ssgiOutputTex = bgfx::getTexture(m_ssgiFB, 0);
-    bgfx::setTexture(0, s_texColor, ssgiOutputTex);
+    // Read from SSR buffer
+    bgfx::TextureHandle ssrOutputTex = bgfx::getTexture(m_ssrFB, 0);
+    bgfx::setTexture(0, s_texColor, ssrOutputTex);
     bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A);
     bgfx::setViewRect(View_BloomThreshold, 0, 0, uint16_t(bx::max(1, width / 2)), uint16_t(bx::max(1, height / 2)));
     bgfx::setViewFrameBuffer(View_BloomThreshold, m_bloomFBs[0]);
@@ -689,7 +721,7 @@ void RendererSystem::renderFrame(const Camera& camera, int width, int height, bg
     bgfx::setIndexBuffer(m_ibh, 0, 6);
     bgfx::submit(View_BloomThreshold, m_bloomThresholdProgram);
 
-    // 3.3 Bloom Downsample & Blur (Ping-Pong)
+    // 3.4 Bloom Downsample & Blur (Ping-Pong)
     int bw = width / 2;
     int bh = height / 2;
     bgfx::ViewId currentViewId = 4;
@@ -741,10 +773,11 @@ void RendererSystem::renderFrame(const Camera& camera, int width, int height, bg
         }
     }
 
-    // 3.4 Depth of Field (Render to m_dofFB)
-    float dofParams[4] = { 10.0f /* focus dist */, 2.0f /* focal range */, 0.5f /* blur size */, 0.0f };
+    // 3.5 Depth of Field (Render to m_dofFB)
+    float dofParams[4] = { 10.0f /* focus dist */, 50.0f /* focal range */, 0.0f, 0.0f };
     bgfx::setUniform(u_dofParams, dofParams);
-    bgfx::setTexture(0, s_texColor, ssgiOutputTex);
+    
+    bgfx::setTexture(0, s_texColor, ssrOutputTex);
     bgfx::setTexture(1, s_texDepth, hdrDepthTex);
     bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A);
     bgfx::setViewRect(View_DOF, 0, 0, uint16_t(width), uint16_t(height));

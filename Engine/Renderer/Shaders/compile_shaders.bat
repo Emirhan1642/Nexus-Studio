@@ -33,5 +33,6 @@ echo Compiling Fragment Shader...
 "%SHADERC%" -f fs_fxaa.sc -o fs_fxaa.bin --type fragment --platform windows -p s_5_0 -i "%INCLUDE_PATH%" -i .\
 "%SHADERC%" -f fs_dof.sc -o fs_dof.bin --type fragment --platform windows -p s_5_0 -i "%INCLUDE_PATH%" -i .\
 "%SHADERC%" -f fs_mb.sc -o fs_mb.bin --type fragment --platform windows -p s_5_0 -i "%INCLUDE_PATH%" -i .\
+"%SHADERC%" -f fs_ssr.sc -o fs_ssr.bin --type fragment --platform windows -p s_5_0 -i "%INCLUDE_PATH%" -i .\
 
 echo Done!

@@ -126,5 +126,5 @@ void main() {
     vec3 color = albedo * (ndotl * 0.8 * shadow + 0.2) + indirectDiffuse * albedo;
     
     gl_FragData[0] = vec4(color, 1.0);
-    gl_FragData[1] = vec4(N * 0.5 + 0.5, 1.0); // Pack normal to [0, 1]
+    gl_FragData[1] = vec4(N * 0.5 + 0.5, roughness); // Pack normal and roughness
 }
