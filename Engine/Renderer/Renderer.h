@@ -24,6 +24,8 @@ enum RenderView : bgfx::ViewId {
     View_MainColor = 3,
     View_SSGI = 4,
     View_BloomThreshold = 5,
+    View_DOF = 32,
+    View_MotionBlur = 33,
     View_Tonemap = 30, // Any intermediate passes will use ViewIDs 6-29
     View_FXAA = 31,
 };
@@ -71,9 +73,13 @@ private:
     bgfx::FrameBufferHandle m_tonemapFB = BGFX_INVALID_HANDLE;
     bgfx::FrameBufferHandle m_bloomFBs[5] = { BGFX_INVALID_HANDLE, BGFX_INVALID_HANDLE, BGFX_INVALID_HANDLE, BGFX_INVALID_HANDLE, BGFX_INVALID_HANDLE };
     bgfx::FrameBufferHandle m_bloomBlurFBs[5] = { BGFX_INVALID_HANDLE, BGFX_INVALID_HANDLE, BGFX_INVALID_HANDLE, BGFX_INVALID_HANDLE, BGFX_INVALID_HANDLE };
+    bgfx::FrameBufferHandle m_dofFB = BGFX_INVALID_HANDLE;
+    bgfx::FrameBufferHandle m_mbFB = BGFX_INVALID_HANDLE;
     
     bgfx::ProgramHandle m_bloomThresholdProgram = BGFX_INVALID_HANDLE;
     bgfx::ProgramHandle m_bloomBlurProgram = BGFX_INVALID_HANDLE;
+    bgfx::ProgramHandle m_dofProgram = BGFX_INVALID_HANDLE;
+    bgfx::ProgramHandle m_mbProgram = BGFX_INVALID_HANDLE;
     bgfx::ProgramHandle m_tonemapProgram = BGFX_INVALID_HANDLE;
     bgfx::ProgramHandle m_ssgiProgram = BGFX_INVALID_HANDLE;
     bgfx::ProgramHandle m_fxaaProgram = BGFX_INVALID_HANDLE;
@@ -90,6 +96,11 @@ private:
     bgfx::UniformHandle u_ssgiParams = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle u_fxaaParams = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle u_lodParams = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle u_dofParams = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle u_mbParams = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle u_prevViewProj = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle u_invViewProj = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle u_lightDir = BGFX_INVALID_HANDLE;
 
     int m_width = 0;
     int m_height = 0;
@@ -117,6 +128,8 @@ private:
     uint32_t m_nextMeshHandle = 1;
 
     bgfx::UniformHandle u_boneTransforms = BGFX_INVALID_HANDLE;
+
+    Engine::Math::Matrix4 m_prevViewProj;
 
     // VCT
     Voxelizer m_voxelizer;

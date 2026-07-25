@@ -7,6 +7,7 @@ SAMPLER2D(s_texNormalGBuffer, 1); // Normal
 SAMPLER2D(s_texDepth, 2);       // Depth
 
 uniform vec4 u_ssgiParams; // x = radius, y = intensity, z = ssao intensity, w = resolution scale (unused)
+uniform vec4 u_lightDir;
 
 // Reconstruct view-space position from depth
 vec3 reconstructViewPos(vec2 uv, float depth) {
@@ -91,7 +92,49 @@ void main() {
     
     indirectColor = (indirectColor / float(samples)) * u_ssgiParams.y;
     
+    // -----------------------------------------------------
+    // Contact Shadows (Screen Space Raymarching)
+    // -----------------------------------------------------
+    vec3 rayDir = normalize(u_lightDir.xyz);
+    float contactShadow = 0.0;
+    int maxSteps = 8;
+    float stepSize = 0.05; // View-space distance per step
+    float maxThickness = 0.1; // Thickness of occluders
+    
+    vec3 rayPos = viewPos;
+    for (int j = 1; j <= 8; ++j) {
+        rayPos += rayDir * stepSize;
+        
+        vec4 rayClip = mul(u_proj, vec4(rayPos, 1.0));
+        vec2 rayUV = rayClip.xy / rayClip.w;
+        rayUV = rayUV * 0.5 + 0.5;
+#if !BGFX_SHADER_LANGUAGE_GLSL
+        rayUV.y = 1.0 - rayUV.y;
+#endif
+
+        if (rayUV.x < 0.0 || rayUV.x > 1.0 || rayUV.y < 0.0 || rayUV.y > 1.0) {
+            break; // Ray went off screen
+        }
+        
+        float rayDepthZ = texture2D(s_texDepth, rayUV).x;
+        vec3 sampledPos = reconstructViewPos(rayUV, rayDepthZ);
+        
+        // If the sampled geometry is in front of the ray, and within thickness threshold
+        if (sampledPos.z < rayPos.z && (rayPos.z - sampledPos.z) < maxThickness) {
+            contactShadow = 1.0;
+            break;
+        }
+    }
+    
+    // Fade out contact shadow near screen edges
+    vec2 edgeFade = smoothstep(0.0, 0.1, v_texcoord0) * smoothstep(1.0, 0.9, v_texcoord0);
+    contactShadow *= edgeFade.x * edgeFade.y;
+    // -----------------------------------------------------
+    
     vec3 finalColor = texture2D(s_texColor, v_texcoord0).rgb * ao + indirectColor;
+    
+    // Apply contact shadows (SSDO-style darkening)
+    finalColor *= (1.0 - contactShadow);
     
     gl_FragColor = vec4(finalColor, 1.0);
 }
