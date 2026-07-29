@@ -84,34 +84,38 @@ nlohmann::json DataModelSerializer::serializeRecursive(const std::shared_ptr<Ins
     auto* classDesc = Engine::Reflection::TypeRegistry::instance().find(node->getClassName());
     if (classDesc) {
         nlohmann::json props = nlohmann::json::object();
-        for (const auto& prop : classDesc->properties) {
-            try {
-                if (prop.kind == Engine::Reflection::PropertyDescriptor::Kind::ObjectRef) {
-                    if (prop.objectGetter) {
-                        auto target = prop.objectGetter(node.get());
-                        if (target) {
-                            props[prop.name] = getPath(target, root);
-                        } else {
-                            props[prop.name] = "";
+        auto currentDesc = classDesc;
+        while (currentDesc) {
+            for (const auto& prop : currentDesc->properties) {
+                try {
+                    if (prop.kind == Engine::Reflection::PropertyDescriptor::Kind::ObjectRef) {
+                        if (prop.objectGetter) {
+                            auto target = prop.objectGetter(node.get());
+                            if (target) {
+                                props[prop.name] = getPath(target, root);
+                            } else {
+                                props[prop.name] = "";
+                            }
                         }
-                    }
-                } else if (prop.kind == Engine::Reflection::PropertyDescriptor::Kind::Array) {
-                    if (prop.arraySize && prop.arrayGet) {
-                        nlohmann::json arr = nlohmann::json::array();
-                        size_t count = prop.arraySize(node.get());
-                        for (size_t i = 0; i < count; ++i) {
-                            std::any elem = prop.arrayGet(node.get(), i);
-                            auto serialized = serializeValue(prop, elem);
-                            if (!serialized.is_null()) arr.push_back(serialized);
+                    } else if (prop.kind == Engine::Reflection::PropertyDescriptor::Kind::Array) {
+                        if (prop.arraySize && prop.arrayGet) {
+                            nlohmann::json arr = nlohmann::json::array();
+                            size_t count = prop.arraySize(node.get());
+                            for (size_t i = 0; i < count; ++i) {
+                                std::any elem = prop.arrayGet(node.get(), i);
+                                auto serialized = serializeValue(prop, elem);
+                                if (!serialized.is_null()) arr.push_back(serialized);
+                            }
+                            props[prop.name] = arr;
                         }
-                        props[prop.name] = arr;
+                    } else {
+                        std::any val = prop.getter(node.get());
+                        auto serialized = serializeValue(prop, val);
+                        if (!serialized.is_null()) props[prop.name] = serialized;
                     }
-                } else {
-                    std::any val = prop.getter(node.get());
-                    auto serialized = serializeValue(prop, val);
-                    if (!serialized.is_null()) props[prop.name] = serialized;
-                }
-            } catch (...) {}
+                } catch (...) {}
+            }
+            currentDesc = currentDesc->baseClass;
         }
         j["properties"] = props;
     }
@@ -140,32 +144,36 @@ std::shared_ptr<Instance> DataModelSerializer::deserializeRecursive(const nlohma
         auto* classDesc = Engine::Reflection::TypeRegistry::instance().find(className);
         if (classDesc) {
             const auto& props = j["properties"];
-            for (const auto& prop : classDesc->properties) {
-                if (!props.contains(prop.name)) continue;
-                
-                const auto& jval = props[prop.name];
-                
-                try {
-                    if (prop.kind == Engine::Reflection::PropertyDescriptor::Kind::ObjectRef) {
-                        if (jval.is_string() && !jval.get<std::string>().empty()) {
-                            resolvers.push_back({inst, prop.name, jval.get<std::string>()});
-                        }
-                    } else if (prop.kind == Engine::Reflection::PropertyDescriptor::Kind::Array) {
-                        if (jval.is_array() && prop.arraySet) {
-                            for (size_t i = 0; i < jval.size(); ++i) {
-                                std::any deserialized = deserializeValue(prop, jval[i]);
-                                if (deserialized.has_value()) {
-                                    prop.arraySet(inst.get(), i, deserialized);
+            auto currentDesc = classDesc;
+            while (currentDesc) {
+                for (const auto& prop : currentDesc->properties) {
+                    if (!props.contains(prop.name)) continue;
+                    
+                    const auto& jval = props[prop.name];
+                    
+                    try {
+                        if (prop.kind == Engine::Reflection::PropertyDescriptor::Kind::ObjectRef) {
+                            if (jval.is_string() && !jval.get<std::string>().empty()) {
+                                resolvers.push_back({inst, prop.name, jval.get<std::string>()});
+                            }
+                        } else if (prop.kind == Engine::Reflection::PropertyDescriptor::Kind::Array) {
+                            if (jval.is_array() && prop.arraySet) {
+                                for (size_t i = 0; i < jval.size(); ++i) {
+                                    std::any deserialized = deserializeValue(prop, jval[i]);
+                                    if (deserialized.has_value()) {
+                                        prop.arraySet(inst.get(), i, deserialized);
+                                    }
                                 }
                             }
+                        } else {
+                            std::any deserialized = deserializeValue(prop, jval);
+                            if (deserialized.has_value() && prop.setter) {
+                                prop.setter(inst.get(), deserialized);
+                            }
                         }
-                    } else {
-                        std::any deserialized = deserializeValue(prop, jval);
-                        if (deserialized.has_value() && prop.setter) {
-                            prop.setter(inst.get(), deserialized);
-                        }
-                    }
-                } catch (...) {}
+                    } catch (...) {}
+                }
+                currentDesc = currentDesc->baseClass;
             }
         }
     }

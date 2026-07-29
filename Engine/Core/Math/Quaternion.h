@@ -6,6 +6,7 @@ namespace Engine {
 namespace Math {
 
 struct Matrix4;
+struct Vector3;
 
 struct Quaternion {
     float x = 0.0f;

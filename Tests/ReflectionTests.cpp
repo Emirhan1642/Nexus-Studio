@@ -6,19 +6,14 @@
 #include "Engine/Physics/PhysicsWorld.h"
 #include "Engine/Core/DataModel/Humanoid.h"
 
+#include "TestEnvironment.h"
+
 using namespace Engine::Reflection;
 
 class ReflectionTest : public ::testing::Test {
 protected:
     void SetUp() override {
-        // Finalize registry before running any test
-        static bool initialized = false;
-        if (!initialized) {
-            Engine::Physics::PhysicsWorld::initJolt();
-            Engine::Physics::PhysicsWorld::instance().initialize();
-            TypeRegistry::instance().finalize();
-            initialized = true;
-        }
+        ensureTestEnvironmentInitialized();
     }
 };
 

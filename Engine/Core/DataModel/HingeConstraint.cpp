@@ -1,6 +1,7 @@
 #include "HingeConstraint.h"
 #include "../../Physics/PhysicsWorld.h"
 #include <Jolt/Physics/Constraints/HingeConstraint.h>
+#include <Jolt/Physics/Body/BodyLockMulti.h>
 
 void HingeConstraint::createJoltConstraint() {
     auto p0 = std::dynamic_pointer_cast<Part>(part0.lock());
@@ -15,15 +16,17 @@ void HingeConstraint::createJoltConstraint() {
     auto& physicsSystem = Engine::Physics::PhysicsWorld::instance().getPhysicsSystem();
     auto& bodyInterface = physicsSystem.GetBodyInterface();
 
-    JPH::BodyLockWrite lock0(physicsSystem.GetBodyLockInterface(), id0);
-    JPH::BodyLockWrite lock1(physicsSystem.GetBodyLockInterface(), id1);
+    const JPH::BodyID ids[2] = { id0, id1 };
+    JPH::BodyLockMultiWrite locks(physicsSystem.GetBodyLockInterface(), ids, 2);
+    JPH::Body* b0 = locks.GetBody(0);
+    JPH::Body* b1 = locks.GetBody(1);
     
-    if (lock0.Succeeded() && lock1.Succeeded()) {
+    if (b0 && b1) {
         JPH::HingeConstraintSettings settings;
         
         // Apply Pivot and Axis (Pivot is relative to world or Part0? Let's assume it's world or local to Part0. 
         // Typically it's relative to Part0 in Roblox, but for MVP let's assume world space offset from Part0 for simplicity)
-        JPH::RVec3 pivotJolt = lock0.GetBody().GetPosition() + JPH::Vec3(pivot.x, pivot.y, pivot.z);
+        JPH::RVec3 pivotJolt = b0->GetPosition() + JPH::Vec3(pivot.x, pivot.y, pivot.z);
         JPH::Vec3 axisJolt(axis.x, axis.y, axis.z);
         axisJolt = axisJolt.Normalized();
 
@@ -46,7 +49,7 @@ void HingeConstraint::createJoltConstraint() {
             settings.mLimitsMax = upperLimit;
         }
 
-        joltConstraint = settings.Create(lock0.GetBody(), lock1.GetBody());
+        joltConstraint = settings.Create(*b0, *b1);
         Engine::Physics::PhysicsWorld::instance().addConstraint(joltConstraint);
     }
 }

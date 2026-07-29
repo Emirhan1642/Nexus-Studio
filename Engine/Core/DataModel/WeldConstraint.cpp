@@ -1,6 +1,7 @@
 #include "WeldConstraint.h"
 #include "../../Physics/PhysicsWorld.h"
 #include <Jolt/Physics/Constraints/FixedConstraint.h>
+#include <Jolt/Physics/Body/BodyLockMulti.h>
 
 void WeldConstraint::createJoltConstraint() {
     auto p0 = std::dynamic_pointer_cast<Part>(part0.lock());
@@ -15,14 +16,16 @@ void WeldConstraint::createJoltConstraint() {
     auto& physicsSystem = Engine::Physics::PhysicsWorld::instance().getPhysicsSystem();
     auto& bodyInterface = physicsSystem.GetBodyInterface();
 
-    JPH::BodyLockWrite lock0(physicsSystem.GetBodyLockInterface(), id0);
-    JPH::BodyLockWrite lock1(physicsSystem.GetBodyLockInterface(), id1);
+    const JPH::BodyID ids[2] = { id0, id1 };
+    JPH::BodyLockMultiWrite locks(physicsSystem.GetBodyLockInterface(), ids, 2);
+    JPH::Body* b0 = locks.GetBody(0);
+    JPH::Body* b1 = locks.GetBody(1);
     
-    if (lock0.Succeeded() && lock1.Succeeded()) {
+    if (b0 && b1) {
         JPH::FixedConstraintSettings settings;
         settings.mAutoDetectPoint = true; // Use current relative positions
 
-        joltConstraint = settings.Create(lock0.GetBody(), lock1.GetBody());
+        joltConstraint = settings.Create(*b0, *b1);
         Engine::Physics::PhysicsWorld::instance().addConstraint(joltConstraint);
     }
 }
