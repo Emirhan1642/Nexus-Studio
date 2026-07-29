@@ -60,6 +60,9 @@ public:
     std::shared_ptr<ImportedSkeletalMesh> getSkeletalMesh(AssetGuid guid) const;
     void setSkeletalMesh(AssetGuid guid, std::shared_ptr<ImportedSkeletalMesh> mesh);
 
+    std::shared_ptr<Animation::AnimationClip> getAnimationClip(AssetGuid guid) const;
+    AssetGuid registerVirtualAsset(const std::string& parentRelativePath, const std::string& subAssetName, const std::string& type);
+
 private:
     AssetGuid generateGuid();
     void loadMetaFile(const std::string& metaFilePath);

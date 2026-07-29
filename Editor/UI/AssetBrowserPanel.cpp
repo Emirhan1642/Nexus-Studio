@@ -4,6 +4,7 @@
 #include "../../Engine/Assets/AssetImportPipeline.h"
 #include <imgui.h>
 #include <filesystem>
+#include <nlohmann/json.hpp>
 
 namespace fs = std::filesystem;
 
@@ -52,10 +53,52 @@ void AssetBrowserPanel::drawAssetGrid() {
 
     ImGui::Columns(columnCount, nullptr, false);
 
+    // If we are inside an FBX
+    if (m_currentFolder.starts_with("guid:")) {
+        Engine::Assets::AssetGuid parentGuid = Engine::Assets::AssetGuid::fromString(m_currentFolder.substr(5));
+        const auto* parentMeta = Engine::Assets::AssetDatabase::instance().find(parentGuid);
+        
+        if (ImGui::Button("< Back")) {
+            m_currentFolder = Engine::Assets::AssetDatabase::instance().getProjectRoot() + "/Assets";
+        }
+        
+        if (parentMeta) {
+            nlohmann::json settings;
+            try { settings = nlohmann::json::parse(parentMeta->importSettings); } catch (...) {}
+            if (settings.contains("subAssets")) {
+                for (auto& [name, guidStr] : settings["subAssets"].items()) {
+                    Engine::Assets::AssetGuid subGuid = Engine::Assets::AssetGuid::fromString(guidStr.get<std::string>());
+                    
+                    ImGui::PushID(subGuid.toString().c_str());
+                    
+                    // Simple button as thumbnail placeholder
+                    ImGui::Button(name.c_str(), ImVec2(cardSize, cardSize));
+                    
+                    if (ImGui::BeginDragDropSource()) {
+                        Engine::Assets::AssetGuid dragGuid = subGuid;
+                        ImGui::SetDragDropPayload("ASSET_GUID", &dragGuid, sizeof(Engine::Assets::AssetGuid));
+                        ImGui::Text("%s", name.c_str());
+                        ImGui::EndDragDropSource();
+                    }
+                    
+                    ImGui::Text("%s", name.c_str());
+                    
+                    ImGui::PopID();
+                    ImGui::NextColumn();
+                }
+            }
+        }
+        ImGui::Columns(1);
+        return;
+    }
+
     // List all assets for MVP
     auto assets = Engine::Assets::AssetDatabase::instance().getAllAssets();
     
     for (auto& guid : assets) {
+        const auto* meta = Engine::Assets::AssetDatabase::instance().find(guid);
+        if (meta && meta->importerType == "Virtual") continue; // Hide sub-assets from root view
+        
         bgfx::TextureHandle thumb = Engine::Assets::ThumbnailCache::instance().get(guid);
         
         ImGui::PushID(guid.toString().c_str());
@@ -63,16 +106,21 @@ void AssetBrowserPanel::drawAssetGrid() {
         // Thumbnail
         ImGui::ImageButton("##thumb", (ImTextureID)(uintptr_t)thumb.idx, ImVec2(cardSize, cardSize));
         
+        if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
+            if (meta && meta->importerType == "Mesh") {
+                m_currentFolder = "guid:" + guid.toString();
+            }
+        }
+        
         // Drag source
         if (ImGui::BeginDragDropSource()) {
             Engine::Assets::AssetGuid dragGuid = guid;
             ImGui::SetDragDropPayload("ASSET_GUID", &dragGuid, sizeof(Engine::Assets::AssetGuid));
-            ImGui::Text("%s", Engine::Assets::AssetDatabase::instance().find(guid)->relativePath.c_str());
+            ImGui::Text("%s", meta ? meta->relativePath.c_str() : "Unknown");
             ImGui::EndDragDropSource();
         }
 
         // File name text
-        const auto* meta = Engine::Assets::AssetDatabase::instance().find(guid);
         if (meta) {
             std::string filename = fs::path(meta->relativePath).filename().string();
             // Truncate if too long

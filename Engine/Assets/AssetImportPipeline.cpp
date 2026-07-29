@@ -6,9 +6,11 @@
 #include <filesystem>
 #include <iostream>
 #include <functional>
+#include <nlohmann/json.hpp>
 #include "Importers/SkeletalMeshImporter.h"
 
 namespace fs = std::filesystem;
+using json = nlohmann::json;
 
 namespace Engine::Assets {
 
@@ -104,9 +106,34 @@ void AssetImportPipeline::applyImportResult(AssetGuid guid, const ImportResult& 
     m_progress.completedAssets++;
     
     if (result.success) {
-        // The metadata could be updated here if runImporterForFile filled it out
         if (result.importedMesh) {
             AssetDatabase::instance().setSkeletalMesh(guid, result.importedMesh);
+            
+            // Generate virtual sub-assets for animations and mesh
+            AssetMetadata* meta = AssetDatabase::instance().findMutable(guid);
+            if (meta) {
+                json settings;
+                try {
+                    settings = json::parse(meta->importSettings.empty() ? "{}" : meta->importSettings);
+                } catch (...) {}
+                
+                json subAssets = json::object();
+                
+                // Register a "Mesh" sub-asset
+                AssetGuid meshGuid = AssetDatabase::instance().registerVirtualAsset(meta->relativePath, "Mesh", "SkeletalMesh");
+                subAssets["Mesh"] = meshGuid.toString();
+                
+                // Register AnimationClips
+                for (auto& clip : result.importedMesh->clips) {
+                    if (clip.name.empty()) continue;
+                    AssetGuid clipGuid = AssetDatabase::instance().registerVirtualAsset(meta->relativePath, clip.name, "AnimationClip");
+                    subAssets[clip.name] = clipGuid.toString();
+                }
+                
+                settings["subAssets"] = subAssets;
+                meta->importSettings = settings.dump();
+                AssetDatabase::instance().updateMetadata(guid, *meta);
+            }
         }
         
         // Invalidate thumbnail

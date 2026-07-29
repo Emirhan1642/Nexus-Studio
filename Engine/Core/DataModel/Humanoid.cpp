@@ -37,6 +37,54 @@ void Humanoid::onRemovedFromWorkspace() {
     cleanupCharacterVirtual();
 }
 
+std::shared_ptr<AnimationTrack> Humanoid::getIdleTrack() {
+    auto track = std::dynamic_pointer_cast<AnimationTrack>(findFirstChild("IdleTrack"));
+    if (!track) {
+        track = std::static_pointer_cast<AnimationTrack>(createInstance("AnimationTrack"));
+        track->name = "IdleTrack";
+        track->priority = 100; // base priority
+        track->setParent(shared_from_this());
+    }
+    track->clip = idleAnimation;
+    return track;
+}
+
+std::shared_ptr<AnimationTrack> Humanoid::getWalkTrack() {
+    auto track = std::dynamic_pointer_cast<AnimationTrack>(findFirstChild("WalkTrack"));
+    if (!track) {
+        track = std::static_pointer_cast<AnimationTrack>(createInstance("AnimationTrack"));
+        track->name = "WalkTrack";
+        track->priority = 110;
+        track->setParent(shared_from_this());
+    }
+    track->clip = walkAnimation;
+    return track;
+}
+
+std::shared_ptr<AnimationTrack> Humanoid::getJumpTrack() {
+    auto track = std::dynamic_pointer_cast<AnimationTrack>(findFirstChild("JumpTrack"));
+    if (!track) {
+        track = std::static_pointer_cast<AnimationTrack>(createInstance("AnimationTrack"));
+        track->name = "JumpTrack";
+        track->priority = 120;
+        track->setParent(shared_from_this());
+    }
+    track->clip = jumpAnimation;
+    return track;
+}
+
+std::shared_ptr<AnimationTrack> Humanoid::getFallTrack() {
+    auto track = std::dynamic_pointer_cast<AnimationTrack>(findFirstChild("FallTrack"));
+    if (!track) {
+        track = std::static_pointer_cast<AnimationTrack>(createInstance("AnimationTrack"));
+        track->name = "FallTrack";
+        track->priority = 120;
+        track->setParent(shared_from_this());
+    }
+    track->clip = fallAnimation;
+    return track;
+}
+
 void Humanoid::initCharacterVirtual() {
     if (character) return;
     auto part = getRootPart();

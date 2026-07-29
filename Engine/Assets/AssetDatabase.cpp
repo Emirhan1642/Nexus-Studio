@@ -134,6 +134,51 @@ void AssetDatabase::setSkeletalMesh(AssetGuid guid, std::shared_ptr<ImportedSkel
     m_skeletalMeshes[guid] = mesh;
 }
 
+std::shared_ptr<Animation::AnimationClip> AssetDatabase::getAnimationClip(AssetGuid guid) const {
+    const AssetMetadata* meta = find(guid);
+    if (!meta) return nullptr;
+
+    size_t lastSlash = meta->relativePath.find_last_of('/');
+    if (lastSlash == std::string::npos) return nullptr;
+
+    std::string parentPath = meta->relativePath.substr(0, lastSlash);
+    auto it = m_pathToGuid.find(parentPath);
+    if (it == m_pathToGuid.end()) return nullptr;
+
+    auto mesh = getSkeletalMesh(it->second);
+    if (!mesh) return nullptr;
+
+    std::string clipName = meta->relativePath.substr(lastSlash + 1);
+    for (auto& clip : mesh->clips) {
+        if (clip.name == clipName) {
+            // Using aliasing constructor to keep mesh alive
+            return std::shared_ptr<Animation::AnimationClip>(mesh, &clip);
+        }
+    }
+    return nullptr;
+}
+
+AssetGuid AssetDatabase::registerVirtualAsset(const std::string& parentRelativePath, const std::string& subAssetName, const std::string& type) {
+    std::string relativePath = parentRelativePath + "/" + subAssetName;
+    auto it = m_pathToGuid.find(relativePath);
+    if (it != m_pathToGuid.end()) {
+        return it->second;
+    }
+
+    AssetGuid newGuid = generateGuid();
+    m_pathToGuid[relativePath] = newGuid;
+
+    AssetMetadata meta;
+    meta.guid = newGuid;
+    meta.relativePath = relativePath;
+    meta.importerType = type;
+    meta.sourceFileHash = 0;
+    meta.importSettings = "{}";
+
+    m_metadata[newGuid] = meta;
+    return newGuid;
+}
+
 AssetGuid AssetDatabase::generateGuid() {
     static std::random_device rd;
     static std::mt19937_64 gen(rd());
@@ -164,6 +209,24 @@ void AssetDatabase::loadMetaFile(const std::string& metaFilePath) {
         
         if (j.contains("importSettings")) {
             meta.importSettings = j["importSettings"].dump();
+            
+            // Register virtual sub-assets
+            auto importSettingsJson = j["importSettings"];
+            if (importSettingsJson.contains("subAssets")) {
+                for (auto& [name, guidStr] : importSettingsJson["subAssets"].items()) {
+                    AssetGuid subGuid = AssetGuid::fromString(guidStr.get<std::string>());
+                    if (subGuid.isValid()) {
+                        AssetMetadata subMeta;
+                        subMeta.guid = subGuid;
+                        subMeta.relativePath = meta.relativePath + "/" + name;
+                        subMeta.importerType = "Virtual"; 
+                        subMeta.sourceFileHash = meta.sourceFileHash;
+                        subMeta.importSettings = "{}";
+                        m_metadata[subGuid] = subMeta;
+                        m_pathToGuid[subMeta.relativePath] = subGuid;
+                    }
+                }
+            }
         }
         
         m_metadata[meta.guid] = meta;

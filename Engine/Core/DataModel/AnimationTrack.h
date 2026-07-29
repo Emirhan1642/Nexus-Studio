@@ -17,7 +17,11 @@ public:
     
     int priority = 1000;
     float weight = 1.0f;
-    std::vector<int> boneMask;
+    std::vector<std::string> maskedBones;
+    bool maskRecursive = true;
+    
+    void addBoneMask(const std::string& boneName);
+    void removeBoneMask(const std::string& boneName);
     
     // Play with crossfade blending duration
     void play(float blendTime = 0.2f);

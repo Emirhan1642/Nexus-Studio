@@ -10,7 +10,9 @@
 #include <Jolt/Physics/Body/BodyID.h>
 
 #include "../../Animation/AnimationPlayer.h"
+#include "../../Animation/AnimationClip.h"
 #include "../../Animation/Skeleton.h"
+#include "AnimationTrack.h"
 
 namespace JPH {
     class CharacterVirtual;
@@ -53,6 +55,18 @@ public:
     Animation::AnimationPlayer& getAnimationPlayer() { return animationPlayer; }
     Animation::Skeleton& getSkeleton() { return skeleton; }
     bool ikEnabled = true;
+
+    // Default Animations
+    std::shared_ptr<Animation::AnimationClip> idleAnimation;
+    std::shared_ptr<Animation::AnimationClip> walkAnimation;
+    std::shared_ptr<Animation::AnimationClip> jumpAnimation;
+    std::shared_ptr<Animation::AnimationClip> fallAnimation;
+
+    // Tracks (Internal)
+    std::shared_ptr<AnimationTrack> getIdleTrack();
+    std::shared_ptr<AnimationTrack> getWalkTrack();
+    std::shared_ptr<AnimationTrack> getJumpTrack();
+    std::shared_ptr<AnimationTrack> getFallTrack();
 
     // Internal updates
     void update(float deltaTime);

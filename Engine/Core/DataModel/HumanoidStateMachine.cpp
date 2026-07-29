@@ -42,12 +42,27 @@ HumanoidState HumanoidStateMachine::computeNextState(const Humanoid& humanoid) {
     return hasMoveInput ? HumanoidState::Walking : HumanoidState::Idle;
 }
 
+static std::shared_ptr<AnimationTrack> getTrackForState(HumanoidState state, Humanoid& humanoid) {
+    switch (state) {
+        case HumanoidState::Idle: return humanoid.getIdleTrack();
+        case HumanoidState::Walking: return humanoid.getWalkTrack();
+        case HumanoidState::Jumping: return humanoid.getJumpTrack();
+        case HumanoidState::Falling: return humanoid.getFallTrack();
+        default: return nullptr;
+    }
+}
+
 void HumanoidStateMachine::onStateEnter(HumanoidState state, Humanoid& humanoid) {
+    if (auto track = getTrackForState(state, humanoid)) {
+        track->play(0.2f); // 0.2s crossfade
+    }
     humanoid.stateChangedSignal.fire({ (int)state });
 }
 
 void HumanoidStateMachine::onStateExit(HumanoidState state, Humanoid& humanoid) {
-    // Optional: Cleanup state specific data
+    if (auto track = getTrackForState(state, humanoid)) {
+        track->stop(0.2f); // 0.2s fade out
+    }
 }
 
 } // namespace Engine

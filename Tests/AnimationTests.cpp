@@ -56,8 +56,101 @@ TEST(AnimationTest, TestAnimationPlayer) {
 
     std::vector<Matrix4> localPoses = player.evaluate(skeleton, 0.5f);
     EXPECT_EQ(localPoses.size(), 1);
+}
 
-    // After 0.5 sec, position should be linearly interpolated to {0, 0.5, 0}
-    // But AnimationPlayer evaluation just returns dummy matrices right now unless properly mocked or calculated.
-    // Assuming AnimationClip::sampleBone does LERP.
+TEST(AnimationTest, TestAnimationBlending) {
+    Skeleton skeleton;
+    Bone root;
+    root.name = "Root";
+    root.parentIndex = -1;
+    root.bindPoseLocalTransform = Matrix4::fromTRS({0, 0, 0}, Quaternion::identity(), {1, 1, 1});
+    skeleton.bones.push_back(root);
+
+    AnimationClip clipA;
+    clipA.duration = 1.0f;
+    BoneKeyframes keysA;
+    keysA.boneIndex = 0;
+    keysA.times = {0.0f, 1.0f};
+    keysA.positions = {{0, 0, 0}, {0, 0, 0}}; // Stays at 0
+    keysA.rotations = {Quaternion::identity(), Quaternion::identity()};
+    keysA.scales = {{1, 1, 1}, {1, 1, 1}};
+    clipA.boneTracks.push_back(keysA);
+
+    AnimationClip clipB;
+    clipB.duration = 1.0f;
+    BoneKeyframes keysB;
+    keysB.boneIndex = 0;
+    keysB.times = {0.0f, 1.0f};
+    keysB.positions = {{0, 10, 0}, {0, 10, 0}}; // Stays at 10
+    keysB.rotations = {Quaternion::identity(), Quaternion::identity()};
+    keysB.scales = {{1, 1, 1}, {1, 1, 1}};
+    clipB.boneTracks.push_back(keysB);
+
+    AnimationPlayer player;
+    
+    // Play both tracks
+    int trackA_id = 1;
+    int trackB_id = 2;
+    
+    // Play track A with weight 0.5
+    player.play(&clipA, &trackA_id, 100, 0.0f, 0.5f);
+    
+    // Play track B with weight 0.5 and higher priority
+    player.play(&clipB, &trackB_id, 110, 0.0f, 0.5f);
+
+    std::vector<Matrix4> localPoses = player.evaluate(skeleton, 0.1f);
+    EXPECT_EQ(localPoses.size(), 1);
+
+    Vector3 pos, scale;
+    Quaternion rot;
+    localPoses[0].decompose(pos, rot, scale);
+
+    // Track A applies 0.5 weight on BindPose(0). Pose becomes 0.
+    // Track B applies 0.5 weight on current Pose(0). Target is 10.
+    // Lerp(0, 10, 0.5) = 5.0
+    EXPECT_NEAR(pos.y, 5.0f, 0.01f);
+}
+
+TEST(AnimationTest, TestBoneMasking) {
+    Skeleton skeleton;
+    
+    Bone root; root.name = "Root"; root.parentIndex = -1;
+    root.bindPoseLocalTransform = Matrix4::fromTRS({0, 0, 0}, Quaternion::identity(), {1, 1, 1});
+    
+    Bone arm; arm.name = "Arm"; arm.parentIndex = 0;
+    arm.bindPoseLocalTransform = Matrix4::fromTRS({0, 0, 0}, Quaternion::identity(), {1, 1, 1});
+    
+    skeleton.bones.push_back(root);
+    skeleton.bones.push_back(arm);
+
+    AnimationClip clipA;
+    clipA.duration = 1.0f;
+    BoneKeyframes keysARoot; keysARoot.boneIndex = 0; keysARoot.times = {0.0f}; 
+    keysARoot.positions = {{0, 10, 0}}; keysARoot.rotations = {Quaternion::identity()}; keysARoot.scales = {{1, 1, 1}};
+    
+    BoneKeyframes keysAArm; keysAArm.boneIndex = 1; keysAArm.times = {0.0f}; 
+    keysAArm.positions = {{0, 10, 0}}; keysAArm.rotations = {Quaternion::identity()}; keysAArm.scales = {{1, 1, 1}};
+    
+    clipA.boneTracks.push_back(keysARoot);
+    clipA.boneTracks.push_back(keysAArm);
+
+    AnimationPlayer player;
+    
+    int trackA_id = 1;
+    // Play track A with mask only on bone 0 (Root). Bone 1 (Arm) is masked OUT (not in the list).
+    std::vector<int> mask = {0}; 
+    player.play(&clipA, &trackA_id, 100, 0.0f, 1.0f, mask);
+
+    std::vector<Matrix4> localPoses = player.evaluate(skeleton, 0.1f);
+
+    Vector3 rootPos, rootScale; Quaternion rootRot;
+    localPoses[0].decompose(rootPos, rootRot, rootScale);
+    
+    Vector3 armPos, armScale; Quaternion armRot;
+    localPoses[1].decompose(armPos, armRot, armScale);
+
+    // Root should be animated to 10
+    EXPECT_NEAR(rootPos.y, 10.0f, 0.01f);
+    // Arm should remain at bind pose (0) because it was masked out
+    EXPECT_NEAR(armPos.y, 0.0f, 0.01f);
 }

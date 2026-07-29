@@ -23,10 +23,47 @@ void AnimationTrack::onAddedToWorkspace() {
     Instance::onAddedToWorkspace();
 }
 
+void AnimationTrack::addBoneMask(const std::string& boneName) {
+    if (std::find(maskedBones.begin(), maskedBones.end(), boneName) == maskedBones.end()) {
+        maskedBones.push_back(boneName);
+    }
+}
+
+void AnimationTrack::removeBoneMask(const std::string& boneName) {
+    maskedBones.erase(
+        std::remove(maskedBones.begin(), maskedBones.end(), boneName), 
+        maskedBones.end()
+    );
+}
+
 void AnimationTrack::play(float blendTime) {
     if (auto humanoid = getHumanoidParent()) {
         if (clip) {
-            humanoid->getAnimationPlayer().play(clip.get(), this, priority, blendTime, weight, boneMask);
+            std::vector<int> resolvedMask;
+            const auto& skeleton = humanoid->getSkeleton();
+            
+            auto addBoneAndChildren = [&](auto& self, int boneIndex) -> void {
+                if (std::find(resolvedMask.begin(), resolvedMask.end(), boneIndex) == resolvedMask.end()) {
+                    resolvedMask.push_back(boneIndex);
+                }
+                if (maskRecursive) {
+                    for (size_t i = 0; i < skeleton.bones.size(); ++i) {
+                        if (skeleton.bones[i].parentIndex == boneIndex) {
+                            self(self, static_cast<int>(i));
+                        }
+                    }
+                }
+            };
+
+            for (const auto& name : maskedBones) {
+                for (size_t i = 0; i < skeleton.bones.size(); ++i) {
+                    if (skeleton.bones[i].name == name) {
+                        addBoneAndChildren(addBoneAndChildren, static_cast<int>(i));
+                    }
+                }
+            }
+            
+            humanoid->getAnimationPlayer().play(clip.get(), this, priority, blendTime, weight, resolvedMask);
         }
     }
 }
@@ -43,9 +80,9 @@ static void registerAnimationTrack() {
         .base("Instance")
         .property("Priority", &AnimationTrack::priority)
         .property("Weight", &AnimationTrack::weight)
-        // Array property for boneMask could be supported via a different system if not primitives, 
-        // but skipping it in generic reflection if arrays aren't fully tested, or registering it if supported:
-        // .arrayProperty("BoneMask", &AnimationTrack::boneMask)
+        .property("MaskRecursive", &AnimationTrack::maskRecursive)
+        .method("AddBoneMask", &AnimationTrack::addBoneMask)
+        .method("RemoveBoneMask", &AnimationTrack::removeBoneMask)
         .method("Play", &AnimationTrack::play)
         .method("Stop", &AnimationTrack::stop);
 }
