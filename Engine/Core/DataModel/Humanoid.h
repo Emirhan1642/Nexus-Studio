@@ -39,6 +39,7 @@ public:
     void moveTo(const Math::Vector3& direction);
     void jump();
     void enterRagdoll();
+    void exitRagdoll();
 
     // Signal for state changes
     Signal stateChangedSignal;

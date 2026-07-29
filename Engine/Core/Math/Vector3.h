@@ -26,6 +26,28 @@ struct Vector3 {
     float length() const {
         return std::sqrt(x * x + y * y + z * z);
     }
+    
+    void normalize() {
+        float len = length();
+        if (len > 0.0f) {
+            float invLen = 1.0f / len;
+            x *= invLen;
+            y *= invLen;
+            z *= invLen;
+        }
+    }
+
+    float dot(const Vector3& other) const {
+        return x * other.x + y * other.y + z * other.z;
+    }
+
+    Vector3 cross(const Vector3& other) const {
+        return Vector3(
+            y * other.z - z * other.y,
+            z * other.x - x * other.z,
+            x * other.y - y * other.x
+        );
+    }
 };
 
 } // namespace Engine::Math

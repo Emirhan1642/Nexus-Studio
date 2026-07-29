@@ -5,6 +5,8 @@
 namespace Engine {
 namespace Math {
 
+struct Matrix4;
+
 struct Quaternion {
     float x = 0.0f;
     float y = 0.0f;
@@ -34,6 +36,9 @@ struct Quaternion {
     float dot(const Quaternion& q) const {
         return x * q.x + y * q.y + z * q.z + w * q.w;
     }
+
+    static Quaternion fromRotationMatrix(const Matrix4& m);
+    static Quaternion fromAxisAngle(const Vector3& axis, float angle);
 
     Quaternion slerp(const Quaternion& target, float t) const;
 };

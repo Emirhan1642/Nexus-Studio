@@ -39,6 +39,8 @@ struct Matrix4 {
     static Matrix4 fromTRS(const Vector3& pos, const Quaternion& rot, const Vector3& scale);
 
     Vector3 getTranslation() const;
+    
+    void decompose(Vector3& outTranslation, Quaternion& outRotation, Vector3& outScale) const;
 
     // Inverse matrix
     Matrix4 inverse() const;

@@ -16,7 +16,11 @@ void HumanoidStateMachine::update(Humanoid& humanoid, float deltaTime) {
 
 HumanoidState HumanoidStateMachine::computeNextState(const Humanoid& humanoid) {
     if (humanoid.state == HumanoidState::Ragdoll) {
-        return HumanoidState::Ragdoll; // Cannot escape ragdoll in this basic implementation
+        // If we are in ragdoll state but character is valid, it means we exited ragdoll manually
+        if (humanoid.getCharacter() != nullptr) {
+            return HumanoidState::Idle; 
+        }
+        return HumanoidState::Ragdoll; 
     }
 
     JPH::CharacterVirtual* character = humanoid.getCharacter();

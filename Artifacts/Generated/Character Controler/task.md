@@ -1,0 +1,6 @@
+- `[x]` Add Math extensions
+  - `[x]` Vector3: cross, dot, normalize
+  - `[x]` Quaternion: fromAxisAngle
+- `[x]` Implement TwoBoneIK solver
+- `[x]` Add exitRagdoll to Humanoid
+- `[x]` Update HumanoidStateMachine

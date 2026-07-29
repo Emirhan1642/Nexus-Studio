@@ -1,8 +1,53 @@
 #include "Quaternion.h"
+#include "Matrix4.h"
 #include <algorithm>
 
 namespace Engine {
 namespace Math {
+
+Quaternion Quaternion::fromRotationMatrix(const Matrix4& m) {
+    float tr = m.m[0] + m.m[5] + m.m[10];
+    Quaternion q;
+    if (tr > 0.0f) {
+        float S = std::sqrt(tr + 1.0f) * 2.0f; 
+        q.w = 0.25f * S;
+        q.x = (m.m[6] - m.m[9]) / S;
+        q.y = (m.m[8] - m.m[2]) / S; 
+        q.z = (m.m[1] - m.m[4]) / S; 
+    } else if ((m.m[0] > m.m[5]) && (m.m[0] > m.m[10])) { 
+        float S = std::sqrt(1.0f + m.m[0] - m.m[5] - m.m[10]) * 2.0f; 
+        q.w = (m.m[6] - m.m[9]) / S;
+        q.x = 0.25f * S;
+        q.y = (m.m[1] + m.m[4]) / S; 
+        q.z = (m.m[8] + m.m[2]) / S; 
+    } else if (m.m[5] > m.m[10]) { 
+        float S = std::sqrt(1.0f + m.m[5] - m.m[0] - m.m[10]) * 2.0f; 
+        q.w = (m.m[8] - m.m[2]) / S;
+        q.x = (m.m[1] + m.m[4]) / S; 
+        q.y = 0.25f * S;
+        q.z = (m.m[6] + m.m[9]) / S; 
+    } else { 
+        float S = std::sqrt(1.0f + m.m[10] - m.m[0] - m.m[5]) * 2.0f; 
+        q.w = (m.m[1] - m.m[4]) / S;
+        q.x = (m.m[8] + m.m[2]) / S;
+        q.y = (m.m[6] + m.m[9]) / S;
+        q.z = 0.25f * S;
+    }
+    q.normalize();
+    return q;
+}
+
+Quaternion Quaternion::fromAxisAngle(const Vector3& axis, float angle) {
+    float halfAngle = angle * 0.5f;
+    float s = std::sin(halfAngle);
+    Quaternion q;
+    q.x = axis.x * s;
+    q.y = axis.y * s;
+    q.z = axis.z * s;
+    q.w = std::cos(halfAngle);
+    q.normalize();
+    return q;
+}
 
 Quaternion Quaternion::slerp(const Quaternion& target, float t) const {
     float cosTheta = dot(target);

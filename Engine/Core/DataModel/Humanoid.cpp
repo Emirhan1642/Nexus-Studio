@@ -135,9 +135,12 @@ void Humanoid::applyMovement(const Math::Vector3& moveDirection, float deltaTime
         
         // Simple IK Integration hook
         if (ikEnabled) {
-            // Placeholder: if we had LeftFoot and RightFoot indices, we would cast rays here 
-            // and apply TwoBoneIK. For MVP, we demonstrate the architectural placement.
-            // auto ikResult = Animation::IK::solveTwoBoneIK(hipPos, kneePos, footPos, hitPos, poleVector);
+            // Placeholder: For a real implementation, we would extract rootPos, midPos, endPos 
+            // from finalBoneTransforms, calculate the solve, and compose it back.
+            // Math::Vector3 rootPos = ..., midPos = ..., endPos = ...;
+            // auto ikResult = Animation::IK::solveTwoBoneIK(rootPos, midPos, endPos, targetPos, poleVector);
+            // finalBoneTransforms[upperBoneIndex] = ... ikResult.upperBoneRotation ...
+            // finalBoneTransforms[lowerBoneIndex] = ... ikResult.lowerBoneRotation ...
         }
         
         std::vector<Math::Matrix4> worldPose = skeleton.computeWorldTransforms(localPose);
@@ -222,6 +225,38 @@ void Humanoid::enterRagdoll() {
     createJoint(torsoId, rightArmId, Physics::toJoltVec3(part->getPosition() + Math::Vector3(1.0f, 0.5f, 0))); // Right Shoulder
 }
 
+void Humanoid::exitRagdoll() {
+    if (state != HumanoidState::Ragdoll) return;
+
+    auto part = getRootPart();
+    if (!part) return;
+
+    auto& physicsWorld = Physics::PhysicsWorld::instance();
+    auto& bodyInterface = physicsWorld.getBodyInterface();
+
+    // Remove joints
+    for (auto joint : ragdollJoints) {
+        physicsWorld.getPhysicsSystem().RemoveConstraint(joint);
+    }
+    ragdollJoints.clear();
+
+    // Remove limbs
+    for (auto& limb : ragdollLimbs) {
+        bodyInterface.RemoveBody(limb.bodyId);
+        bodyInterface.DestroyBody(limb.bodyId);
+        if (limb.part) {
+            limb.part->setParent(nullptr);
+        }
+    }
+    ragdollLimbs.clear();
+
+    // Reinitialize virtual character
+    initCharacterVirtual();
+
+    state = HumanoidState::Idle;
+    stateChangedSignal.fire({ (int)state });
+}
+
 // Reflection Registration
 static void registerHumanoid() {
     Engine::Reflection::ClassBuilder<Humanoid>("Humanoid")
@@ -231,7 +266,9 @@ static void registerHumanoid() {
         .property("Health", &Humanoid::health)
         .property("MaxHealth", &Humanoid::maxHealth)
         .method("MoveTo", &Humanoid::moveTo)
-        .method("Jump", &Humanoid::jump);
+        .method("Jump", &Humanoid::jump)
+        .method("EnterRagdoll", &Humanoid::enterRagdoll)
+        .method("ExitRagdoll", &Humanoid::exitRagdoll);
         
     auto& desc = Engine::Reflection::EnumRegistry::instance().registerEnum("HumanoidState");
     desc.values = {

@@ -130,6 +130,23 @@ Vector3 Matrix4::getTranslation() const {
     return Vector3(m[12], m[13], m[14]);
 }
 
+void Matrix4::decompose(Vector3& outTranslation, Quaternion& outRotation, Vector3& outScale) const {
+    outTranslation = getTranslation();
+    
+    // Extract scale
+    outScale.x = std::sqrt(m[0]*m[0] + m[1]*m[1] + m[2]*m[2]);
+    outScale.y = std::sqrt(m[4]*m[4] + m[5]*m[5] + m[6]*m[6]);
+    outScale.z = std::sqrt(m[8]*m[8] + m[9]*m[9] + m[10]*m[10]);
+    
+    // Create rotation matrix by dividing by scale
+    Matrix4 rotMat = identity();
+    if (outScale.x != 0.0f) { rotMat.m[0] = m[0]/outScale.x; rotMat.m[1] = m[1]/outScale.x; rotMat.m[2] = m[2]/outScale.x; }
+    if (outScale.y != 0.0f) { rotMat.m[4] = m[4]/outScale.y; rotMat.m[5] = m[5]/outScale.y; rotMat.m[6] = m[6]/outScale.y; }
+    if (outScale.z != 0.0f) { rotMat.m[8] = m[8]/outScale.z; rotMat.m[9] = m[9]/outScale.z; rotMat.m[10] = m[10]/outScale.z; }
+    
+    outRotation = Quaternion::fromRotationMatrix(rotMat);
+}
+
 Matrix4 Matrix4::fromRotation(const Quaternion& rot) {
     Matrix4 res = identity();
     float xx = rot.x * rot.x;
