@@ -24,8 +24,17 @@ void Part::setPosition(const Engine::Math::Vector3& newPos) {
 void Part::setSize(const Engine::Math::Vector3& newSize) {
     size = newSize;
     markRenderDirty();
-    // Note: Changing size of a physics body in Jolt requires recreating the shape.
-    // For MVP, we might skip dynamic resizing of physics bodies.
+    
+    if (physicsBodyId != 0xFFFFFFFF) {
+        JPH::BodyID bodyId(physicsBodyId);
+        auto& bi = Engine::Physics::PhysicsWorld::instance().getBodyInterface();
+        
+        // Create new shape (half extents)
+        JPH::RefConst<JPH::Shape> newShape = new JPH::BoxShape(Engine::Physics::toJoltVec3(size * 0.5f));
+        
+        // Set shape, update mass properties, and activate
+        bi.SetShape(bodyId, newShape, true, JPH::EActivation::Activate);
+    }
 }
 
 void Part::setMeshFromAsset(const Engine::Assets::AssetGuid& guid) {

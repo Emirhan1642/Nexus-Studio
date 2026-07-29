@@ -28,10 +28,15 @@ void SpringConstraint::createJoltConstraint() {
         settings.mLimitsSpringSettings.mMode = JPH::ESpringMode::FrequencyAndDamping;
         settings.mLimitsSpringSettings.mFrequency = stiffness;
         settings.mLimitsSpringSettings.mDamping = damping;
-        
-        // MVP: min and max distance are the free length
-        settings.mMinDistance = freeLength;
-        settings.mMaxDistance = freeLength;
+        // Limits
+        if (limitsEnabled) {
+            settings.mMinDistance = minLength;
+            settings.mMaxDistance = maxLength;
+        } else {
+            // MVP: min and max distance are the free length if no limits
+            settings.mMinDistance = freeLength;
+            settings.mMaxDistance = freeLength;
+        }
 
         joltConstraint = settings.Create(lock0.GetBody(), lock1.GetBody());
         Engine::Physics::PhysicsWorld::instance().addConstraint(joltConstraint);
@@ -47,7 +52,10 @@ namespace {
                 .base("Constraint")
                 .propertyAccessor("FreeLength", &SpringConstraint::getFreeLength, &SpringConstraint::setFreeLength).category("Spring")
                 .propertyAccessor("Stiffness", &SpringConstraint::getStiffness, &SpringConstraint::setStiffness).category("Spring")
-                .propertyAccessor("Damping", &SpringConstraint::getDamping, &SpringConstraint::setDamping).category("Spring");
+                .propertyAccessor("Damping", &SpringConstraint::getDamping, &SpringConstraint::setDamping).category("Spring")
+                .propertyAccessor("LimitsEnabled", &SpringConstraint::getLimitsEnabled, &SpringConstraint::setLimitsEnabled).category("Spring")
+                .propertyAccessor("MinLength", &SpringConstraint::getMinLength, &SpringConstraint::setMinLength).category("Spring")
+                .propertyAccessor("MaxLength", &SpringConstraint::getMaxLength, &SpringConstraint::setMaxLength).category("Spring");
         }
     } g_springConstraintReflectionInit;
 }
