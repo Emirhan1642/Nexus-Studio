@@ -171,6 +171,25 @@ void RendererSystem::init() {
         bgfx::makeRef(s_cubeIndices, sizeof(s_cubeIndices))
     );
 
+    // Fullscreen quad: NDC koordinatlarında tam ekranı kaplayan 2 üçgen
+    // Z=0, UV (0,0)->(1,1)
+    static const PosColorTexCoordVertex s_fsqVertices[] = {
+        // x,     y,     z,     abgr,        nx,   ny,   nz,   u,    v
+        { -1.0f, -1.0f,  0.0f,  0xffffffff,  0.0f, 0.0f, 1.0f, 0.0f, 1.0f }, // Bottom-Left
+        {  1.0f, -1.0f,  0.0f,  0xffffffff,  0.0f, 0.0f, 1.0f, 1.0f, 1.0f }, // Bottom-Right
+        {  1.0f,  1.0f,  0.0f,  0xffffffff,  0.0f, 0.0f, 1.0f, 1.0f, 0.0f }, // Top-Right
+        { -1.0f,  1.0f,  0.0f,  0xffffffff,  0.0f, 0.0f, 1.0f, 0.0f, 0.0f }, // Top-Left
+    };
+    static const uint16_t s_fsqIndices[] = { 0, 1, 2,  0, 2, 3 };
+
+    m_fsqVbh = bgfx::createVertexBuffer(
+        bgfx::makeRef(s_fsqVertices, sizeof(s_fsqVertices)),
+        PosColorTexCoordVertex::ms_layout
+    );
+    m_fsqIbh = bgfx::createIndexBuffer(
+        bgfx::makeRef(s_fsqIndices, sizeof(s_fsqIndices))
+    );
+
     u_albedoRoughness = bgfx::createUniform("u_albedoRoughness", bgfx::UniformType::Vec4);
     u_metallicEmissive = bgfx::createUniform("u_metallicEmissive", bgfx::UniformType::Vec4);
     u_textureFlags = bgfx::createUniform("u_textureFlags", bgfx::UniformType::Vec4);
@@ -322,6 +341,8 @@ void RendererSystem::shutdown() {
 
     bgfx::destroy(m_ibh);
     bgfx::destroy(m_vbh);
+    if (bgfx::isValid(m_fsqIbh)) bgfx::destroy(m_fsqIbh);
+    if (bgfx::isValid(m_fsqVbh)) bgfx::destroy(m_fsqVbh);
     bgfx::destroy(m_program);
     if (bgfx::isValid(m_shadowProgram)) bgfx::destroy(m_shadowProgram);
     if (bgfx::isValid(m_skinnedShadowProgram)) bgfx::destroy(m_skinnedShadowProgram);
@@ -443,9 +464,9 @@ void RendererSystem::renderFrame(const Camera& camera, int width, int height, bg
         float boxSize = dist * 1.5f;
         
         Engine::Math::Vector3 lightPos = { 
-            camera.position.x - lightDir.x * boxSize, 
-            camera.position.y - lightDir.y * boxSize, 
-            camera.position.z - lightDir.z * boxSize 
+            camera.position.x + lightDir.x * boxSize, 
+            camera.position.y + lightDir.y * boxSize, 
+            camera.position.z + lightDir.z * boxSize 
         };
         
         float lightView[16];
@@ -519,7 +540,8 @@ void RendererSystem::renderFrame(const Camera& camera, int width, int height, bg
             }
             float lodParams[4] = { lodFade, 0.0f, 0.0f, 0.0f };
             bgfx::setUniform(u_lodParams, lodParams);
-            bgfx::setState(BGFX_STATE_DEFAULT | BGFX_STATE_DEPTH_TEST_LESS | BGFX_STATE_WRITE_Z);
+            uint64_t state = (BGFX_STATE_DEFAULT & ~BGFX_STATE_CULL_MASK) | BGFX_STATE_CULL_CCW | BGFX_STATE_DEPTH_TEST_LESS | BGFX_STATE_WRITE_Z;
+            bgfx::setState(state);
             bgfx::submit(View_ShadowCascade0 + cascadeIdx, shadowProg);
         };
 
@@ -708,199 +730,30 @@ void RendererSystem::renderFrame(const Camera& camera, int width, int height, bg
     }
     
     // -----------------------------------------
-    // PASS 3: SSGI & POST-PROCESSING (Bloom & Tonemap)
+    // PASS 3: POST-PROCESSING
+    // HDR Color -> Tonemap -> FXAA (backbuffer)
+    // NOT: SSGI/SSR/DoF/MB/TAA gecici olarak devre disi -- bu passlar
+    // u_invProj gibi set edilmemis uniformlar kullanip sahneyi bozuyor.
     // -----------------------------------------
     bgfx::TextureHandle hdrColorTex = bgfx::getTexture(m_hdrFB, 0);
-    bgfx::TextureHandle hdrNormalTex = bgfx::getTexture(m_hdrFB, 1);
-    bgfx::TextureHandle hdrDepthTex = bgfx::getTexture(m_hdrFB, 2);
-    
-    // 3.1 SSGI Pass
-    float ssgiParams[4] = { 0.5f /* radius */, 1.2f /* ssgi intensity */, 2.0f /* ssao intensity */, 1.0f };
-    bgfx::setUniform(u_ssgiParams, ssgiParams);
 
-    // Calculate View-Space Light Direction for Contact Shadows
-    Engine::Math::Vector3 viewLightDir = {
-        lightDir.x * camera.getViewMatrix().m[0] + lightDir.y * camera.getViewMatrix().m[4] + lightDir.z * camera.getViewMatrix().m[8],
-        lightDir.x * camera.getViewMatrix().m[1] + lightDir.y * camera.getViewMatrix().m[5] + lightDir.z * camera.getViewMatrix().m[9],
-        lightDir.x * camera.getViewMatrix().m[2] + lightDir.y * camera.getViewMatrix().m[6] + lightDir.z * camera.getViewMatrix().m[10]
-    };
-    float lightDirParams[4] = { viewLightDir.x, viewLightDir.y, viewLightDir.z, 0.0f };
-    bgfx::setUniform(u_lightDir, lightDirParams);
-
-    bgfx::setTexture(0, s_texColor, hdrColorTex);
-    bgfx::setTexture(1, s_texNormalGBuffer, hdrNormalTex);
-    bgfx::setTexture(2, s_texDepth, hdrDepthTex);
-    bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A);
-    bgfx::setViewRect(View_SSGI, 0, 0, uint16_t(width), uint16_t(height));
-    bgfx::setViewFrameBuffer(View_SSGI, m_ssgiFB);
-    bgfx::setViewClear(View_SSGI, BGFX_CLEAR_COLOR, 0x00000000, 1.0f, 0);
-    bgfx::setVertexBuffer(0, m_vbh, 0, 4);
-    bgfx::setIndexBuffer(m_ibh, 0, 6);
-    bgfx::submit(View_SSGI, m_ssgiProgram);
-    
-    // 3.2 SSR Pass
-    bgfx::TextureHandle ssgiOutputTex = bgfx::getTexture(m_ssgiFB, 0);
-    float ssrParams[4] = { 20.0f /* max steps */, 0.05f /* step size */, 0.8f /* roughness threshold */, 0.1f /* thickness */ };
-    bgfx::setUniform(u_ssrParams, ssrParams);
-    
-    bgfx::setTexture(0, s_texColor, ssgiOutputTex);
-    bgfx::setTexture(1, s_texNormalGBuffer, hdrNormalTex);
-    bgfx::setTexture(2, s_texDepth, hdrDepthTex);
-    bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A);
-    bgfx::setViewRect(View_SSR, 0, 0, uint16_t(width), uint16_t(height));
-    bgfx::setViewFrameBuffer(View_SSR, m_ssrFB);
-    bgfx::setViewClear(View_SSR, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, 0x000000ff, 1.0f, 0);
-    Engine::Math::Matrix4 ssrViewMat = camera.getViewMatrix();
-    Engine::Math::Matrix4 ssrProjMat = camera.getProjectionMatrix((float)width/(float)height);
-    // We use unjittered projection matrix for inverse calculations in post-processing
-    Engine::Math::Matrix4 invProj = unjitteredProj.inverse();
-    bgfx::setUniform(u_unjitteredInvProj, invProj.m.data());
-    
-    bgfx::setViewTransform(View_SSGI, view.m.data(), unjitteredProj.m.data());
-    bgfx::setVertexBuffer(0, m_vbh, 0, 4);
-    bgfx::setIndexBuffer(m_ibh, 0, 6);
-    bgfx::submit(View_SSR, m_ssrProgram);
-
-    // 3.3 Bloom Threshold
-    float bloomParams[4] = { 1.5f, 0.0f, 0.0f, 0.0f }; // threshold
-    bgfx::setUniform(u_bloomParams, bloomParams);
-    // Read from SSR buffer
-    bgfx::TextureHandle ssrOutputTex = bgfx::getTexture(m_ssrFB, 0);
-    bgfx::setTexture(0, s_texColor, ssrOutputTex);
-    bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A);
-    bgfx::setViewRect(View_BloomThreshold, 0, 0, uint16_t(bx::max(1, width / 2)), uint16_t(height / 2));
-    bgfx::setViewFrameBuffer(View_BloomThreshold, m_bloomFBs[0]);
-    bgfx::setViewClear(View_BloomThreshold, BGFX_CLEAR_COLOR, 0x00000000, 1.0f, 0);
-    // Draw full screen quad manually using our vertex buffer (or just use 3 vertices in bgfx, but here we can just bind cube's front face)
-    bgfx::setVertexBuffer(0, m_vbh, 0, 4);
-    bgfx::setIndexBuffer(m_ibh, 0, 6);
-    bgfx::submit(View_BloomThreshold, m_bloomThresholdProgram);
-
-    // 3.4 Bloom Downsample & Blur (Ping-Pong)
-    int bw = width / 2;
-    int bh = height / 2;
-    bgfx::ViewId currentViewId = 4;
-    
-    for (int i = 0; i < 5; ++i) {
-        // Blur X (Write to bloomBlurFBs[i], read from bloomFBs[i])
-        float blurXParams[4] = { 1.0f / (float)bw, 0.0f, 0.0f, 0.0f };
-        bgfx::setUniform(u_blurParams, blurXParams);
-        bgfx::setTexture(0, s_texColor, bgfx::getTexture(m_bloomFBs[i], 0));
-        bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A);
-        bgfx::setViewRect(currentViewId, 0, 0, uint16_t(bw), uint16_t(bh));
-        bgfx::setViewFrameBuffer(currentViewId, m_bloomBlurFBs[i]);
-        bgfx::setViewClear(currentViewId, BGFX_CLEAR_COLOR, 0x00000000, 1.0f, 0);
-        bgfx::setVertexBuffer(0, m_vbh, 0, 4);
-        bgfx::setIndexBuffer(m_ibh, 0, 6);
-        bgfx::submit(currentViewId++, m_bloomBlurProgram);
-
-        // Blur Y (Write back to bloomFBs[i], read from bloomBlurFBs[i])
-        float blurYParams[4] = { 0.0f, 1.0f / (float)bh, 0.0f, 0.0f };
-        bgfx::setUniform(u_blurParams, blurYParams);
-        bgfx::setTexture(0, s_texColor, bgfx::getTexture(m_bloomBlurFBs[i], 0));
-        bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A);
-        bgfx::setViewRect(currentViewId, 0, 0, uint16_t(bw), uint16_t(bh));
-        bgfx::setViewFrameBuffer(currentViewId, m_bloomFBs[i]);
-        bgfx::setViewClear(currentViewId, BGFX_CLEAR_COLOR, 0x00000000, 1.0f, 0);
-        bgfx::setVertexBuffer(0, m_vbh, 0, 4);
-        bgfx::setIndexBuffer(m_ibh, 0, 6);
-        bgfx::submit(currentViewId++, m_bloomBlurProgram);
-        
-        // Prepare sizes for next mip level (if we were chaining them properly, we'd sample from i into i+1 next). 
-        // Here we just blur the 0th level for MVP bloom. Wait! We need to downscale.
-        // Actually, to make a true bloom, we downsample M levels, then upsample. 
-        // For MVP, we'll just blur the level 0 heavily.
-        if (i < 4) {
-            bw = bx::max(1, bw / 2);
-            bh = bx::max(1, bh / 2);
-            
-            // Downsample: read from bloomFBs[i], write to bloomFBs[i+1]
-            float downsampleBlur[4] = { 1.0f / (float)bw, 0.0f, 0.0f, 0.0f }; // simple copy basically
-            bgfx::setUniform(u_blurParams, downsampleBlur);
-            bgfx::setTexture(0, s_texColor, bgfx::getTexture(m_bloomFBs[i], 0));
-            bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A);
-            bgfx::setViewRect(currentViewId, 0, 0, uint16_t(bw), uint16_t(bh));
-            bgfx::setViewFrameBuffer(currentViewId, m_bloomFBs[i+1]);
-            bgfx::setViewClear(currentViewId, BGFX_CLEAR_COLOR, 0x00000000, 1.0f, 0);
-            bgfx::setVertexBuffer(0, m_vbh, 0, 4);
-            bgfx::setIndexBuffer(m_ibh, 0, 6);
-            bgfx::submit(currentViewId++, m_bloomBlurProgram);
-        }
-    }
-
-    // 3.5 Depth of Field (Render to m_dofFB)
-    float dofParams[4] = { 10.0f /* focus dist */, 50.0f /* focal range */, 0.0f, 0.0f };
-    bgfx::setUniform(u_dofParams, dofParams);
-    
-    bgfx::setTexture(0, s_texColor, ssrOutputTex);
-    bgfx::setTexture(1, s_texDepth, hdrDepthTex);
-    bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A);
-    bgfx::setViewRect(View_DOF, 0, 0, uint16_t(width), uint16_t(height));
-    bgfx::setViewFrameBuffer(View_DOF, m_dofFB);
-    bgfx::setViewClear(View_DOF, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, 0x000000ff, 1.0f, 0);
-    bgfx::setVertexBuffer(0, m_vbh, 0, 4);
-    bgfx::setIndexBuffer(m_ibh, 0, 6);
-    bgfx::submit(View_DOF, m_dofProgram);
-
-    // 3.5 Motion Blur (Render to m_mbFB)
-    bgfx::TextureHandle dofOutputTex = bgfx::getTexture(m_dofFB, 0);
-    float mbParams[4] = { 0.5f /* blur scale */, 0.0f, 0.0f, 0.0f };
-    bgfx::setUniform(u_mbParams, mbParams);
-    bgfx::setUniform(u_prevViewProj, m_prevViewProj.m.data());
-    
-    Engine::Math::Matrix4 viewProj = camera.getProjectionMatrix((float)width/(float)height) * camera.getViewMatrix();
-    Engine::Math::Matrix4 mbViewMat = camera.getViewMatrix();
-    Engine::Math::Matrix4 mbProjMat = camera.getProjectionMatrix((float)width/(float)height);
-
-    bgfx::setTexture(0, s_texColor, dofOutputTex);
-    bgfx::setTexture(1, s_texDepth, hdrDepthTex);
-    bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A);
-    bgfx::setViewRect(View_MotionBlur, 0, 0, uint16_t(width), uint16_t(height));
-    bgfx::setViewFrameBuffer(View_MotionBlur, m_mbFB);
-    bgfx::setViewClear(View_MotionBlur, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, 0x000000ff, 1.0f, 0);
-    bgfx::setViewTransform(View_MotionBlur, ssrViewMat.m.data(), unjitteredProj.m.data());
-    bgfx::setVertexBuffer(0, m_vbh, 0, 4);
-    bgfx::setIndexBuffer(m_ibh, 0, 6);
-    bgfx::submit(View_MotionBlur, m_mbProgram);
-
-    // 3.6 TAA Pass
-    float taaParams[4] = { jitterX, jitterY, 0.1f, 0.0f };
-    bgfx::setUniform(u_taaParams, taaParams);
-    
-    bgfx::TextureHandle mbOutputTex = bgfx::getTexture(m_mbFB, 0);
-    bgfx::TextureHandle taaHistoryTex = bgfx::getTexture(m_taaFB[1 - m_taaIndex], 0);
-    
-    bgfx::setTexture(0, s_texColor, mbOutputTex);
-    bgfx::setTexture(1, s_texHistory, taaHistoryTex);
-    bgfx::setTexture(2, s_texDepth, hdrDepthTex);
-    
-    bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A);
-    bgfx::setViewRect(View_TAA, 0, 0, uint16_t(width), uint16_t(height));
-    bgfx::setViewFrameBuffer(View_TAA, m_taaFB[m_taaIndex]);
-    bgfx::setViewClear(View_TAA, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, 0x000000ff, 1.0f, 0);
-    bgfx::setViewTransform(View_TAA, ssrViewMat.m.data(), unjitteredProj.m.data());
-    
-    bgfx::setVertexBuffer(0, m_vbh, 0, 4);
-    bgfx::setIndexBuffer(m_ibh, 0, 6);
-    bgfx::submit(View_TAA, m_taaProgram);
-
-    // 3.7 Tonemap Pass (Render to m_tonemapFB)
-    bgfx::TextureHandle taaOutputTex = bgfx::getTexture(m_taaFB[m_taaIndex], 0);
-    float tonemapParams[4] = { 1.0f /*exposure*/, 1.0f /*bloom int*/, 0.0f, 0.0f };
+    // 3.1 Tonemap: HDR rengi LDR'ye donustur
+    float tonemapParams[4] = { 1.0f /*exposure*/, 0.0f /*bloom int - disabled*/, 0.0f, 0.0f };
     bgfx::setUniform(u_tonemapParams, tonemapParams);
-    bgfx::setTexture(0, s_texColor, taaOutputTex);
-    bgfx::setTexture(1, s_texBloom, bgfx::getTexture(m_bloomFBs[0], 0)); // Add the highest res blurred bloom
+    bgfx::setTexture(0, s_texColor, hdrColorTex);
+
+    // Bloom devre disi: 1x1 siyah texture
+    bgfx::setTexture(1, s_texBloom, m_defaultMetallic); // 1x1 siyah texture (metallic default)
 
     bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A);
     bgfx::setViewRect(View_Tonemap, 0, 0, uint16_t(width), uint16_t(height));
-    bgfx::setViewFrameBuffer(View_Tonemap, m_tonemapFB); // Tonemap now renders to an offscreen buffer
+    bgfx::setViewFrameBuffer(View_Tonemap, m_tonemapFB);
     bgfx::setViewClear(View_Tonemap, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, 0x000000ff, 1.0f, 0);
-    
-    bgfx::setVertexBuffer(0, m_vbh, 0, 4);
-    bgfx::setIndexBuffer(m_ibh, 0, 6);
+    bgfx::setVertexBuffer(0, m_fsqVbh);
+    bgfx::setIndexBuffer(m_fsqIbh);
     bgfx::submit(View_Tonemap, m_tonemapProgram);
-    
-    // 3.5 FXAA (Render to Backbuffer)
+
+    // 3.2 FXAA: Tonemap ciktisini ekrana yaz
     if (bgfx::isValid(m_fxaaProgram)) {
         float fxaaParams[4] = { 1.0f / width, 1.0f / height, 0.0f, 0.0f };
         bgfx::setUniform(u_fxaaParams, fxaaParams);
@@ -908,24 +761,22 @@ void RendererSystem::renderFrame(const Camera& camera, int width, int height, bg
 
         bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A);
         bgfx::setViewRect(View_FXAA, 0, 0, uint16_t(width), uint16_t(height));
-        bgfx::setViewFrameBuffer(View_FXAA, fb); // Default backbuffer
+        bgfx::setViewFrameBuffer(View_FXAA, fb);
         bgfx::setViewClear(View_FXAA, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, 0x000000ff, 1.0f, 0);
-        
-        bgfx::setVertexBuffer(0, m_vbh, 0, 4);
-        bgfx::setIndexBuffer(m_ibh, 0, 6);
+        bgfx::setVertexBuffer(0, m_fsqVbh);
+        bgfx::setIndexBuffer(m_fsqIbh);
         bgfx::submit(View_FXAA, m_fxaaProgram);
     } else {
+
         // If FXAA shader is invalid, we don't have a simple copy shader yet.
         // It's safer to leave the backbuffer as is than to call bgfx::blit,
         // which crashes if the backbuffer doesn't have BGFX_TEXTURE_BLIT_DST.
     }
 
     
-    // Save current frame's View-Projection matrix for next frame's motion blur
+    // Save current frame's View-Projection matrix for next frame (motion blur - currently disabled)
+    Engine::Math::Matrix4 viewProj = camera.getProjectionMatrix((float)width/(float)height) * camera.getViewMatrix();
     m_prevViewProj = viewProj;
-    
-    // Toggle TAA Ping-Pong Buffer
-    m_taaIndex = 1 - m_taaIndex;
 
     bgfx::frame();
 }

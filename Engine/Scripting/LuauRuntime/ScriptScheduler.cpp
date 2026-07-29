@@ -6,6 +6,9 @@
 namespace Engine::Scripting {
 
 void ScriptScheduler::update(float deltaTime) {
+    ServerFrameBudgetGuard budgetGuard;
+    budgetGuard.beginFrame();
+
     std::vector<SuspendedThread> readyThreads;
 
     for (auto it = m_suspendedThreads.begin(); it != m_suspendedThreads.end(); ) {
@@ -20,6 +23,12 @@ void ScriptScheduler::update(float deltaTime) {
 
     // Call lua_resume outside the iterator loop, because wait() can push new threads
     for (const auto& st : readyThreads) {
+        if (!budgetGuard.hasRemainingBudget()) {
+            // Re-queue this thread for the NEXT frame to prevent engine stall
+            m_suspendedThreads.push_back({st.thread, 0.0});
+            continue;
+        }
+
         ScriptExecutionContext ctx;
         ctx.scriptName = "Coroutine";
         ctx.startTime = std::chrono::steady_clock::now();
@@ -27,10 +36,15 @@ void ScriptScheduler::update(float deltaTime) {
         ctx.budget = ScriptWatchdog::getBudgetFor(ctx.phase);
         ctx.instructionCount = 0;
 
+        auto resumeStart = std::chrono::steady_clock::now();
+
         ScriptWatchdog::setCurrentContext(&ctx);
         int status = lua_resume(st.thread, nullptr, 0);
         ScriptWatchdog::setCurrentContext(nullptr);
         
+        auto elapsed = std::chrono::steady_clock::now() - resumeStart;
+        budgetGuard.recordScriptTime(std::chrono::duration_cast<std::chrono::milliseconds>(elapsed));
+
         if (status != LUA_OK && status != LUA_YIELD) {
             std::cerr << "Luau Resume Error: " << lua_tostring(st.thread, -1) << std::endl;
         }

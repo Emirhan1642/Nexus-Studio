@@ -57,6 +57,10 @@ private:
     // Hardcoded küp nesnesi için VBO/IBO
     bgfx::VertexBufferHandle m_vbh = BGFX_INVALID_HANDLE;
     bgfx::IndexBufferHandle m_ibh = BGFX_INVALID_HANDLE;
+
+    // Fullscreen quad için VBO/IBO (post-processing geçişleri)
+    bgfx::VertexBufferHandle m_fsqVbh = BGFX_INVALID_HANDLE;
+    bgfx::IndexBufferHandle m_fsqIbh = BGFX_INVALID_HANDLE;
     bgfx::ProgramHandle m_program = BGFX_INVALID_HANDLE;
     bgfx::ProgramHandle m_shadowProgram = BGFX_INVALID_HANDLE;
     bgfx::ProgramHandle m_skinnedShadowProgram = BGFX_INVALID_HANDLE;

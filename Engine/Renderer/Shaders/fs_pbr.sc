@@ -88,7 +88,11 @@ void main() {
 #if BGFX_SHADER_LANGUAGE_GLSL
     // OpenGL uses -1..1 for Z
     projCoords.z = projCoords.z * 0.5 + 0.5;
+#else
+    // D3D: texture Y ekseni NDC Y ekseniyle ters -- flip gerekli
+    projCoords.y = 1.0 - projCoords.y;
 #endif
+
 
     float shadow = 0.0;
     
@@ -98,7 +102,7 @@ void main() {
         projCoords.z >= 0.0 && projCoords.z <= 1.0) {
         
         vec2 texelSize = vec2(1.0 / 2048.0, 1.0 / 2048.0);
-        float bias = 0.002;
+        float bias = max(0.005 * (1.0 - ndotl), 0.0005);
         
         // 3x3 PCF
         for(int x = -1; x <= 1; ++x) {

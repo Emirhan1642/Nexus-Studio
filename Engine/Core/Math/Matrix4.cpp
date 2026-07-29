@@ -45,43 +45,48 @@ Matrix4 Matrix4::fromPositionAndSize(const Vector3& pos, const Vector3& size) {
 }
 
 Matrix4 Matrix4::lookAt(const Vector3& eye, const Vector3& at, const Vector3& up) {
-    // Left-handed lookat? Or right-handed? bgfx expects left-handed usually if using specific functions, but let's do standard right-handed.
-    // Actually, bgfx uses bx::mtxLookAt, but since we are writing our own, we will do right-handed.
+    // Right-handed view matrix, column-major storage.
     Vector3 zaxis = { eye.x - at.x, eye.y - at.y, eye.z - at.z };
     
-    // Normalize zaxis
     float zlen = std::sqrt(zaxis.x * zaxis.x + zaxis.y * zaxis.y + zaxis.z * zaxis.z);
     if (zlen > 0.0f) { zaxis.x /= zlen; zaxis.y /= zlen; zaxis.z /= zlen; }
     
-    // Cross product of up and zaxis -> xaxis
+    // xaxis = normalize(up x zaxis)
     Vector3 xaxis = {
         up.y * zaxis.z - up.z * zaxis.y,
         up.z * zaxis.x - up.x * zaxis.z,
         up.x * zaxis.y - up.y * zaxis.x
     };
-    
-    // Normalize xaxis
     float xlen = std::sqrt(xaxis.x * xaxis.x + xaxis.y * xaxis.y + xaxis.z * xaxis.z);
     if (xlen > 0.0f) { xaxis.x /= xlen; xaxis.y /= xlen; xaxis.z /= xlen; }
     
-    // Cross product of zaxis and xaxis -> yaxis
+    // yaxis = zaxis x xaxis
     Vector3 yaxis = {
         zaxis.y * xaxis.z - zaxis.z * xaxis.y,
         zaxis.z * xaxis.x - zaxis.x * xaxis.z,
         zaxis.x * xaxis.y - zaxis.y * xaxis.x
     };
     
+    // Column-major duzeninde:
+    // Sutun 0: [xaxis.x, yaxis.x, zaxis.x, 0]
+    // Sutun 1: [xaxis.y, yaxis.y, zaxis.y, 0]
+    // Sutun 2: [xaxis.z, yaxis.z, zaxis.z, 0]
+    // Sutun 3: [tx,      ty,      tz,      1]
     Matrix4 mat;
-    mat.m[0] = xaxis.x; mat.m[4] = xaxis.y; mat.m[8] = xaxis.z;
-    mat.m[1] = yaxis.x; mat.m[5] = yaxis.y; mat.m[9] = yaxis.z;
-    mat.m[2] = zaxis.x; mat.m[6] = zaxis.y; mat.m[10] = zaxis.z;
-    
+    // col 0
+    mat.m[0]  = xaxis.x;  mat.m[1]  = yaxis.x;  mat.m[2]  = zaxis.x;  mat.m[3]  = 0.0f;
+    // col 1
+    mat.m[4]  = xaxis.y;  mat.m[5]  = yaxis.y;  mat.m[6]  = zaxis.y;  mat.m[7]  = 0.0f;
+    // col 2
+    mat.m[8]  = xaxis.z;  mat.m[9]  = yaxis.z;  mat.m[10] = zaxis.z;  mat.m[11] = 0.0f;
+    // col 3 (translation)
     mat.m[12] = -(xaxis.x * eye.x + xaxis.y * eye.y + xaxis.z * eye.z);
     mat.m[13] = -(yaxis.x * eye.x + yaxis.y * eye.y + yaxis.z * eye.z);
     mat.m[14] = -(zaxis.x * eye.x + zaxis.y * eye.y + zaxis.z * eye.z);
     mat.m[15] = 1.0f;
     return mat;
 }
+
 
 Matrix4 Matrix4::perspective(float fovDegrees, float aspect, float nearPlane, float farPlane) {
     // bgfx uses specific clip space (NDC) depending on API. However, bx library handles this.
@@ -288,17 +293,21 @@ Matrix4 Matrix4::inverse() const {
 }
 
 Matrix4 Matrix4::operator*(const Matrix4& rhs) const {
+    // Column-major matris carpimi:
+    // C[col][row] = sum_k( A[k][row] * B[col][k] )
+    // Indis gosterimiyle: C[col*4 + row] = sum_k( A[k*4 + row] * B[col*4 + k] )
     Matrix4 result;
-    for (int i = 0; i < 4; ++i) {
-        for (int j = 0; j < 4; ++j) {
-            result.m[i * 4 + j] = 
-                m[0 * 4 + j] * rhs.m[i * 4 + 0] +
-                m[1 * 4 + j] * rhs.m[i * 4 + 1] +
-                m[2 * 4 + j] * rhs.m[i * 4 + 2] +
-                m[3 * 4 + j] * rhs.m[i * 4 + 3];
+    for (int col = 0; col < 4; ++col) {
+        for (int row = 0; row < 4; ++row) {
+            float sum = 0.0f;
+            for (int k = 0; k < 4; ++k) {
+                sum += m[k * 4 + row] * rhs.m[col * 4 + k];
+            }
+            result.m[col * 4 + row] = sum;
         }
     }
     return result;
 }
+
 
 } // namespace Engine::Math

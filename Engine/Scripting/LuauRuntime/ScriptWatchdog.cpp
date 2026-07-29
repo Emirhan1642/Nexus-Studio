@@ -1,5 +1,6 @@
 #include "ScriptWatchdog.h"
 #include <lualib.h>
+#include <iostream>
 
 namespace Engine::Scripting {
 
@@ -43,8 +44,24 @@ namespace Engine::Scripting {
         // For simplicity, we just add a nominal value, but we primarily rely on the wall-clock time.
         ctx->instructionCount += 100000;
 
-        bool overInstructionBudget = ctx->instructionCount > ctx->budget.maxInstructions;
         auto elapsed = std::chrono::steady_clock::now() - ctx->startTime;
+
+        if (ctx->phase == ScriptExecutionPhase::EditorPluginCode) {
+            if (elapsed > std::chrono::milliseconds(3000) && !ctx->warningShown) {
+                ctx->warningShown = true;
+                // EditorApp::instance().requestLongRunningScriptConfirmation(ctx->scriptName);
+                std::cerr << "[Editor] WARNING: Script '" << ctx->scriptName 
+                          << "' has been running for over 3 seconds. Simulated 'Are you sure?' dialog shown to user." << std::endl;
+            }
+            if (elapsed > ctx->budget.maxDuration) {
+                // If user allowed continuation, we would reset the budget here.
+                // Since there is no actual UI yet, we simulate a user cancellation or a hard timeout.
+                luaL_error(L, "Script cancelled by user/timeout (long-running operation) in '%s'", ctx->scriptName.c_str());
+            }
+            return;
+        }
+
+        bool overInstructionBudget = ctx->instructionCount > ctx->budget.maxInstructions;
         bool overTimeBudget = elapsed > ctx->budget.maxDuration;
 
         if (overInstructionBudget || overTimeBudget) {
@@ -55,3 +72,4 @@ namespace Engine::Scripting {
     }
 
 } // namespace Engine::Scripting
+

@@ -1,8 +1,27 @@
 #pragma once
 #include <lua.h>
 #include <vector>
+#include <chrono>
 
 namespace Engine::Scripting {
+
+class ServerFrameBudgetGuard {
+public:
+    void beginFrame() { totalScriptTimeThisFrame = std::chrono::milliseconds(0); }
+
+    bool hasRemainingBudget() const {
+        return totalScriptTimeThisFrame < MAX_TOTAL_SCRIPT_TIME_PER_FRAME;
+    }
+
+    void recordScriptTime(std::chrono::milliseconds elapsed) {
+        totalScriptTimeThisFrame += elapsed;
+    }
+
+private:
+    std::chrono::milliseconds totalScriptTimeThisFrame{0};
+    // 10ms frame budget for scripts
+    static constexpr auto MAX_TOTAL_SCRIPT_TIME_PER_FRAME = std::chrono::milliseconds(10);
+};
 
 class ScriptScheduler {
 public:
