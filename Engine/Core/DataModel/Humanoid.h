@@ -13,6 +13,7 @@
 #include "../../Animation/AnimationClip.h"
 #include "../../Animation/Skeleton.h"
 #include "AnimationTrack.h"
+#include "IKControl.h"
 
 namespace JPH {
     class CharacterVirtual;

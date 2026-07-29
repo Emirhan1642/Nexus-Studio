@@ -14,6 +14,7 @@ set(CORE_SOURCES
     DataModel/HumanoidStateMachine.cpp
     DataModel/RemoteEvent.cpp
     DataModel/AnimationTrack.cpp
+    DataModel/IKControl.cpp
     DataModel/DataModelSerializer.cpp
     Math/Matrix4.cpp
     Math/Quaternion.cpp
@@ -33,6 +34,7 @@ set(CORE_HEADERS
     DataModel/SpringConstraint.h
     DataModel/RemoteEvent.h
     DataModel/AnimationTrack.h
+    DataModel/IKControl.h
     DataModel/DataModelSerializer.h
     Math/Vector3.h
     Math/Matrix4.h

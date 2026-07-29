@@ -3,6 +3,7 @@
 #include "../Engine/Core/DataModel/DataModel.h"
 #include "../Engine/Core/DataModel/Part.h"
 #include "../Engine/Core/DataModel/Humanoid.h"
+#include "../Engine/Core/DataModel/IKControl.h"
 #include "../Engine/Physics/PhysicsWorld.h"
 #include <thread>
 #include <chrono>
@@ -85,4 +86,47 @@ TEST_F(HumanoidTest, BasicMovement) {
     humanoid->destroy();
     rootPart->destroy();
     floor->destroy();
+}
+
+TEST_F(HumanoidTest, IKControlApplication) {
+    // Verify IKControl is registered in the TypeRegistry
+    auto* ikDesc = Engine::Reflection::TypeRegistry::instance().find("IKControl");
+    ASSERT_NE(ikDesc, nullptr) << "IKControl class not registered in TypeRegistry";
+    ASSERT_NE(ikDesc->factory, nullptr) << "IKControl has no factory function";
+
+    // Create a fresh standalone root (don't use DataModel singleton which may be dirty from BasicMovement test)
+    auto rootPart = std::make_shared<Part>();
+    rootPart->name = "HumanoidRootPart";
+    rootPart->setSize(Vector3(2.0f, 4.0f, 2.0f));
+    rootPart->setPosition(Vector3(0, 0, 0));
+    rootPart->setAnchored(true);
+
+    // Create Humanoid directly
+    auto humanoid = std::make_shared<Humanoid>();
+    humanoid->name = "TestHumanoid";
+    humanoid->setParent(rootPart);
+
+    // Create IKControl via reflection factory
+    auto ikBase = createInstance("IKControl");
+    ASSERT_NE(ikBase, nullptr) << "createInstance(IKControl) returned nullptr";
+
+    auto ikControl = std::static_pointer_cast<Engine::IKControl>(ikBase);
+    ASSERT_NE(ikControl, nullptr) << "Failed to cast to IKControl";
+
+    ikControl->name = "IKControlTest";
+    ikControl->endEffector = "Hand_R";
+    ikControl->targetPosition = Vector3(5.0f, 5.0f, 0.0f);
+    ikControl->weight = 1.0f;
+    ikControl->setParent(humanoid);
+
+    // Verify hierarchy
+    EXPECT_EQ(ikControl->getParent(), humanoid);
+    EXPECT_EQ(ikControl->endEffector, "Hand_R");
+
+    // Step simulation - IK hook should execute without crash (skeleton is empty so apply() returns early)
+    auto& physicsWorld = Physics::PhysicsWorld::instance();
+    physicsWorld.step(1.0f / 60.0f);
+
+    // Still alive after step
+    EXPECT_EQ(ikControl->weight, 1.0f);
 }

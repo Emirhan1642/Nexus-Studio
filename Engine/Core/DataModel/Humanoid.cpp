@@ -208,18 +208,22 @@ void Humanoid::applyMovement(const Math::Vector3& moveDirection, float deltaTime
     // Evaluate skeletal animation
     if (!skeleton.bones.empty()) {
         std::vector<Math::Matrix4> localPose = animationPlayer.evaluate(skeleton, deltaTime);
+        std::vector<Math::Matrix4> worldPose = skeleton.computeWorldTransforms(localPose);
         
         // Simple IK Integration hook
         if (ikEnabled) {
-            // Placeholder: For a real implementation, we would extract rootPos, midPos, endPos 
-            // from finalBoneTransforms, calculate the solve, and compose it back.
-            // Math::Vector3 rootPos = ..., midPos = ..., endPos = ...;
-            // auto ikResult = Animation::IK::solveTwoBoneIK(rootPos, midPos, endPos, targetPos, poleVector);
-            // finalBoneTransforms[upperBoneIndex] = ... ikResult.upperBoneRotation ...
-            // finalBoneTransforms[lowerBoneIndex] = ... ikResult.lowerBoneRotation ...
+            bool ikApplied = false;
+            for (auto& child : getChildren()) {
+                if (auto ik = std::dynamic_pointer_cast<IKControl>(child)) {
+                    ik->apply(skeleton, localPose, worldPose);
+                    ikApplied = true;
+                }
+            }
+            if (ikApplied) {
+                // Recompute world pose if local pose changed
+                worldPose = skeleton.computeWorldTransforms(localPose);
+            }
         }
-        
-        std::vector<Math::Matrix4> worldPose = skeleton.computeWorldTransforms(localPose);
         
         std::vector<Math::Matrix4> finalBoneTransforms(skeleton.bones.size());
         for (size_t i = 0; i < skeleton.bones.size(); ++i) {
@@ -356,5 +360,13 @@ static void registerHumanoid() {
         {"Climbing", (int)HumanoidState::Climbing},
         {"Ragdoll", (int)HumanoidState::Ragdoll}
     };
+
+    // Register IKControl here to prevent linker from stripping its TU
+    Engine::Reflection::ClassBuilder<IKControl>("IKControl")
+        .base("Instance")
+        .property("EndEffector", &IKControl::endEffector)
+        .property("TargetPosition", &IKControl::targetPosition)
+        .property("PoleVector", &IKControl::poleVector)
+        .property("Weight", &IKControl::weight);
 }
 static struct HumanoidRegister { HumanoidRegister() { registerHumanoid(); } } s_register;
