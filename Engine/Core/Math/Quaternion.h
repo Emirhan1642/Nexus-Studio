@@ -42,6 +42,12 @@ struct Quaternion {
     static Quaternion fromAxisAngle(const Vector3& axis, float angle);
 
     Quaternion slerp(const Quaternion& target, float t) const;
+
+    Quaternion inverse() const {
+        return Quaternion(-x, -y, -z, w);
+    }
+
+    Quaternion operator*(const Quaternion& q) const;
 };
 
 } // namespace Math

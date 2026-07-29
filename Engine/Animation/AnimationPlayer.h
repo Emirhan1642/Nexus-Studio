@@ -16,6 +16,7 @@ struct PlayingTrack {
     float weightSpeed = 5.0f;
     int priority = 1000; // Core (lowest)
     std::vector<int> boneMask; // If empty, applies to all bones
+    bool isAdditive = false;
     
     // Identifier for tracking which AnimationTrack this comes from (optional but useful)
     void* sourceTrack = nullptr; 
@@ -24,7 +25,7 @@ struct PlayingTrack {
 class AnimationPlayer {
 public:
     // Play an animation with specific parameters
-    void play(AnimationClip* clip, void* sourceTrack, int priority = 1000, float blendDuration = 0.2f, float targetWeight = 1.0f, const std::vector<int>& boneMask = {});
+    void play(AnimationClip* clip, void* sourceTrack, int priority = 1000, float blendDuration = 0.2f, float targetWeight = 1.0f, const std::vector<int>& boneMask = {}, bool isAdditive = false);
     
     // Stop an animation from a specific source track
     void stop(void* sourceTrack, float fadeOutTime = 0.2f);
@@ -34,6 +35,7 @@ public:
 
 private:
     Math::Matrix4 blendTransforms(const Math::Matrix4& fromPose, const Math::Matrix4& toPose, float t) const;
+    Math::Matrix4 blendAdditiveTransforms(const Math::Matrix4& basePose, const Math::Matrix4& additivePose, const Math::Matrix4& refPose, float weight) const;
 
     std::vector<PlayingTrack> activeTracks;
 };

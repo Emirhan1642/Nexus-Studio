@@ -19,6 +19,7 @@ public:
     float weight = 1.0f;
     std::vector<std::string> maskedBones;
     bool maskRecursive = true;
+    bool isAdditive = false;
     
     void addBoneMask(const std::string& boneName);
     void removeBoneMask(const std::string& boneName);

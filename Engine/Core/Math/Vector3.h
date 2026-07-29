@@ -15,6 +15,18 @@ struct Vector3 {
         return Vector3(x * scalar, y * scalar, z * scalar);
     }
     
+    Vector3 operator*(const Vector3& other) const {
+        return Vector3(x * other.x, y * other.y, z * other.z);
+    }
+
+    Vector3 operator/(const Vector3& other) const {
+        return Vector3(
+            other.x != 0.0f ? x / other.x : 0.0f,
+            other.y != 0.0f ? y / other.y : 0.0f,
+            other.z != 0.0f ? z / other.z : 0.0f
+        );
+    }
+    
     Vector3 operator+(const Vector3& other) const {
         return Vector3(x + other.x, y + other.y, z + other.z);
     }

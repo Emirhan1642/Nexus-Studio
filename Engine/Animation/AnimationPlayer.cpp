@@ -7,7 +7,7 @@
 namespace Engine {
 namespace Animation {
 
-void AnimationPlayer::play(AnimationClip* clip, void* sourceTrack, int priority, float blendDuration, float targetWeight, const std::vector<int>& boneMask) {
+void AnimationPlayer::play(AnimationClip* clip, void* sourceTrack, int priority, float blendDuration, float targetWeight, const std::vector<int>& boneMask, bool isAdditive) {
     if (!clip) return;
 
     // Remove if already exists from this source
@@ -21,6 +21,7 @@ void AnimationPlayer::play(AnimationClip* clip, void* sourceTrack, int priority,
     track.weightSpeed = blendDuration > 0.0f ? (1.0f / blendDuration) : 1000.0f;
     track.priority = priority;
     track.boneMask = boneMask;
+    track.isAdditive = isAdditive;
     track.sourceTrack = sourceTrack;
 
     activeTracks.push_back(track);
@@ -52,6 +53,34 @@ Math::Matrix4 AnimationPlayer::blendTransforms(const Math::Matrix4& fromPose, co
     Math::Quaternion finalRot = rot1.slerp(rot2, t);
 
     // Recompose
+    return Math::Matrix4::fromTRS(finalPos, finalRot, finalScale);
+}
+
+Math::Matrix4 AnimationPlayer::blendAdditiveTransforms(const Math::Matrix4& basePose, const Math::Matrix4& additivePose, const Math::Matrix4& refPose, float weight) const {
+    Math::Vector3 basePos, baseScale;
+    Math::Quaternion baseRot;
+    basePose.decompose(basePos, baseRot, baseScale);
+
+    Math::Vector3 addPos, addScale;
+    Math::Quaternion addRot;
+    additivePose.decompose(addPos, addRot, addScale);
+
+    Math::Vector3 refPos, refScale;
+    Math::Quaternion refRot;
+    refPose.decompose(refPos, refRot, refScale);
+
+    // Delta = Additive - Ref
+    Math::Vector3 deltaPos = addPos - refPos;
+    Math::Quaternion deltaRot = refRot.inverse() * addRot;
+    Math::Vector3 deltaScale = addScale / refScale;
+
+    // Apply delta to base pose using weight
+    Math::Vector3 finalPos = basePos + (deltaPos * weight);
+    Math::Quaternion finalRot = baseRot * Math::Quaternion::identity().slerp(deltaRot, weight);
+    
+    // Lerp scale difference
+    Math::Vector3 finalScale = baseScale * (Math::Vector3(1, 1, 1) + ((deltaScale - Math::Vector3(1, 1, 1)) * weight));
+
     return Math::Matrix4::fromTRS(finalPos, finalRot, finalScale);
 }
 
@@ -113,12 +142,17 @@ std::vector<Math::Matrix4> AnimationPlayer::evaluate(const Skeleton& skeleton, f
 
                 Math::Matrix4 trackPose = track.clip->sampleBone(static_cast<int>(i), track.time);
 
-                // Blend with finalPoses[i] based on track weight
-                // Priority ensures we blend on top of lower priority animations
-                if (track.weight >= 1.0f) {
-                    finalPoses[i] = trackPose;
+                if (track.isAdditive) {
+                    Math::Matrix4 refPose = skeleton.bones[i].bindPoseLocalTransform;
+                    finalPoses[i] = blendAdditiveTransforms(finalPoses[i], trackPose, refPose, track.weight);
                 } else {
-                    finalPoses[i] = blendTransforms(finalPoses[i], trackPose, track.weight);
+                    // Blend with finalPoses[i] based on track weight
+                    // Priority ensures we blend on top of lower priority animations
+                    if (track.weight >= 1.0f) {
+                        finalPoses[i] = trackPose;
+                    } else {
+                        finalPoses[i] = blendTransforms(finalPoses[i], trackPose, track.weight);
+                    }
                 }
             }
         }

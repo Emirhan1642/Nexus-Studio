@@ -63,7 +63,8 @@ void AnimationTrack::play(float blendTime) {
                 }
             }
             
-            humanoid->getAnimationPlayer().play(clip.get(), this, priority, blendTime, weight, resolvedMask);
+            bool applyAdditive = isAdditive || clip->isAdditive;
+            humanoid->getAnimationPlayer().play(clip.get(), this, priority, blendTime, weight, resolvedMask, applyAdditive);
         }
     }
 }
@@ -81,6 +82,7 @@ static void registerAnimationTrack() {
         .property("Priority", &AnimationTrack::priority)
         .property("Weight", &AnimationTrack::weight)
         .property("MaskRecursive", &AnimationTrack::maskRecursive)
+        .property("IsAdditive", &AnimationTrack::isAdditive)
         .method("AddBoneMask", &AnimationTrack::addBoneMask)
         .method("RemoveBoneMask", &AnimationTrack::removeBoneMask)
         .method("Play", &AnimationTrack::play)

@@ -23,6 +23,7 @@ public:
     std::string name;
     float duration = 0.0f;
     bool looping = true;
+    bool isAdditive = false;
     std::vector<BoneKeyframes> boneTracks;
 
     const BoneKeyframes* findTrack(int boneIndex) const {
