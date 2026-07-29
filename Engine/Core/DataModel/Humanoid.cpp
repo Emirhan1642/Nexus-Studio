@@ -44,18 +44,39 @@ void Humanoid::initCharacterVirtual() {
 
     auto& physicsWorld = Physics::PhysicsWorld::instance();
 
-    // Create character shape
-    JPH::RefConst<JPH::Shape> standingShape = new JPH::CapsuleShape(1.0f, 0.5f); // 2 units tall, 1 unit wide
+    // Create character shape using the part's size
+    // Convert size to meters first!
+    JPH::Vec3 joltSize = Physics::toJoltVec3(part->getSize());
+    float radius = joltSize.GetX() * 0.5f;
+    float halfHeight = (joltSize.GetY() * 0.5f) - radius;
+    if (halfHeight < 0.05f) halfHeight = 0.05f; // Ensure minimum height
+
+    JPH::RefConst<JPH::Shape> standingShape = new JPH::CapsuleShape(halfHeight, radius); 
 
     JPH::CharacterVirtualSettings settings;
     settings.mShape = standingShape;
-    settings.mSupportingVolume = JPH::Plane(JPH::Vec3::sAxisY(), -1.0f); // Ground check plane
+    settings.mSupportingVolume = JPH::Plane(JPH::Vec3::sAxisY(), -radius); // Ground check plane
     settings.mUp = JPH::Vec3::sAxisY();
 
     character = new JPH::CharacterVirtual(&settings, Physics::toJoltVec3(part->getPosition()), JPH::Quat::sIdentity(), &physicsWorld.getPhysicsSystem());
+
+    if (part->getPhysicsBodyId() != 0xFFFFFFFF) {
+        physicsWorld.getBodyInterface().SetMotionType(JPH::BodyID(part->getPhysicsBodyId()), JPH::EMotionType::Kinematic, JPH::EActivation::Activate);
+    }
+
+    prePhysicsConnectionId = physicsWorld.prePhysicsUpdate.connect([this](const std::vector<std::any>& args) {
+        if (args.size() > 0) {
+            float dt = std::any_cast<float>(args[0]);
+            this->update(dt);
+        }
+    });
 }
 
 void Humanoid::cleanupCharacterVirtual() {
+    if (prePhysicsConnectionId != 0) {
+        Physics::PhysicsWorld::instance().prePhysicsUpdate.disconnect(prePhysicsConnectionId);
+        prePhysicsConnectionId = 0;
+    }
     if (character) {
         character = nullptr;
     }
@@ -99,11 +120,18 @@ void Humanoid::applyMovement(const Math::Vector3& moveDirection, float deltaTime
 
     auto& physicsWorld = Physics::PhysicsWorld::instance();
 
-    // Calculate desired velocity
-    JPH::Vec3 desiredVelocity = Physics::toJoltVec3(moveDirection) * walkSpeed;
-    desiredVelocity.SetY(character->GetLinearVelocity().GetY()); // Keep vertical velocity (gravity)
+    // Apply gravity
+    JPH::Vec3 linearVelocity = character->GetLinearVelocity();
+    linearVelocity += JPH::Vec3(0, -9.81f, 0) * deltaTime;
 
-    character->SetLinearVelocity(desiredVelocity);
+    // Calculate desired velocity (studs to meters)
+    JPH::Vec3 desiredVelocity = Physics::toJoltVec3(moveDirection * walkSpeed);
+    
+    // Overwrite horizontal velocity
+    linearVelocity.SetX(desiredVelocity.GetX());
+    linearVelocity.SetZ(desiredVelocity.GetZ());
+
+    character->SetLinearVelocity(linearVelocity);
 
     JPH::CharacterVirtual::ExtendedUpdateSettings updateSettings;
     updateSettings.mStickToFloorStepDown = JPH::Vec3(0, -0.5f, 0);
@@ -112,7 +140,7 @@ void Humanoid::applyMovement(const Math::Vector3& moveDirection, float deltaTime
     // Setup Jolt default filters using the Character's layer
     JPH::DefaultBroadPhaseLayerFilter broadphaseFilter(physicsWorld.getObjectVsBroadPhaseLayerFilter(), Physics::Layers::CHARACTER);
     JPH::DefaultObjectLayerFilter objectFilter(physicsWorld.getObjectLayerPairFilter(), Physics::Layers::CHARACTER);
-    JPH::IgnoreMultipleBodiesFilter bodyFilter;
+    JPH::IgnoreSingleBodyFilter bodyFilter(JPH::BodyID(part->getPhysicsBodyId()));
 
     // Apply movement
     character->ExtendedUpdate(

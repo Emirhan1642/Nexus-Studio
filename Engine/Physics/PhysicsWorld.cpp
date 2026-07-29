@@ -74,6 +74,10 @@ void PhysicsWorld::shutdown() {
 }
 
 void PhysicsWorld::step(float deltaTime) {
+    if (!physicsSystem.GetNumBodies()) return;
+
+    prePhysicsUpdate.fire({deltaTime});
+
     constexpr float fixedTimeStep = 1.0f / 60.0f;
     accumulator += deltaTime;
 
@@ -83,6 +87,8 @@ void PhysicsWorld::step(float deltaTime) {
         accumulator -= fixedTimeStep;
         stepped = true;
     }
+    
+    postPhysicsUpdate.fire({deltaTime});
 
     if (stepped) {
         // Helper function to find a part by its instance ID

@@ -72,6 +72,7 @@ private:
     friend class HumanoidStateMachine;
 
     JPH::Ref<JPH::CharacterVirtual> character;
+    uint32_t prePhysicsConnectionId = 0;
     std::weak_ptr<Part> rootPart;
     HumanoidStateMachine stateMachine;
 

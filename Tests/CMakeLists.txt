@@ -5,6 +5,7 @@ set(TEST_SOURCES
     AnimationTests.cpp
     NetworkingTests.cpp
     PhysicsAndSerializationTests.cpp
+    HumanoidTests.cpp
 )
 
 add_executable(NexusStudioTests ${TEST_SOURCES})

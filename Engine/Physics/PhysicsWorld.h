@@ -7,8 +7,17 @@
 #include <Jolt/Core/JobSystemThreadPool.h>
 
 #include "ContactListenerImpl.h"
+#include "../Core/Signal.h"
 
 namespace Engine::Physics {
+
+struct PrePhysicsUpdateEvent {
+    float deltaTime;
+};
+
+struct PostPhysicsUpdateEvent {
+    float deltaTime;
+};
 
 // Layer definitions
 namespace Layers {
@@ -100,6 +109,9 @@ public:
 
     void addConstraint(JPH::Constraint* constraint);
     void removeConstraint(JPH::Constraint* constraint);
+
+    Engine::Signal prePhysicsUpdate;
+    Engine::Signal postPhysicsUpdate;
 
     JPH::BodyInterface& getBodyInterface() { return physicsSystem.GetBodyInterface(); }
     JPH::PhysicsSystem& getPhysicsSystem() { return physicsSystem; }
