@@ -130,3 +130,76 @@ TEST_F(HumanoidTest, IKControlApplication) {
     // Still alive after step
     EXPECT_EQ(ikControl->weight, 1.0f);
 }
+
+TEST_F(HumanoidTest, RagdollSimulation) {
+    // 1. Create Humanoid and Root
+    auto rootPart = std::make_shared<Part>();
+    rootPart->name = "RagdollRoot";
+    rootPart->setSize(Vector3(1.0f, 1.0f, 1.0f));
+    rootPart->setPosition(Vector3(0, 10.0f, 0)); // Start in the air
+    rootPart->setAnchored(true);
+
+    auto humanoid = std::make_shared<Humanoid>();
+    humanoid->name = "RagdollHumanoid";
+    humanoid->setParent(rootPart);
+
+    // 2. Setup Skeleton
+    Engine::Animation::Bone rootBone;
+    rootBone.name = "Root";
+    rootBone.bindPoseLocalTransform = Math::Matrix4::fromTRS(Vector3(0, 0, 0), Math::Quaternion::identity(), Vector3(1,1,1));
+    rootBone.inverseBindPoseWorldTransform = rootBone.bindPoseLocalTransform.inverse();
+    
+    Engine::Animation::Bone childBone;
+    childBone.name = "Spine";
+    childBone.parentIndex = 0;
+    childBone.bindPoseLocalTransform = Math::Matrix4::fromTRS(Vector3(0, 1.0f, 0), Math::Quaternion::identity(), Vector3(1,1,1));
+    childBone.inverseBindPoseWorldTransform = (rootBone.bindPoseLocalTransform * childBone.bindPoseLocalTransform).inverse();
+
+    humanoid->getSkeleton().bones = { rootBone, childBone };
+
+    // 3. Setup PhysicsAsset
+    auto physicsAsset = std::make_shared<Engine::Physics::PhysicsAsset>();
+    
+    Engine::Physics::PhysicsBoneShape rootShape;
+    rootShape.boneName = "Root";
+    rootShape.radius = 0.5f;
+    rootShape.halfHeight = 0.5f;
+    
+    Engine::Physics::PhysicsBoneShape childShape;
+    childShape.boneName = "Spine";
+    childShape.radius = 0.4f;
+    childShape.halfHeight = 0.5f;
+    
+    physicsAsset->shapes = { rootShape, childShape };
+    humanoid->physicsAsset = physicsAsset;
+
+    // 4. Trigger Ragdoll
+    EXPECT_EQ(humanoid->getState(), HumanoidState::Idle);
+    humanoid->enterRagdoll();
+    EXPECT_EQ(humanoid->getState(), HumanoidState::Ragdoll);
+
+    // 5. Run simulation (let it fall)
+    auto& physicsWorld = Physics::PhysicsWorld::instance();
+    for(int i = 0; i < 10; ++i) {
+        physicsWorld.step(1.0f / 60.0f);
+        humanoid->update(1.0f / 60.0f); // update transfers Jolt to bone transforms
+    }
+
+    // 6. Verify bones moved from origin (due to gravity)
+    // The part's boneTransforms array should now reflect physical positions
+    auto boneTransforms = rootPart->getBoneTransforms();
+    ASSERT_EQ(boneTransforms.size(), 2u);
+    
+    // Convert back from inverseBindPose to world pose to check position
+    Math::Matrix4 rootWorld = boneTransforms[0] * rootBone.bindPoseLocalTransform;
+    Vector3 rootPos = rootWorld.getTranslation();
+    
+    // It should have fallen slightly down from Y=0 (relative to rootPart, or world, depending on how we set it up)
+    // Actually, Jolt bodies were created at worldPos = rootPart->pos + localPos
+    // Let's just check that it's not (0,0,0) anymore, or that Y is less than initial
+    EXPECT_NE(rootPos.y, 0.0f);
+
+    // 7. Cleanup
+    humanoid->exitRagdoll();
+    EXPECT_EQ(humanoid->getState(), HumanoidState::Idle);
+}

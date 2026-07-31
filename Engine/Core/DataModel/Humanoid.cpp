@@ -143,22 +143,72 @@ void Humanoid::jump() {
 }
 
 void Humanoid::update(float deltaTime) {
-    if (state == HumanoidState::Ragdoll || health <= 0) {
+    auto part = getRootPart();
+    if (!part) return;
+
+    if (state != HumanoidState::Ragdoll && health > 0) {
+        applyMovement(currentMoveDirection, deltaTime);
+        
+        // Jump handling
+        if (jumpRequested && character && character->IsSupported()) {
+            JPH::Vec3 currentVel = character->GetLinearVelocity();
+            currentVel.SetY(jumpPower * 0.1f); // scaled down for Jolt units
+            character->SetLinearVelocity(currentVel);
+        }
+        jumpRequested = false;
+
+        stateMachine.update(*this, deltaTime);
+    } else {
         if (state != HumanoidState::Ragdoll) enterRagdoll();
-        return;
     }
 
-    applyMovement(currentMoveDirection, deltaTime);
-    
-    // Jump handling
-    if (jumpRequested && character && character->IsSupported()) {
-        JPH::Vec3 currentVel = character->GetLinearVelocity();
-        currentVel.SetY(jumpPower * 0.1f); // scaled down for Jolt units
-        character->SetLinearVelocity(currentVel);
-    }
-    jumpRequested = false;
+    auto& physicsWorld = Physics::PhysicsWorld::instance();
 
-    stateMachine.update(*this, deltaTime);
+    // Evaluate skeletal animation or physics ragdoll
+    if (!skeleton.bones.empty()) {
+        std::vector<Math::Matrix4> worldPose(skeleton.bones.size());
+        
+        if (state == HumanoidState::Ragdoll && physicsAsset) {
+            // Read bone transforms from Ragdoll physics bodies
+            auto& physicsSystem = physicsWorld.getPhysicsSystem();
+            auto& bodyInterface = physicsWorld.getBodyInterface();
+            for (const auto& limb : ragdollLimbs) {
+                JPH::Vec3 joltPos;
+                JPH::Quat joltRot;
+                bodyInterface.GetPositionAndRotation(limb.bodyId, joltPos, joltRot);
+                
+                Math::Vector3 pos = Physics::fromJoltVec3(joltPos);
+                Math::Quaternion rot = Physics::fromJoltQuat(joltRot);
+                worldPose[limb.boneIndex] = Math::Matrix4::fromTRS(pos, rot, Math::Vector3(1, 1, 1));
+            }
+            // For simplicity, we assume all major bones have physical bodies in Ragdoll state.
+        } else {
+            // Standard Animation evaluation
+            std::vector<Math::Matrix4> localPose = animationPlayer.evaluate(skeleton, deltaTime);
+            worldPose = skeleton.computeWorldTransforms(localPose);
+            
+            // Simple IK Integration hook
+            if (ikEnabled) {
+                bool ikApplied = false;
+                for (auto& child : getChildren()) {
+                    if (auto ik = std::dynamic_pointer_cast<IKControl>(child)) {
+                        ik->apply(skeleton, localPose, worldPose);
+                        ikApplied = true;
+                    }
+                }
+                if (ikApplied) {
+                    worldPose = skeleton.computeWorldTransforms(localPose);
+                }
+            }
+        }
+        
+        std::vector<Math::Matrix4> finalBoneTransforms(skeleton.bones.size());
+        for (size_t i = 0; i < skeleton.bones.size(); ++i) {
+            finalBoneTransforms[i] = worldPose[i] * skeleton.bones[i].inverseBindPoseWorldTransform;
+        }
+
+        part->setBoneTransforms(finalBoneTransforms);
+    }
 }
 
 void Humanoid::applyMovement(const Math::Vector3& moveDirection, float deltaTime) {
@@ -204,34 +254,6 @@ void Humanoid::applyMovement(const Math::Vector3& moveDirection, float deltaTime
 
     // Sync back to DataModel
     part->setPosition(Physics::fromJoltVec3(character->GetPosition()));
-    
-    // Evaluate skeletal animation
-    if (!skeleton.bones.empty()) {
-        std::vector<Math::Matrix4> localPose = animationPlayer.evaluate(skeleton, deltaTime);
-        std::vector<Math::Matrix4> worldPose = skeleton.computeWorldTransforms(localPose);
-        
-        // Simple IK Integration hook
-        if (ikEnabled) {
-            bool ikApplied = false;
-            for (auto& child : getChildren()) {
-                if (auto ik = std::dynamic_pointer_cast<IKControl>(child)) {
-                    ik->apply(skeleton, localPose, worldPose);
-                    ikApplied = true;
-                }
-            }
-            if (ikApplied) {
-                // Recompute world pose if local pose changed
-                worldPose = skeleton.computeWorldTransforms(localPose);
-            }
-        }
-        
-        std::vector<Math::Matrix4> finalBoneTransforms(skeleton.bones.size());
-        for (size_t i = 0; i < skeleton.bones.size(); ++i) {
-            finalBoneTransforms[i] = worldPose[i] * skeleton.bones[i].inverseBindPoseWorldTransform;
-        }
-
-        part->setBoneTransforms(finalBoneTransforms);
-    }
 }
 
 void Humanoid::enterRagdoll() {
@@ -247,62 +269,74 @@ void Humanoid::enterRagdoll() {
     auto& physicsWorld = Physics::PhysicsWorld::instance();
     auto& bodyInterface = physicsWorld.getBodyInterface();
 
-    // In a real game, the limbs would already exist in the DataModel as children.
-    // For this demonstration, we will spawn a Head, Torso, and Arms if they aren't there,
-    // and attach them with Jolt Hinge/Spherical constraints.
-    
-    auto createLimb = [&](const std::string& name, const Engine::Math::Vector3& offset, const Engine::Math::Vector3& size) -> std::shared_ptr<Part> {
-        auto limb = std::static_pointer_cast<Part>(createInstance("Part"));
-        limb->name = name;
-        limb->setSize(size);
-        limb->setPosition(part->getPosition() + offset);
-        limb->setAnchored(false);
-        limb->setParent(this->getParent());
-        return limb;
-    };
+    if (!physicsAsset || skeleton.bones.empty()) return;
 
-    auto head = createLimb("Head", {0, 1.5f, 0}, {1.0f, 1.0f, 1.0f});
-    auto torso = createLimb("Torso", {0, 0.0f, 0}, {2.0f, 2.0f, 1.0f});
-    auto leftArm = createLimb("LeftArm", {-1.5f, 0.0f, 0}, {1.0f, 2.0f, 1.0f});
-    auto rightArm = createLimb("RightArm", {1.5f, 0.0f, 0}, {1.0f, 2.0f, 1.0f});
+    // Use a temporary local pose at time=0 (or current frame) to find world positions
+    std::vector<Math::Matrix4> localPose(skeleton.bones.size());
+    for (size_t i = 0; i < skeleton.bones.size(); ++i) {
+        localPose[i] = skeleton.bones[i].bindPoseLocalTransform;
+    }
+    // Alternatively, use current animation pose so ragdoll starts from current frame
+    localPose = animationPlayer.evaluate(skeleton, 0.0f); // Or use cached last frame localPose
+    std::vector<Math::Matrix4> worldPose = skeleton.computeWorldTransforms(localPose);
 
-    auto addLimbToPhysics = [&](std::shared_ptr<Part> limbPart) {
+    for (size_t i = 0; i < skeleton.bones.size(); ++i) {
+        auto& bone = skeleton.bones[i];
+        const auto* shapeDef = physicsAsset->findShape(bone.name);
+        if (!shapeDef) continue;
+
+        Math::Vector3 worldPos = worldPose[i].getTranslation();
+        // Compute world rotation from matrix
+        Math::Vector3 scale;
+        Math::Quaternion worldRot;
+        worldPose[i].decompose(worldPos, worldRot, scale);
+
         JPH::BodyCreationSettings settings(
-            new JPH::CapsuleShape(limbPart->getSize().y * 0.5f, limbPart->getSize().x * 0.5f), 
-            Physics::toJoltVec3(limbPart->getPosition()), 
-            JPH::Quat::sIdentity(), 
+            new JPH::CapsuleShape(shapeDef->halfHeight, shapeDef->radius), 
+            Physics::toJoltVec3(worldPos), 
+            Physics::toJoltQuat(worldRot), 
             JPH::EMotionType::Dynamic, 
             Physics::Layers::RAGDOLL
         );
+        
         RagdollLimb limb;
-        limb.part = limbPart;
+        limb.boneIndex = (int)i;
         limb.bodyId = bodyInterface.CreateAndAddBody(settings, JPH::EActivation::Activate);
         ragdollLimbs.push_back(limb);
-        return limb.bodyId;
-    };
+    }
 
-    JPH::BodyID headId = addLimbToPhysics(head);
-    JPH::BodyID torsoId = addLimbToPhysics(torso);
-    JPH::BodyID leftArmId = addLimbToPhysics(leftArm);
-    JPH::BodyID rightArmId = addLimbToPhysics(rightArm);
+    // Create constraints between connected bones
+    for (size_t i = 0; i < ragdollLimbs.size(); ++i) {
+        int boneIdx = ragdollLimbs[i].boneIndex;
+        int parentIdx = skeleton.bones[boneIdx].parentIndex;
+        
+        if (parentIdx >= 0) {
+            // Find parent limb if it has a body
+            JPH::BodyID parentBodyId;
+            bool foundParent = false;
+            for (const auto& plimb : ragdollLimbs) {
+                if (plimb.boneIndex == parentIdx) {
+                    parentBodyId = plimb.bodyId;
+                    foundParent = true;
+                    break;
+                }
+            }
 
-    // Create constraints to link them together
-    auto createJoint = [&](JPH::BodyID b1, JPH::BodyID b2, JPH::Vec3 pivot) {
-        JPH::BodyLockWrite lock1(physicsWorld.getPhysicsSystem().GetBodyLockInterface(), b1);
-        JPH::BodyLockWrite lock2(physicsWorld.getPhysicsSystem().GetBodyLockInterface(), b2);
-        if (lock1.Succeeded() && lock2.Succeeded()) {
-            JPH::PointConstraintSettings settings;
-            settings.mPoint1 = pivot;
-            settings.mPoint2 = pivot;
-            JPH::Constraint* joint = settings.Create(lock1.GetBody(), lock2.GetBody());
-            physicsWorld.addConstraint(joint);
-            ragdollJoints.push_back(joint);
+            if (foundParent) {
+                JPH::BodyLockWrite lock1(physicsWorld.getPhysicsSystem().GetBodyLockInterface(), ragdollLimbs[i].bodyId);
+                JPH::BodyLockWrite lock2(physicsWorld.getPhysicsSystem().GetBodyLockInterface(), parentBodyId);
+                if (lock1.Succeeded() && lock2.Succeeded()) {
+                    Math::Vector3 pivot = worldPose[boneIdx].getTranslation();
+                    JPH::PointConstraintSettings settings;
+                    settings.mPoint1 = Physics::toJoltVec3(pivot);
+                    settings.mPoint2 = Physics::toJoltVec3(pivot);
+                    JPH::Constraint* joint = settings.Create(lock1.GetBody(), lock2.GetBody());
+                    physicsWorld.addConstraint(joint);
+                    ragdollJoints.push_back(joint);
+                }
+            }
         }
-    };
-
-    createJoint(torsoId, headId, Physics::toJoltVec3(part->getPosition() + Math::Vector3(0, 1.0f, 0))); // Neck
-    createJoint(torsoId, leftArmId, Physics::toJoltVec3(part->getPosition() + Math::Vector3(-1.0f, 0.5f, 0))); // Left Shoulder
-    createJoint(torsoId, rightArmId, Physics::toJoltVec3(part->getPosition() + Math::Vector3(1.0f, 0.5f, 0))); // Right Shoulder
+    }
 }
 
 void Humanoid::exitRagdoll() {
@@ -324,9 +358,6 @@ void Humanoid::exitRagdoll() {
     for (auto& limb : ragdollLimbs) {
         bodyInterface.RemoveBody(limb.bodyId);
         bodyInterface.DestroyBody(limb.bodyId);
-        if (limb.part) {
-            limb.part->setParent(nullptr);
-        }
     }
     ragdollLimbs.clear();
 

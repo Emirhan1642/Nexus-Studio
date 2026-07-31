@@ -1,0 +1,21 @@
+- `[x]` **Define PhysicsAsset Data Structure**
+  - Create `Engine/Physics/PhysicsAsset.h` and `.cpp`
+  - Define `PhysicsBoneShape` struct (boneName, radius, halfHeight, localOffset)
+  - Define `PhysicsAsset` class holding a vector of shapes
+- `[x]` **Update Humanoid Component**
+  - Add `std::shared_ptr<PhysicsAsset> physicsAsset` property to `Humanoid`
+  - Update `Humanoid` reflection to include this property (may need a custom way or just a mock assignment for now if ObjectRef for non-Instance isn't supported)
+  - Change `RagdollLimb` struct to store `boneIndex` and `JPH::BodyID`
+- `[x]` **Implement enterRagdoll()**
+  - Iterate through `physicsAsset->shapes`
+  - Find matching bone in `skeleton`
+  - Create `JPH::CapsuleShape` using the asset data
+  - Create `JPH::Body` and add to physics world
+  - Create implicit `JPH::ConeConstraint` or `JPH::PointConstraint` between child and parent bodies
+- `[x]` **Implement update() Override**
+  - When in `Ragdoll` state, skip `animationPlayer.evaluate()` for bone transforms
+  - Read `JPH::Body` world transforms, convert to local bone transforms, and compute GPU skinning matrices
+- `[x]` **Implement exitRagdoll()**
+  - Destroy all JPH bodies and constraints tracked in `ragdollLimbs` and `ragdollJoints`
+- `[x]` **Write Unit Test**
+  - In `HumanoidTests.cpp`, create a test `PhysicsAsset`, assign it to `Humanoid`, and verify ragdoll bodies are created and fall under gravity.

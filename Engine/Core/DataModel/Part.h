@@ -63,6 +63,7 @@ public:
     void setMeshFromAsset(const Engine::Assets::AssetGuid& guid);
 
     void setBoneTransforms(const std::vector<Engine::Math::Matrix4>& transforms);
+    const std::vector<Engine::Math::Matrix4>& getBoneTransforms() const { return currentBoneTransforms; }
 
 private:
     std::vector<Engine::Math::Matrix4> currentBoneTransforms;

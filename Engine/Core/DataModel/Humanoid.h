@@ -12,6 +12,7 @@
 #include "../../Animation/AnimationPlayer.h"
 #include "../../Animation/AnimationClip.h"
 #include "../../Animation/Skeleton.h"
+#include "../../Physics/PhysicsAsset.h"
 #include "AnimationTrack.h"
 #include "IKControl.h"
 
@@ -56,6 +57,7 @@ public:
     Animation::AnimationPlayer& getAnimationPlayer() { return animationPlayer; }
     Animation::Skeleton& getSkeleton() { return skeleton; }
     bool ikEnabled = true;
+    std::shared_ptr<Physics::PhysicsAsset> physicsAsset;
 
     // Default Animations
     std::shared_ptr<Animation::AnimationClip> idleAnimation;
@@ -93,7 +95,7 @@ private:
 
     // Ragdoll tracking
     struct RagdollLimb {
-        std::shared_ptr<Part> part;
+        int boneIndex;
         JPH::BodyID bodyId;
     };
     std::vector<RagdollLimb> ragdollLimbs;
