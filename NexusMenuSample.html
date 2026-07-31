@@ -1,0 +1,691 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vibe Engine Studio - Ultimate Production Ready Mock</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        studio: {
+                            bg: '#050505',        // Pure Deep Black
+                            panel: '#0e0e0e',     // Seamless Dark Panel
+                            panelHover: '#171717',// Neutral Hover
+                            border: '#242424',    // 1px Solid Divider Grey
+                            text: '#8e8e8e',      // Muted Secondary Text
+                            textLight: '#e5e5e5', // Primary Text
+                            accent: '#00d2ff',    // Cyan/Neon Accent
+                            accentGlow: 'rgba(0, 210, 255, 0.2)',
+                            toggleOn: '#22c55e',  // Active Switch Green
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body {
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            background-color: #050505;
+            color: #e5e5e5;
+            overflow: hidden;
+            height: 100vh;
+            user-select: none;
+            margin: 0;
+            padding: 0;
+        }
+        /* Refined Subtle Scrollbars */
+        ::-webkit-scrollbar {
+            width: 4px;
+            height: 4px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #0e0e0e;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #262626;
+            border-radius: 2px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #383838;
+        }
+        /* Custom Engineered Range Slider */
+        input[type=range] {
+            -webkit-appearance: none;
+            width: 100%;
+            background: transparent;
+        }
+        input[type=range]::-webkit-slider-runnable-track {
+            height: 3px;
+            background: #242424;
+            border-radius: 1.5px;
+        }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 10px;
+            width: 10px;
+            border-radius: 50%;
+            background: #ffffff;
+            border: 2px solid #00d2ff;
+            box-shadow: 0 0 5px #00d2ff;
+            margin-top: -3.5px;
+            cursor: pointer;
+        }
+        .node-grid {
+            background-image: radial-gradient(#262626 1px, transparent 1px);
+            background-size: 18px 18px;
+        }
+    </style>
+</head>
+<body class="flex flex-col h-screen">
+
+    <!-- TOP DOCK: Single-Row Engineered Menu & Tabs Bar -->
+    <header class="h-10 bg-studio-panel border-b border-studio-border px-3 flex items-center justify-between shrink-0 text-xs select-none z-30">
+        <!-- Left: Logo & Menus -->
+        <div class="flex items-center gap-3 shrink-0">
+            <div class="flex items-center gap-2 pr-2 border-r border-studio-border">
+                <div class="h-5 w-5 rounded bg-studio-accent flex items-center justify-center font-black text-black text-[10px] shadow-[0_0_8px_rgba(0,210,255,0.4)]">V</div>
+                <span class="font-bold tracking-widest text-white text-[11px]">VIBE</span>
+            </div>
+            <nav class="flex items-center text-studio-text text-[11px]">
+                <button class="px-2 py-1 hover:bg-studio-panelHover hover:text-white transition rounded">File <span class="opacity-40">⌄</span></button>
+                <button class="px-2 py-1 hover:bg-studio-panelHover hover:text-white transition rounded">Edit <span class="opacity-40">⌄</span></button>
+                <button class="px-2 py-1 hover:bg-studio-panelHover hover:text-white transition rounded">View <span class="opacity-40">⌄</span></button>
+                <button class="px-2 py-1 hover:bg-studio-panelHover hover:text-white transition rounded">Scene <span class="opacity-40">⌄</span></button>
+                <button class="px-2 py-1 hover:bg-studio-panelHover hover:text-white transition rounded">Object <span class="opacity-40">⌄</span></button>
+                <button class="px-2 py-1 hover:bg-studio-panelHover hover:text-white transition rounded">Material <span class="opacity-40">⌄</span></button>
+                <button class="px-2 py-1 hover:bg-studio-panelHover hover:text-white transition rounded">Physics <span class="opacity-40">⌄</span></button>
+                <button class="px-2 py-1 hover:bg-studio-panelHover hover:text-white transition rounded">Plugins <span class="opacity-40">⌄</span></button>
+                <!-- FEATURE #2: Active AI Assistant Button -->
+                <button class="ml-1 px-2.5 py-0.5 rounded bg-studio-accent text-black font-bold shadow-[0_0_10px_rgba(0,210,255,0.4)] hover:opacity-90 transition flex items-center gap-1 text-[11px]">
+                    <span>✨ AI Assistant [MCP]</span>
+                </button>
+            </nav>
+        </div>
+
+        <!-- Center: IDE-Style Document Tabs -->
+        <div class="flex items-center h-full border-x border-studio-border px-2 text-studio-text shrink-0 text-[11px]">
+            <button class="h-full px-3 bg-studio-bg text-white border-t-2 border-t-studio-accent font-medium flex items-center gap-1.5">
+                <span class="text-studio-accent">●</span> 3D Viewport
+            </button>
+            <button class="h-full px-3 bg-studio-panelHover/40 text-studio-accent border-t-2 border-t-studio-accent/40 font-medium flex items-center gap-1.5 hover:bg-studio-panelHover transition">
+                <span>🎨</span> PBR_Gold.mat [Node Graph]
+            </button>
+            <button class="h-full px-3 hover:bg-studio-panelHover hover:text-white transition flex items-center gap-1.5 border-t-2 border-t-transparent">
+                <span>📜</span> MainCharacter.luau
+            </button>
+        </div>
+
+        <!-- Right: Build Target & Play Control -->
+        <div class="flex items-center gap-3 shrink-0 text-[11px]">
+            <div class="flex items-center gap-1.5 text-studio-text">
+                <span>Target:</span>
+                <span class="text-white font-medium bg-studio-bg px-2 py-0.5 rounded border border-studio-border">PC / DX12 ⌄</span>
+            </div>
+            <button class="flex items-center gap-1.5 bg-studio-accent hover:opacity-90 transition px-3 py-1 rounded text-black font-bold text-xs shadow-[0_0_10px_rgba(0,210,255,0.25)]">
+                <svg class="h-3 w-3 fill-current" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                Play
+            </button>
+        </div>
+    </header>
+
+    <!-- MAIN WORKSPACE -->
+    <main class="flex-1 flex overflow-hidden">
+
+        <!-- LEFT TOOLBAR DOCK -->
+        <aside class="w-11 bg-studio-panel border-r border-studio-border flex flex-col items-center py-2 gap-1 shrink-0 select-none z-20">
+            <button class="p-1.5 rounded text-studio-text hover:bg-studio-panelHover hover:text-white transition" title="Select Tool (Q)">
+                <svg class="h-4 w-4 fill-current" viewBox="0 0 24 24"><path d="M7 2l12 11.2-5.8.5 3.3 7.3-2.2.9-3.2-7.4L7 18.5V2z"/></svg>
+            </button>
+            <button class="p-1.5 rounded bg-studio-accent/15 text-studio-accent border border-studio-accent/50 shadow-[0_0_10px_rgba(0,210,255,0.15)]" title="Move Tool (W)">
+                <svg class="h-4 w-4 fill-current" viewBox="0 0 24 24"><path d="M12 2L8.5 6H11v5H6V8.5L2 12l4 3.5V13h5v5H8.5L12 22l3.5-4H13v-5h5v2.5l4-3.5-4-3.5V11h-5V6h2.5L12 2z"/></svg>
+            </button>
+            <button class="p-1.5 rounded text-studio-text hover:bg-studio-panelHover hover:text-white transition" title="Rotate Tool (E)">
+                <svg class="h-4 w-4 fill-current" viewBox="0 0 24 24"><path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"/></svg>
+            </button>
+            <button class="p-1.5 rounded text-studio-text hover:bg-studio-panelHover hover:text-white transition" title="Scale Tool (R)">
+                <svg class="h-4 w-4 fill-current" viewBox="0 0 24 24"><path d="M19 19H5V5h7V3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2v-7h-2v7zM14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z"/></svg>
+            </button>
+            <button class="p-1.5 rounded text-studio-toggleOn hover:bg-studio-panelHover transition" title="Grid Snap (Active) • 1m / 15°">
+                <svg class="h-4 w-4 fill-current" viewBox="0 0 24 24"><path d="M17 3H7c-1.1 0-2 .9-2 2v6c0 3.87 3.13 7 7 7s7-3.13 7-7V5c0-1.1-.9-2-2-2zm-2 8c0 1.66-1.34 3-3 3s-3-1.34-3-3V5h2v6c0 .55.45 1 1 1s1-.45 1-1V5h2v6z"/></svg>
+            </button>
+
+            <div class="w-5 border-b border-studio-border my-1"></div>
+
+            <button class="p-1.5 rounded bg-studio-accent/10 text-studio-accent border border-studio-accent/40 shadow-[0_0_8px_rgba(0,210,255,0.15)]" title="Asset Manager / Content Drawer">
+                <svg class="h-4 w-4 fill-current" viewBox="0 0 24 24"><path d="M20 6h-8l-2-2H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 12H4V8h16v10z"/></svg>
+            </button>
+            <button class="p-1.5 rounded bg-studio-panelHover text-white border border-studio-border" title="Material Editor [Node Graph]">
+                <svg class="h-4 w-4 fill-current" viewBox="0 0 24 24"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>
+            </button>
+            <button class="p-1.5 rounded text-studio-text hover:bg-studio-panelHover hover:text-white transition" title="Lighting & Lightmaps">
+                <svg class="h-4 w-4 fill-current" viewBox="0 0 24 24"><path d="M9 21c0 .55.45 1 1 1h4c.55 0 1-.45 1-1v-1H9v1zm3-19C8.14 2 5 5.14 5 9c0 2.38 1.19 4.47 3 5.74V17c0 .55.45 1 1 1h6c.55 0 1-.45 1-1v-2.26c1.81-1.27 3-3.36 3-5.74 0-3.86-3.14-7-7-7z"/></svg>
+            </button>
+
+            <div class="flex-1"></div>
+
+            <button class="p-1.5 rounded text-studio-text hover:bg-studio-panelHover hover:text-white transition mb-1" title="Project Settings">
+                <svg class="h-4 w-4 fill-current" viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.488.488 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>
+            </button>
+        </aside>
+
+        <!-- CENTER WORKSPACE -->
+        <section class="flex-1 flex flex-col justify-between overflow-hidden bg-studio-bg relative">
+            
+            <!-- 1. TOP SECTION: 3D VIEWPORT WITH FEATURE #1: PRO VIEWPORT CONTROLS (38%) -->
+            <div class="h-[38%] relative flex flex-col justify-between overflow-hidden border-b border-studio-border">
+                <div class="absolute inset-0 opacity-15" style="background-image: linear-gradient(#242424 1px, transparent 1px), linear-gradient(90deg, #242424 1px, transparent 1px); background-size: 32px 32px;"></div>
+                
+                <!-- UPGRADED VIEWPORT TOP BAR -->
+                <div class="h-7 bg-studio-panel/90 border-b border-studio-border/60 px-3 flex items-center justify-between text-[11px] z-10">
+                    <!-- Left: Camera & Shading -->
+                    <div class="flex items-center gap-2">
+                        <span class="text-studio-accent font-semibold cursor-pointer">Perspective ⌄</span>
+                        <span class="text-studio-text">|</span>
+                        <span class="text-white font-medium cursor-pointer">Lit (PBR) ⌄</span>
+                        <span class="text-studio-text">|</span>
+                        <!-- FEATURE #1: World vs Local Toggle -->
+                        <div class="flex bg-studio-bg border border-studio-border rounded p-0.5 text-[10px]">
+                            <button class="px-1.5 bg-studio-accent text-black font-bold rounded-sm">World</button>
+                            <button class="px-1.5 text-studio-text hover:text-white">Local</button>
+                        </div>
+                    </div>
+
+                    <!-- Right: Camera Speed & Render Modes -->
+                    <div class="flex items-center gap-3 text-studio-text">
+                        <!-- FEATURE #1: Camera Speed -->
+                        <div class="flex items-center gap-1 text-[10px]">
+                            <span>Cam:</span>
+                            <span class="text-white font-mono bg-studio-bg px-1.5 py-0.5 rounded border border-studio-border">4x ⌄</span>
+                        </div>
+                        <!-- FEATURE #1: Quick Wireframe & Bounds Mode Buttons -->
+                        <div class="flex items-center gap-1 border-l border-studio-border pl-2">
+                            <button class="p-1 hover:text-white rounded" title="Wireframe Mode">🕸️</button>
+                            <button class="p-1 hover:text-white rounded" title="Collision Bounds">📦</button>
+                        </div>
+                        <span class="text-studio-text">|</span>
+                        <span class="flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-green-500"></span> FPS: <strong class="text-white font-mono">60.0</strong></span>
+                    </div>
+                </div>
+
+                <!-- 3D Scene Mockup Object with Gizmo Arrows -->
+                <div class="flex-1 flex items-center justify-center relative">
+                    <div class="relative flex items-center justify-center">
+                        <div class="w-32 h-32 bg-gradient-to-tr from-amber-600/20 to-amber-400/30 border-2 border-amber-500/80 rounded-xl flex items-center justify-center shadow-[0_0_40px_rgba(245,158,11,0.15)] transform rotate-12 relative z-10">
+                            <div class="text-center">
+                                <div class="text-amber-400 font-extrabold tracking-widest text-xs">GOLD BOX</div>
+                                <div class="text-[9px] text-studio-text mt-1">PBR • MeshPart</div>
+                            </div>
+                        </div>
+                        <!-- 3D Transform Gizmo Arrows -->
+                        <div class="absolute z-20 pointer-events-none">
+                            <div class="absolute -top-20 left-0 w-0.5 h-20 bg-green-500 flex flex-col items-center justify-start">
+                                <div class="w-0 h-0 border-x-4 border-x-transparent border-b-8 border-b-green-500 -mt-2"></div>
+                            </div>
+                            <div class="absolute top-0 -right-20 h-0.5 w-20 bg-red-500 flex items-center justify-end">
+                                <div class="w-0 h-0 border-y-4 border-y-transparent border-l-8 border-l-red-500 -mr-2"></div>
+                            </div>
+                            <div class="absolute top-0 left-0 w-14 h-0.5 bg-blue-500 transform rotate-135 origin-top-left flex items-center justify-end">
+                                <div class="w-0 h-0 border-y-4 border-y-transparent border-l-8 border-l-blue-500 -mr-2"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Viewport Navigation Cube -->
+                    <div class="absolute top-3 right-3 w-10 h-10 bg-studio-panel/90 border border-studio-border rounded-lg flex flex-col items-center justify-center text-[7px] font-bold shadow-lg cursor-pointer hover:border-studio-accent transition z-10">
+                        <div class="text-studio-text">TOP</div>
+                        <div class="text-white text-[8px]">FRONT</div>
+                        <div class="text-studio-accent">RIGHT</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 2. MIDDLE SECTION: NODE MATERIAL EDITOR (Shader Graph - 34%) -->
+            <div class="flex-1 bg-[#080808] relative flex flex-col justify-between overflow-hidden border-b border-studio-border select-none">
+                <!-- Node Editor Toolbar -->
+                <div class="h-6 bg-studio-panel border-b border-studio-border px-3 flex items-center justify-between text-[11px] shrink-0 z-20">
+                    <div class="flex items-center gap-2">
+                        <span class="text-studio-accent font-bold">🎨 Shader Graph:</span>
+                        <span class="text-white font-medium">PBR_Gold.mat</span>
+                        <span class="text-[9px] bg-amber-500/20 text-amber-300 border border-amber-500/40 px-1.5 py-0.5 rounded">Unsaved Changes *</span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <button class="px-2 py-0.5 rounded bg-studio-bg border border-studio-border hover:text-white text-studio-text text-[10px]">+ Add Node ⌄</button>
+                        <button class="px-2.5 py-0.5 rounded bg-studio-accent text-black font-semibold hover:opacity-90 transition text-[10px] shadow-[0_0_8px_rgba(0,210,255,0.3)]">Compile Shader</button>
+                    </div>
+                </div>
+
+                <!-- NODE GRAPH CANVAS -->
+                <div class="flex-1 relative overflow-hidden node-grid">
+                    <svg class="absolute inset-0 w-full h-full pointer-events-none z-0">
+                        <path d="M 218 48 C 310 48, 310 52, 418 52" stroke="#00d2ff" stroke-width="2.5" fill="none" stroke-linecap="round" />
+                        <path d="M 218 118 C 318 118, 318 95, 418 95" stroke="#22c55e" stroke-width="2" fill="none" stroke-linecap="round" />
+                        <path d="M 218 178 C 318 178, 318 116, 418 116" stroke="#f59e0b" stroke-width="2" fill="none" stroke-linecap="round" />
+                    </svg>
+
+                    <!-- NODE 1 -->
+                    <div class="absolute top-4 left-6 w-48 bg-studio-panel border border-studio-border rounded-lg shadow-xl overflow-hidden z-10">
+                        <div class="bg-studio-panelHover border-b border-studio-border px-2 py-1 flex items-center justify-between text-[10px] font-semibold text-white">
+                            <span>TextureSample (2D)</span>
+                            <span class="text-studio-accent">●</span>
+                        </div>
+                        <div class="p-2 space-y-1.5 text-[10px] relative">
+                            <div class="w-full h-9 rounded bg-amber-600/30 border border-amber-500/50 flex items-center justify-center font-bold text-amber-300 text-[9px]">BASE_GOLD.PNG</div>
+                            <div class="flex items-center justify-between text-studio-text">
+                                <span>UV Coordinate</span>
+                                <span class="text-white">RGB</span>
+                            </div>
+                            <div class="absolute -right-1.5 top-11 w-3 h-3 rounded-full bg-studio-accent border-2 border-studio-bg shadow-sm"></div>
+                        </div>
+                    </div>
+
+                    <!-- NODE 2 -->
+                    <div class="absolute top-24 left-6 w-48 bg-studio-panel border border-studio-border rounded-lg shadow-xl overflow-hidden z-10">
+                        <div class="bg-studio-panelHover border-b border-studio-border px-2 py-1 flex items-center justify-between text-[10px] font-semibold text-white">
+                            <span>Scalar (Roughness)</span>
+                            <span class="text-green-500">●</span>
+                        </div>
+                        <div class="p-2 flex items-center justify-between text-[10px] relative">
+                            <span class="text-studio-text">Value: <strong class="text-white font-mono">0.10</strong></span>
+                            <div class="absolute -right-1.5 top-2.5 w-3 h-3 rounded-full bg-green-500 border-2 border-studio-bg shadow-sm"></div>
+                        </div>
+                    </div>
+
+                    <!-- NODE 3 -->
+                    <div class="absolute top-40 left-6 w-48 bg-studio-panel border border-studio-border rounded-lg shadow-xl overflow-hidden z-10">
+                        <div class="bg-studio-panelHover border-b border-studio-border px-2 py-1 flex items-center justify-between text-[10px] font-semibold text-white">
+                            <span>Scalar (Metalness)</span>
+                            <span class="text-amber-500">●</span>
+                        </div>
+                        <div class="p-2 flex items-center justify-between text-[10px] relative">
+                            <span class="text-studio-text">Value: <strong class="text-white font-mono">0.85</strong></span>
+                            <div class="absolute -right-1.5 top-2.5 w-3 h-3 rounded-full bg-amber-500 border-2 border-studio-bg shadow-sm"></div>
+                        </div>
+                    </div>
+
+                    <!-- NODE 4: PBR MASTER -->
+                    <div class="absolute top-6 left-[418px] w-52 bg-studio-panel border-2 border-studio-accent rounded-lg shadow-[0_0_25px_rgba(0,210,255,0.15)] overflow-hidden z-10">
+                        <div class="bg-gradient-to-r from-blue-600 to-studio-accent px-2.5 py-1 flex items-center justify-between text-[11px] font-bold text-black">
+                            <span>PBR Master Node</span>
+                            <span>⚙️</span>
+                        </div>
+                        <div class="p-2 space-y-2 text-[10px] relative">
+                            <div class="absolute -left-1.5 top-2 w-3 h-3 rounded-full bg-studio-accent border-2 border-studio-bg shadow-sm"></div>
+                            <div class="flex items-center gap-1.5 pl-2"><span class="text-white font-medium">Base Color</span></div>
+
+                            <div class="absolute -left-1.5 top-7 w-3 h-3 rounded-full bg-blue-400/40 border-2 border-studio-bg shadow-sm"></div>
+                            <div class="flex items-center gap-1.5 pl-2 opacity-60"><span class="text-studio-text">Normal Map</span></div>
+
+                            <div class="absolute -left-1.5 top-12 w-3 h-3 rounded-full bg-green-500 border-2 border-studio-bg shadow-sm"></div>
+                            <div class="flex items-center gap-1.5 pl-2"><span class="text-white font-medium">Roughness</span></div>
+
+                            <div class="absolute -left-1.5 top-17 w-3 h-3 rounded-full bg-amber-500 border-2 border-studio-bg shadow-sm"></div>
+                            <div class="flex items-center gap-1.5 pl-2"><span class="text-white font-medium">Metallic</span></div>
+
+                            <div class="absolute -left-1.5 top-22 w-3 h-3 rounded-full bg-purple-400/40 border-2 border-studio-bg shadow-sm"></div>
+                            <div class="flex items-center gap-1.5 pl-2 opacity-60"><span class="text-studio-text">Emissive Color</span></div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+
+            <!-- 3. BOTTOM SECTION: TABBED DOCK WITH FEATURE #3: PROFILER & CONSOLE (28%) -->
+            <div class="h-44 bg-studio-panel flex flex-col shrink-0 select-none z-10 overflow-hidden">
+                <!-- UPGRADED TABBED HEADER BAR -->
+                <div class="h-7 border-b border-studio-border px-2 flex items-center justify-between shrink-0 text-xs bg-studio-panel">
+                    <!-- Left: FEATURE #4 & #3 Tabbed Bottom Dock (Asset Manager | Console | Profiler) -->
+                    <div class="flex items-center h-full gap-1">
+                        <button class="h-full px-3 bg-studio-bg text-white border-t-2 border-t-studio-accent font-semibold flex items-center gap-1.5 text-[11px]">
+                            <span>📂</span> Asset Manager
+                        </button>
+                        <button class="h-full px-3 text-studio-text hover:bg-studio-panelHover hover:text-white transition flex items-center gap-1.5 text-[11px] border-t-2 border-t-transparent">
+                            <span>🖥️</span> Output / Console <span class="bg-red-500/20 text-red-400 px-1.5 py-0 rounded-full font-mono text-[9px]">0</span>
+                        </button>
+                        <button class="h-full px-3 text-studio-text hover:bg-studio-panelHover hover:text-white transition flex items-center gap-1.5 text-[11px] border-t-2 border-t-transparent">
+                            <span>📈</span> Live Profiler
+                        </button>
+                    </div>
+
+                    <!-- Right: FEATURE #3 Live Performance Profiler Strip -->
+                    <div class="flex items-center gap-3 text-[10px] text-studio-text pr-2 font-mono">
+                        <span>Draw Calls: <strong class="text-white">142</strong></span>
+                        <span>•</span>
+                        <span>Ping: <strong class="text-green-400">12ms</strong></span>
+                        <span>•</span>
+                        <span>VRAM: <strong class="text-white">1.2/8.0 GB</strong></span>
+                    </div>
+                </div>
+
+                <!-- Asset Manager Body -->
+                <div class="flex-1 flex overflow-hidden">
+                    <!-- Left: Asset Tree -->
+                    <div class="w-48 border-r border-studio-border flex flex-col overflow-y-auto p-1.5 text-xs bg-studio-bg/30 shrink-0">
+                        <div class="flex items-center gap-1.5 p-1 rounded font-bold text-white bg-studio-panelHover border border-studio-border/80 mb-1 text-[11px]">
+                            <span>📁</span><span class="truncate">VibeWorld_Project</span>
+                        </div>
+                        <div class="ml-2 pl-2 border-l border-studio-border space-y-0.5 text-[11px]">
+                            <div>
+                                <div class="flex items-center gap-1.5 p-1 rounded hover:bg-studio-panelHover cursor-pointer text-white font-medium">
+                                    <span class="text-studio-text">▼</span><span>📂</span><span>Content</span>
+                                </div>
+                                <div class="ml-4 pl-2 border-l border-studio-border space-y-0.5">
+                                    <div class="flex items-center gap-1.5 p-1 rounded hover:bg-studio-panelHover cursor-pointer text-studio-text hover:text-white"><span>▶</span><span>📂</span><span>3D Models</span></div>
+                                    <div class="flex items-center gap-1.5 p-1 rounded hover:bg-studio-panelHover cursor-pointer text-studio-text hover:text-white"><span>▶</span><span>📂</span><span>Materials</span></div>
+                                    <div class="flex items-center justify-between p-1 rounded bg-studio-accent/15 border border-studio-accent/40 cursor-pointer text-white font-semibold">
+                                        <div class="flex items-center gap-1.5"><span class="text-studio-accent">▼</span><span>📂</span><span>Shaders (PBR)</span></div>
+                                        <span class="text-[9px] bg-studio-accent/20 text-studio-accent px-1 rounded font-mono">12</span>
+                                    </div>
+                                    <div class="flex items-center gap-1.5 p-1 rounded hover:bg-studio-panelHover cursor-pointer text-studio-text hover:text-white"><span>▶</span><span>📂</span><span>Scripts (Luau)</span></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Right: Asset Grid -->
+                    <div class="flex-1 p-2 overflow-y-auto bg-studio-bg/60">
+                        <div class="grid grid-cols-5 gap-2">
+                            <div class="bg-studio-panel border-2 border-studio-accent rounded-lg p-1.5 flex flex-col items-center justify-between h-20 cursor-pointer group shadow-[0_0_12px_rgba(0,210,255,0.2)]">
+                                <div class="w-8 h-8 rounded-full bg-gradient-to-tr from-amber-600 to-yellow-300 border border-white/20 flex items-center justify-center mt-0.5"></div>
+                                <div class="text-center w-full">
+                                    <div class="text-[10px] font-bold text-white truncate">PBR_Gold.mat</div>
+                                    <div class="text-[8px] text-studio-accent">Node Shader [Active]</div>
+                                </div>
+                            </div>
+
+                            <div class="bg-studio-panel border border-studio-border rounded-lg p-1.5 flex flex-col items-center justify-between h-20 hover:border-studio-accent cursor-pointer group">
+                                <div class="w-8 h-8 rounded bg-amber-500/20 border border-amber-500/50 flex items-center justify-center text-base mt-0.5">📦</div>
+                                <div class="text-center w-full">
+                                    <div class="text-[10px] font-medium text-studio-textLight truncate">Gold_Box.mesh</div>
+                                    <div class="text-[8px] text-studio-text">MeshPart</div>
+                                </div>
+                            </div>
+
+                            <div class="bg-studio-panel border border-studio-border rounded-lg p-1.5 flex flex-col items-center justify-between h-20 hover:border-studio-accent cursor-pointer group">
+                                <div class="w-8 h-8 rounded bg-blue-500/20 border border-blue-500/50 flex items-center justify-center text-base mt-0.5">🏛️</div>
+                                <div class="text-center w-full">
+                                    <div class="text-[10px] font-medium text-studio-textLight truncate">Cyber_Wall.mesh</div>
+                                    <div class="text-[8px] text-studio-text">Mesh</div>
+                                </div>
+                            </div>
+
+                            <div class="bg-studio-panel border border-studio-border rounded-lg p-1.5 flex flex-col items-center justify-between h-20 hover:border-studio-accent cursor-pointer group">
+                                <div class="w-8 h-8 rounded bg-teal-500/20 border border-teal-500/50 flex items-center justify-center text-base mt-0.5">📜</div>
+                                <div class="text-center w-full">
+                                    <div class="text-[10px] font-medium text-studio-textLight truncate">MainCharacter.luau</div>
+                                    <div class="text-[8px] text-studio-text">Luau Script</div>
+                                </div>
+                            </div>
+
+                            <div class="bg-studio-panel border border-studio-border rounded-lg p-1.5 flex flex-col items-center justify-between h-20 hover:border-studio-accent cursor-pointer group">
+                                <div class="w-8 h-8 rounded-full bg-studio-accent shadow-[0_0_8px_#00d2ff] border border-white/20 flex items-center justify-center mt-0.5"></div>
+                                <div class="text-center w-full">
+                                    <div class="text-[10px] font-medium text-studio-textLight truncate">Neon_Light.mat</div>
+                                    <div class="text-[8px] text-studio-text">Material</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Bottom Status Bar -->
+            <footer class="h-5 bg-studio-panel border-t border-studio-border px-3 flex items-center justify-between text-[10px] text-studio-text z-10 shrink-0">
+                <div>Console: <span class="text-white">Shader PBR_Gold.mat compiled successfully. 0 errors.</span></div>
+                <div>Grid: 32x32 | UDP Replication: OK</div>
+            </footer>
+        </section>
+
+        <!-- RIGHT DOCK: TABBED EXPLORER & PROPERTIES (w-80) -->
+        <aside class="w-80 bg-studio-panel border-l border-studio-border flex flex-col shrink-0 overflow-hidden text-xs">
+
+            <!-- 1. FEATURE #4 & #5: TABBED TOP DOCK (Explorer | World Settings | History) -->
+            <div class="h-[35%] flex flex-col border-b border-studio-border overflow-hidden">
+                <div class="h-7 bg-studio-panel border-b border-studio-border px-1 flex items-center justify-between shrink-0 font-semibold text-white text-[11px]">
+                    <div class="flex items-center h-full">
+                        <button class="h-full px-2.5 bg-studio-bg text-white border-t-2 border-t-studio-accent font-semibold flex items-center gap-1">
+                            <span>▼</span> Explorer
+                        </button>
+                        <!-- FEATURE #5: World Settings Tab -->
+                        <button class="h-full px-2 text-studio-text hover:bg-studio-panelHover hover:text-white transition flex items-center gap-1 border-t-2 border-t-transparent">
+                            <span>🌍</span> World
+                        </button>
+                        <button class="h-full px-2 text-studio-text hover:bg-studio-panelHover hover:text-white transition flex items-center gap-1 border-t-2 border-t-transparent">
+                            <span>🕒</span> History
+                        </button>
+                    </div>
+                    <div class="flex gap-1 text-studio-text pr-1">
+                        <button class="p-0.5 hover:text-white">+</button>
+                    </div>
+                </div>
+
+                <!-- Hierarchy Tree -->
+                <div class="flex-1 overflow-y-auto p-1.5 space-y-0.5 text-[11px]">
+                    <div class="flex items-center gap-2 p-1 rounded hover:bg-studio-panelHover cursor-pointer text-white font-medium">
+                        <span class="text-studio-text">▼</span>
+                        <span>🌍</span>
+                        <span>Workspace</span>
+                    </div>
+                    <div class="ml-4 pl-1 border-l border-studio-border space-y-0.5">
+                        <div class="flex items-center gap-2 p-1 rounded hover:bg-studio-panelHover cursor-pointer">
+                            <div class="w-1 h-3 rounded-full bg-orange-500"></div>
+                            <span>📹</span>
+                            <span class="text-studio-textLight">Main Camera</span>
+                        </div>
+                        <div class="flex items-center gap-2 p-1 rounded hover:bg-studio-panelHover cursor-pointer">
+                            <div class="w-1 h-3 rounded-full bg-blue-500"></div>
+                            <span>⚙️</span>
+                            <span class="text-studio-textLight">Game manager</span>
+                        </div>
+                        <div>
+                            <div class="flex items-center gap-2 p-1 rounded hover:bg-studio-panelHover cursor-pointer">
+                                <div class="w-1 h-3 rounded-full bg-teal-400"></div>
+                                <span class="text-studio-text">▼</span>
+                                <span>🏃</span>
+                                <span class="text-studio-textLight font-medium">Main character</span>
+                            </div>
+                            <div class="ml-4 pl-2 border-l border-studio-border space-y-0.5 text-[11px] text-studio-text">
+                                <div class="p-1 hover:text-white cursor-pointer">› 📦 Model</div>
+                                <div class="p-1 hover:text-white cursor-pointer pl-4">↻ Life SM</div>
+                                <div class="p-1 hover:text-white cursor-pointer pl-4">👁️ Show</div>
+                                <div class="p-1 hover:text-white cursor-pointer pl-4">🚫 Hide</div>
+                            </div>
+                        </div>
+                        <div class="flex items-center justify-between p-1 rounded bg-studio-accent/15 border border-studio-accent/40 cursor-pointer text-white font-medium">
+                            <div class="flex items-center gap-2">
+                                <div class="w-1 h-3 rounded-full bg-studio-accent"></div>
+                                <span>📦</span>
+                                <span>Box (Gold)</span>
+                            </div>
+                            <span class="text-[9px] bg-studio-accent/20 text-studio-accent px-1.5 py-0.5 rounded">PBR</span>
+                        </div>
+                        <div class="flex items-center gap-2 p-1 rounded hover:bg-studio-panelHover cursor-pointer">
+                            <div class="w-1 h-3 rounded-full bg-purple-500"></div>
+                            <span>🔮</span>
+                            <span class="text-studio-textLight">Item</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 2. PROPERTIES PANEL (65%) -->
+            <div class="flex-1 flex flex-col overflow-hidden bg-studio-bg/60">
+                <div class="h-7 bg-studio-panel border-b border-studio-border px-3 flex items-center justify-between shrink-0 font-semibold text-white text-[11px]">
+                    <span class="uppercase tracking-wider">Properties - Box (Gold)</span>
+                    <span class="text-[9px] text-studio-text bg-studio-panel px-1.5 py-0.5 rounded border border-studio-border">MeshPart</span>
+                </div>
+
+                <!-- Scrollable Properties -->
+                <div class="flex-1 overflow-y-auto p-3 space-y-4 text-[11px]">
+                    <div class="space-y-1.5">
+                        <div class="flex items-center justify-between font-semibold text-white border-b border-studio-border pb-1">
+                            <span>▼ Transform</span>
+                        </div>
+                        <div class="grid grid-cols-4 gap-1 items-center py-0.5">
+                            <span class="text-studio-text">Position</span>
+                            <span class="text-red-400 text-right font-mono">0</span>
+                            <span class="text-green-400 text-right font-mono">24</span>
+                            <span class="text-blue-400 text-right font-mono">-12</span>
+                        </div>
+                        <div class="grid grid-cols-4 gap-1 items-center py-0.5">
+                            <span class="text-studio-text">Rotation</span>
+                            <span class="text-red-400 text-right font-mono">0°</span>
+                            <span class="text-green-400 text-right font-mono">23°</span>
+                            <span class="text-blue-400 text-right font-mono">14.3°</span>
+                        </div>
+                        <div class="grid grid-cols-4 gap-1 items-center py-0.5">
+                            <span class="text-studio-text">Scale</span>
+                            <span class="text-white text-right font-mono">100%</span>
+                            <span class="text-white text-right font-mono">100%</span>
+                            <span class="text-white text-right font-mono">100%</span>
+                        </div>
+                    </div>
+
+                    <div class="space-y-2.5">
+                        <div class="flex items-center justify-between font-semibold text-white border-b border-studio-border pb-1">
+                            <span>▼ Gold (Shader)</span>
+                            <div class="flex gap-2">
+                                <span class="text-studio-accent font-normal">PBR ⌄</span>
+                                <span class="text-studio-text font-normal">Opaque ⌄</span>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-4 gap-1 text-center">
+                            <div class="flex flex-col items-center gap-1">
+                                <div class="w-full h-10 rounded bg-studio-panel border border-studio-border flex items-center justify-center relative cursor-pointer hover:border-studio-accent">
+                                    <div class="absolute inset-0 bg-amber-600/30"></div>
+                                    <span class="text-[8px] font-bold text-amber-300 z-10">BASE</span>
+                                </div>
+                                <span class="text-[9px] text-studio-text">● Base</span>
+                            </div>
+                            <div class="flex flex-col items-center gap-1">
+                                <div class="w-full h-10 rounded bg-studio-panel border border-studio-border flex items-center justify-center cursor-pointer hover:border-studio-accent text-studio-text">🖼️</div>
+                                <span class="text-[9px] text-studio-text">● Normal</span>
+                            </div>
+                            <div class="flex flex-col items-center gap-1">
+                                <div class="w-full h-10 rounded bg-studio-panel border border-studio-border flex items-center justify-center cursor-pointer hover:border-studio-accent text-studio-text">🖼️</div>
+                                <span class="text-[9px] text-studio-text">● ARM</span>
+                            </div>
+                            <div class="flex flex-col items-center gap-1">
+                                <div class="w-full h-10 rounded bg-studio-panel border border-studio-border flex items-center justify-center cursor-pointer hover:border-studio-accent text-studio-text">⬛</div>
+                                <span class="text-[9px] text-studio-text">○ Emissive</span>
+                            </div>
+                        </div>
+
+                        <div class="space-y-2">
+                            <div>
+                                <div class="flex justify-between mb-0.5"><span class="text-studio-text">Roughness</span><span class="text-studio-accent font-mono">10%</span></div>
+                                <input type="range" min="0" max="100" value="10">
+                            </div>
+                            <div>
+                                <div class="flex justify-between mb-0.5"><span class="text-studio-text">Metalness</span><span class="text-studio-accent font-mono">15%</span></div>
+                                <input type="range" min="0" max="100" value="15">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Rigidbody -->
+                    <div class="p-2.5 rounded bg-gradient-to-br from-orange-500/15 via-studio-panel to-studio-panel border border-orange-500/40 space-y-1.5">
+                        <div class="flex items-center justify-between font-bold text-orange-400">
+                            <span>▼ Physical • Rigidbody</span>
+                            <div class="w-6 h-3.5 bg-studio-toggleOn rounded-full relative cursor-pointer shadow-[0_0_8px_rgba(34,197,94,0.4)]">
+                                <div class="w-2.5 h-2.5 bg-white rounded-full absolute right-0.5 top-0.5"></div>
+                            </div>
+                        </div>
+                        <div class="flex justify-between text-studio-text">
+                            <span>Simulation</span>
+                            <span class="text-white font-medium">Yes ⌄</span>
+                        </div>
+                        <div class="flex justify-between text-studio-text">
+                            <span>Rigidbody Type</span>
+                            <span class="text-orange-300 font-medium cursor-pointer">Static ⌄</span>
+                        </div>
+                        <div class="flex justify-between text-studio-text">
+                            <span>Friction</span>
+                            <span class="text-white font-mono">100</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </aside>
+
+        <!-- FEATURE #2: FAR-RIGHT DOCK — AI COPILOT (MCP) DRAWER (w-72) -->
+        <aside class="w-72 bg-studio-panel border-l border-studio-border flex flex-col shrink-0 overflow-hidden text-xs z-20">
+            <!-- Header -->
+            <div class="h-7 bg-studio-panel border-b border-studio-border px-3 flex items-center justify-between shrink-0">
+                <div class="flex items-center gap-1.5 font-bold text-white text-[11px]">
+                    <span class="text-studio-accent">✨</span>
+                    <span>AI Copilot</span>
+                </div>
+                <div class="flex items-center gap-1.5 text-[10px]">
+                    <span class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
+                    <span class="text-studio-text">MCP: <strong class="text-white">Connected</strong></span>
+                </div>
+            </div>
+
+            <!-- Active Context Strip -->
+            <div class="bg-studio-bg/80 border-b border-studio-border p-2 text-[10px] space-y-1">
+                <div class="text-studio-text flex items-center justify-between">
+                    <span>ACTIVE SCENE CONTEXT:</span>
+                    <span class="text-studio-accent font-mono">Luau / C++</span>
+                </div>
+                <div class="bg-studio-panel border border-studio-border rounded px-2 py-1 flex items-center justify-between text-white font-medium">
+                    <span class="truncate">📦 Box (Gold) • PBR_Gold.mat</span>
+                    <span class="text-[9px] text-studio-accent bg-studio-accent/10 px-1 rounded">MeshPart</span>
+                </div>
+            </div>
+
+            <!-- Chat / Assistant Stream Area -->
+            <div class="flex-1 overflow-y-auto p-3 space-y-3 text-[11px] bg-studio-bg/40">
+                <!-- User Prompt Bubble -->
+                <div class="flex flex-col items-end gap-1">
+                    <div class="bg-studio-panelHover border border-studio-border text-white px-2.5 py-1.5 rounded-lg rounded-tr-none max-w-[90%]">
+                        Optimize roughness for realistic brushed gold.
+                    </div>
+                    <span class="text-[9px] text-studio-text">Emirhan • 12:44</span>
+                </div>
+
+                <!-- AI Response Card -->
+                <div class="flex flex-col items-start gap-1">
+                    <div class="bg-studio-panel border border-studio-accent/40 text-studio-textLight px-3 py-2 rounded-lg rounded-tl-none space-y-2 shadow-[0_0_15px_rgba(0,210,255,0.1)] w-full">
+                        <div class="flex items-center justify-between border-b border-studio-border/60 pb-1 text-[10px] text-studio-accent font-semibold">
+                            <span>⚡ MCP MATERIAL SOLVER</span>
+                            <span>PBR_Gold.mat</span>
+                        </div>
+                        <p class="text-[11px] leading-relaxed">
+                            I adjusted <strong class="text-white font-mono">Roughness to 0.18</strong> and injected micro-surface Anisotropy into the PBR graph.
+                        </p>
+                        <!-- Code / Property Preview Box -->
+                        <div class="bg-studio-bg p-1.5 rounded border border-studio-border font-mono text-[10px] text-green-400">
+                            + Roughness = 0.18<br>
+                            + Metallic = 0.92
+                        </div>
+                        <!-- Action Button -->
+                        <button class="w-full py-1 rounded bg-studio-accent text-black font-bold text-[10px] hover:opacity-90 transition shadow-sm">
+                            Apply Changes to Node Graph
+                        </button>
+                    </div>
+                    <span class="text-[9px] text-studio-text">Vibe Engine AI • Just now</span>
+                </div>
+            </div>
+
+            <!-- Prompt Input Box at Bottom -->
+            <div class="p-2 border-t border-studio-border bg-studio-panel shrink-0">
+                <div class="bg-studio-bg border border-studio-border rounded-lg p-1.5 flex items-center gap-1.5 focus-within:border-studio-accent transition">
+                    <span class="text-studio-text text-xs pl-1">✨</span>
+                    <input type="text" placeholder="Ask AI to modify scene or write script..." class="bg-transparent border-none outline-none text-white text-[11px] flex-1 placeholder-studio-text">
+                    <button class="p-1 rounded bg-studio-accent/20 text-studio-accent hover:bg-studio-accent hover:text-black transition text-[10px] font-bold px-2">
+                        Send
+                    </button>
+                </div>
+            </div>
+        </aside>
+
+    </main>
+
+</body>
+</html>
