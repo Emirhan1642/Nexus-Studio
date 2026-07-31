@@ -23,18 +23,26 @@ Math::Matrix4 AnimationClip::sampleBone(int boneIndex, float time) const {
     const BoneKeyframes* track = findTrack(boneIndex);
     if (!track) return Math::Matrix4::identity();
 
-    if (track->times.empty()) return Math::Matrix4::identity();
+    Math::Vector3 pos(0.0f, 0.0f, 0.0f);
+    if (!track->positionTimes.empty()) {
+        auto [prevIdx, nextIdx, t] = findSurroundingKeyframes(track->positionTimes, time);
+        pos = (nextIdx == prevIdx) ? track->positions[prevIdx] : 
+              track->positions[prevIdx] + (track->positions[nextIdx] - track->positions[prevIdx]) * t;
+    }
 
-    auto [prevIdx, nextIdx, t] = findSurroundingKeyframes(track->times, time);
+    Math::Quaternion rot = Math::Quaternion::identity();
+    if (!track->rotationTimes.empty()) {
+        auto [prevIdx, nextIdx, t] = findSurroundingKeyframes(track->rotationTimes, time);
+        rot = (nextIdx == prevIdx) ? track->rotations[prevIdx] : 
+              track->rotations[prevIdx].slerp(track->rotations[nextIdx], t);
+    }
 
-    Math::Vector3 pos = (nextIdx == prevIdx) ? track->positions[prevIdx] : 
-                        track->positions[prevIdx] + (track->positions[nextIdx] - track->positions[prevIdx]) * t;
-                        
-    Math::Quaternion rot = (nextIdx == prevIdx) ? track->rotations[prevIdx] : 
-                           track->rotations[prevIdx].slerp(track->rotations[nextIdx], t);
-                           
-    Math::Vector3 scale = (nextIdx == prevIdx) ? track->scales[prevIdx] : 
-                          track->scales[prevIdx] + (track->scales[nextIdx] - track->scales[prevIdx]) * t;
+    Math::Vector3 scale(1.0f, 1.0f, 1.0f);
+    if (!track->scaleTimes.empty()) {
+        auto [prevIdx, nextIdx, t] = findSurroundingKeyframes(track->scaleTimes, time);
+        scale = (nextIdx == prevIdx) ? track->scales[prevIdx] : 
+                track->scales[prevIdx] + (track->scales[nextIdx] - track->scales[prevIdx]) * t;
+    }
 
     return Math::Matrix4::fromTRS(pos, rot, scale);
 }

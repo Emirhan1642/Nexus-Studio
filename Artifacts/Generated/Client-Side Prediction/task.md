@@ -1,0 +1,22 @@
+- `[x]` **Protobuf Updates**
+  - Add `PlayerInputPacket` to `Messages.proto`
+  - Add `PlayerStateSnapshotPacket` to `Messages.proto`
+  - Update `NetworkPacket` payload to include the new packets
+  - Re-run Protobuf compiler (CMake build)
+- `[x]` **Networking Serialization**
+  - Update `PacketSerializer.h` to declare new packet building methods
+  - Update `PacketSerializer.cpp` to implement these methods
+- `[x]` **Network Client Updates**
+  - Update `NetworkClient.h` to hold a reference to the local `HumanoidPredictor`
+  - Update `NetworkClient.cpp` to route incoming `PlayerStateSnapshotPacket` to the local predictor
+- `[x]` **Core Prediction Logic**
+  - Update `HumanoidPredictor.h` (include dependencies if needed)
+  - Update `HumanoidPredictor.cpp` `sendToServer` method to use `NetworkClient::send()`
+- `[x]` **Network Server Updates**
+  - Update `NetworkServer.cpp` `poll()` to handle `PlayerInputPacket`
+  - Retrieve the target `Humanoid` via `ClientConnection::playerCharacter`
+  - Call `applyMovement()` and `jump()` on the `Humanoid`
+  - Send back a `PlayerStateSnapshotPacket` to the client
+- `[ ]` **Verification**
+  - Write `ClientSidePredictionTest` in `NetworkingTests.cpp`
+  - Ensure all tests pass

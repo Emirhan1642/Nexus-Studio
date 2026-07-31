@@ -45,9 +45,11 @@ TEST(AnimationTest, TestAnimationPlayer) {
     
     BoneKeyframes keys;
     keys.boneIndex = 0;
-    keys.times = {0.0f, 1.0f};
+    keys.positionTimes = {0.0f, 1.0f};
     keys.positions = {{0, 0, 0}, {0, 1, 0}};
+    keys.rotationTimes = {0.0f, 1.0f};
     keys.rotations = {Quaternion::identity(), Quaternion::identity()};
+    keys.scaleTimes = {0.0f, 1.0f};
     keys.scales = {{1, 1, 1}, {1, 1, 1}};
     clip.boneTracks.push_back(keys);
 
@@ -70,9 +72,11 @@ TEST(AnimationTest, TestAnimationBlending) {
     clipA.duration = 1.0f;
     BoneKeyframes keysA;
     keysA.boneIndex = 0;
-    keysA.times = {0.0f, 1.0f};
+    keysA.positionTimes = {0.0f, 1.0f};
     keysA.positions = {{0, 0, 0}, {0, 0, 0}}; // Stays at 0
+    keysA.rotationTimes = {0.0f, 1.0f};
     keysA.rotations = {Quaternion::identity(), Quaternion::identity()};
+    keysA.scaleTimes = {0.0f, 1.0f};
     keysA.scales = {{1, 1, 1}, {1, 1, 1}};
     clipA.boneTracks.push_back(keysA);
 
@@ -80,9 +84,11 @@ TEST(AnimationTest, TestAnimationBlending) {
     clipB.duration = 1.0f;
     BoneKeyframes keysB;
     keysB.boneIndex = 0;
-    keysB.times = {0.0f, 1.0f};
+    keysB.positionTimes = {0.0f, 1.0f};
     keysB.positions = {{0, 10, 0}, {0, 10, 0}}; // Stays at 10
+    keysB.rotationTimes = {0.0f, 1.0f};
     keysB.rotations = {Quaternion::identity(), Quaternion::identity()};
+    keysB.scaleTimes = {0.0f, 1.0f};
     keysB.scales = {{1, 1, 1}, {1, 1, 1}};
     clipB.boneTracks.push_back(keysB);
 
@@ -125,11 +131,15 @@ TEST(AnimationTest, TestBoneMasking) {
 
     AnimationClip clipA;
     clipA.duration = 1.0f;
-    BoneKeyframes keysARoot; keysARoot.boneIndex = 0; keysARoot.times = {0.0f}; 
-    keysARoot.positions = {{0, 10, 0}}; keysARoot.rotations = {Quaternion::identity()}; keysARoot.scales = {{1, 1, 1}};
+    BoneKeyframes keysARoot; keysARoot.boneIndex = 0; 
+    keysARoot.positionTimes = {0.0f}; keysARoot.positions = {{0, 10, 0}}; 
+    keysARoot.rotationTimes = {0.0f}; keysARoot.rotations = {Quaternion::identity()}; 
+    keysARoot.scaleTimes = {0.0f}; keysARoot.scales = {{1, 1, 1}};
     
-    BoneKeyframes keysAArm; keysAArm.boneIndex = 1; keysAArm.times = {0.0f}; 
-    keysAArm.positions = {{0, 10, 0}}; keysAArm.rotations = {Quaternion::identity()}; keysAArm.scales = {{1, 1, 1}};
+    BoneKeyframes keysAArm; keysAArm.boneIndex = 1; 
+    keysAArm.positionTimes = {0.0f}; keysAArm.positions = {{0, 10, 0}}; 
+    keysAArm.rotationTimes = {0.0f}; keysAArm.rotations = {Quaternion::identity()}; 
+    keysAArm.scaleTimes = {0.0f}; keysAArm.scales = {{1, 1, 1}};
     
     clipA.boneTracks.push_back(keysARoot);
     clipA.boneTracks.push_back(keysAArm);

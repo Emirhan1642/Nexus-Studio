@@ -8,15 +8,21 @@
 #include "../Engine/Core/Reflection/TypeRegistry.h"
 #include "../Engine/Core/DataModel/Part.h"
 #include "../build/Engine/Networking/Messages.pb.h"
+#include "../Engine/Core/DataModel/Humanoid.h"
+#include "../Engine/Networking/Prediction/HumanoidPredictor.h"
 #include <thread>
 #include <chrono>
 #include <unordered_set>
 
+#include "TestEnvironment.h"
+
+using namespace Engine;
 using namespace Engine::Networking;
 
 class NetworkingTest : public ::testing::Test {
 protected:
     void SetUp() override {
+        ensureTestEnvironmentInitialized();
         // Initialize reflection if needed
         RemoteEvent::registerClass();
     }
@@ -148,4 +154,63 @@ TEST_F(NetworkingTest, TestInterestManagementSpatialCulling) {
 
     EXPECT_TRUE(replicatedToClient.contains(closePart->getInstanceId()));
     EXPECT_FALSE(replicatedToClient.contains(farPart->getInstanceId()));
+}
+
+TEST_F(NetworkingTest, TestClientSidePrediction) {
+    // 1. Start Server & Client
+    ASSERT_TRUE(NetworkServer::instance().start(12347));
+    ASSERT_TRUE(NetworkClient::instance().connect("127.0.0.1", 12347));
+
+    for (int i = 0; i < 5; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        NetworkClient::instance().poll();
+        NetworkServer::instance().poll();
+    }
+
+    auto clients = NetworkServer::instance().getClients();
+    ASSERT_FALSE(clients.empty());
+    uint32_t clientId = clients[0].id;
+
+    // 2. Setup Player Character & Predictor
+    auto playerChar = std::make_shared<Engine::Humanoid>();
+    playerChar->name = "PredictorCharacter";
+    InstanceRegistry::instance().registerInstance(playerChar);
+
+    auto rootPart = std::make_shared<Part>();
+    rootPart->name = "HumanoidRootPart";
+    rootPart->setPosition({0, 10, 0});
+    InstanceRegistry::instance().registerInstance(rootPart);
+    playerChar->setParent(rootPart);
+
+    NetworkServer::instance().setPlayerCharacter(clientId, playerChar->getInstanceId());
+
+    auto localPredictor = std::make_shared<HumanoidPredictor>(playerChar);
+    NetworkClient::instance().setLocalPredictor(localPredictor);
+
+    // 3. Send Local Input (Prediction)
+    std::cout << "[Test] Sending local input..." << std::endl;
+    Engine::Math::Vector3 moveDir(1, 0, 0); // Move +X
+    localPredictor->onLocalInput(moveDir, false, 0.16f);
+    
+    // We expect some pending commands now
+    EXPECT_EQ(localPredictor->getPendingCommandsCount(), size_t(1));
+
+    // 4. Pump Network to send the command to server and get the snapshot back
+    std::cout << "[Test] Pumping network..." << std::endl;
+    for (int i = 0; i < 20; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        NetworkClient::instance().poll(); 
+        NetworkServer::instance().poll(); 
+        if (localPredictor->getPendingCommandsCount() == 0) {
+            std::cout << "[Test] Pending commands cleared at iteration " << i << std::endl;
+            break;
+        }
+    }
+
+    std::cout << "[Test] Verifying reconciliation..." << std::endl;
+    // 5. Verify Reconciliation
+    EXPECT_EQ(localPredictor->getPendingCommandsCount(), size_t(0));
+    
+    // Cleanup NetworkClient state
+    NetworkClient::instance().setLocalPredictor(nullptr);
 }

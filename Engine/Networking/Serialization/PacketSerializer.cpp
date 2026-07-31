@@ -140,5 +140,36 @@ std::vector<std::any> PacketSerializer::deserializeRemoteEventArgs(const Proto::
     return args;
 }
 
+Proto::PlayerInputPacket PacketSerializer::buildPlayerInputPacket(uint32_t sequenceNumber, float deltaTime, const Math::Vector3& moveDirection, bool jumpRequested) {
+    Proto::PlayerInputPacket packet;
+    packet.set_sequence_number(sequenceNumber);
+    packet.set_delta_time(deltaTime);
+    
+    Proto::Vector3* moveDir = packet.mutable_move_direction();
+    moveDir->set_x(moveDirection.x);
+    moveDir->set_y(moveDirection.y);
+    moveDir->set_z(moveDirection.z);
+    
+    packet.set_jump_requested(jumpRequested);
+    return packet;
+}
+
+Proto::PlayerStateSnapshotPacket PacketSerializer::buildPlayerStateSnapshotPacket(uint32_t sequenceNumber, const Math::Vector3& position, const Math::Vector3& velocity) {
+    Proto::PlayerStateSnapshotPacket packet;
+    packet.set_sequence_number(sequenceNumber);
+    
+    Proto::Vector3* pos = packet.mutable_position();
+    pos->set_x(position.x);
+    pos->set_y(position.y);
+    pos->set_z(position.z);
+    
+    Proto::Vector3* vel = packet.mutable_velocity();
+    vel->set_x(velocity.x);
+    vel->set_y(velocity.y);
+    vel->set_z(velocity.z);
+    
+    return packet;
+}
+
 } // namespace Networking
 } // namespace Engine

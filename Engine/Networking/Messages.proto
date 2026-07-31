@@ -35,10 +35,25 @@ message RemoteEventPacket {
     repeated PropertyData args = 2;
 }
 
-// Master packet that can hold either replication data or remote events
+message PlayerInputPacket {
+    uint32 sequence_number = 1;
+    float delta_time = 2;
+    Vector3 move_direction = 3;
+    bool jump_requested = 4;
+}
+
+message PlayerStateSnapshotPacket {
+    uint32 sequence_number = 1; // Acked sequence number
+    Vector3 position = 2;
+    Vector3 velocity = 3;
+}
+
+// Master packet that can hold either replication data, remote events, or prediction packets
 message NetworkPacket {
     oneof payload {
         ReplicationPacket replication = 1;
         RemoteEventPacket remote_event = 2;
+        PlayerInputPacket player_input = 3;
+        PlayerStateSnapshotPacket player_snapshot = 4;
     }
 }

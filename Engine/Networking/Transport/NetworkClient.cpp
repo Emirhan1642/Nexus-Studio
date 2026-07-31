@@ -4,6 +4,7 @@
 #include "../../Core/DataModel/InstanceRegistry.h"
 #include "../../Core/DataModel/RemoteEvent.h"
 #include "Messages.pb.h"
+#include "../Prediction/HumanoidPredictor.h"
 
 namespace Engine::Networking {
 
@@ -112,6 +113,13 @@ namespace Engine::Networking {
                             auto re = std::static_pointer_cast<RemoteEvent>(inst);
                             std::vector<std::any> args = PacketSerializer::deserializeRemoteEventArgs(packet.remote_event());
                             re->triggerClientEvent(args);
+                        }
+                    } else if (packet.has_player_snapshot()) {
+                        if (m_localPredictor) {
+                            const auto& snap = packet.player_snapshot();
+                            Math::Vector3 pos(snap.position().x(), snap.position().y(), snap.position().z());
+                            Math::Vector3 vel(snap.velocity().x(), snap.velocity().y(), snap.velocity().z());
+                            m_localPredictor->onServerSnapshot(snap.sequence_number(), pos, vel);
                         }
                     }
                 }

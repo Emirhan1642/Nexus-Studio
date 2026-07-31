@@ -138,28 +138,33 @@ ImportedSkeletalMesh SkeletalMeshImporter::importFBX(const std::string& path) {
                 Animation::BoneKeyframes track;
                 track.boneIndex = boneMapping[boneName];
                 
-                // For MVP, we assume pos/rot/scale have the same number of keys and same times
+                // Position Keys
                 for (unsigned int k = 0; k < channel->mNumPositionKeys; k++) {
                     float time = (float)channel->mPositionKeys[k].mTime / ticksPerSecond;
-                    track.times.push_back(time);
+                    track.positionTimes.push_back(time);
                     
                     auto pos = channel->mPositionKeys[k].mValue;
                     track.positions.push_back(Math::Vector3(pos.x, pos.y, pos.z));
-                    
-                    if (k < channel->mNumRotationKeys) {
-                        auto rot = channel->mRotationKeys[k].mValue;
-                        track.rotations.push_back(Math::Quaternion(rot.x, rot.y, rot.z, rot.w));
-                    } else {
-                        track.rotations.push_back(Math::Quaternion::identity());
-                    }
-                    
-                    if (k < channel->mNumScalingKeys) {
-                        auto scale = channel->mScalingKeys[k].mValue;
-                        track.scales.push_back(Math::Vector3(scale.x, scale.y, scale.z));
-                    } else {
-                        track.scales.push_back(Math::Vector3(1, 1, 1));
-                    }
                 }
+
+                // Rotation Keys
+                for (unsigned int k = 0; k < channel->mNumRotationKeys; k++) {
+                    float time = (float)channel->mRotationKeys[k].mTime / ticksPerSecond;
+                    track.rotationTimes.push_back(time);
+                    
+                    auto rot = channel->mRotationKeys[k].mValue;
+                    track.rotations.push_back(Math::Quaternion(rot.x, rot.y, rot.z, rot.w));
+                }
+                
+                // Scale Keys
+                for (unsigned int k = 0; k < channel->mNumScalingKeys; k++) {
+                    float time = (float)channel->mScalingKeys[k].mTime / ticksPerSecond;
+                    track.scaleTimes.push_back(time);
+                    
+                    auto scale = channel->mScalingKeys[k].mValue;
+                    track.scales.push_back(Math::Vector3(scale.x, scale.y, scale.z));
+                }
+
                 clip.boneTracks.push_back(track);
             }
             result.clips.push_back(clip);

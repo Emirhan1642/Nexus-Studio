@@ -10,6 +10,8 @@
 // Note: In a full network implementation, this would interact with NetworkClient.
 // For now, we simulate the structure.
 #include "../Transport/NetworkClient.h" 
+#include "../Serialization/PacketSerializer.h"
+#include "Messages.pb.h"
 
 namespace Engine {
 namespace Networking {
@@ -79,8 +81,14 @@ void HumanoidPredictor::onServerSnapshot(uint32_t ackedSeq, const Math::Vector3&
 }
 
 void HumanoidPredictor::sendToServer(const HumanoidInputCommand& cmd) {
-    // In actual implementation, we would serialize cmd to Protobuf/GNS and send via NetworkClient.
-    // This is the placeholder for that network transmission layer.
+    Proto::PlayerInputPacket inputPacket = PacketSerializer::buildPlayerInputPacket(
+        cmd.sequenceNumber, cmd.deltaTime, cmd.moveDirection, cmd.jumpRequested);
+
+    Proto::NetworkPacket masterPacket;
+    *masterPacket.mutable_player_input() = inputPacket;
+
+    std::string serializedData = masterPacket.SerializeAsString();
+    NetworkClient::instance().send(NetChannel::Unreliable_State, serializedData.data(), serializedData.size());
 }
 
 } // namespace Networking

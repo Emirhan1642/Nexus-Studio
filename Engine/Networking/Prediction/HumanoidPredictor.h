@@ -26,6 +26,8 @@ public:
     // Called when the server sends an authoritative snapshot for a specific sequence number
     void onServerSnapshot(uint32_t ackedSeq, const Math::Vector3& serverPos, const Math::Vector3& serverVelocity);
 
+    size_t getPendingCommandsCount() const { return pendingCommands.size(); }
+
 private:
     void sendToServer(const HumanoidInputCommand& cmd);
 

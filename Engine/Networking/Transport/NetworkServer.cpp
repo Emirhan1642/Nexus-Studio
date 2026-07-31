@@ -5,6 +5,9 @@
 #include "../../Core/DataModel/InstanceRegistry.h"
 #include "../../Core/DataModel/RemoteEvent.h"
 #include "Messages.pb.h"
+#include "../../Core/DataModel/Humanoid.h"
+#include "../../Physics/PhysicsConversions.h"
+#include <Jolt/Physics/Character/CharacterVirtual.h>
 
 namespace Engine::Networking {
 
@@ -151,6 +154,47 @@ namespace Engine::Networking {
                             auto re = std::static_pointer_cast<RemoteEvent>(inst);
                             std::vector<std::any> args = PacketSerializer::deserializeRemoteEventArgs(packet.remote_event());
                             re->triggerServerEvent(args);
+                        }
+                    } else if (packet.has_player_input()) {
+                        const auto& input = packet.player_input();
+                        // Find client
+                        ClientConnection* client = nullptr;
+                        for (auto& c : m_clients) {
+                            if (c.connection == pIncomingMsg->m_conn) {
+                                client = &c;
+                                break;
+                            }
+                        }
+                        if (client && client->playerCharacter != 0) {
+                            auto inst = InstanceRegistry::instance().findById(client->playerCharacter);
+                            if (inst && inst->getClassName() == "Humanoid") {
+                                auto humanoid = std::static_pointer_cast<Humanoid>(inst);
+                                
+                                Math::Vector3 moveDir(input.move_direction().x(), input.move_direction().y(), input.move_direction().z());
+                                humanoid->applyMovement(moveDir, input.delta_time());
+                                
+                                auto charVirt = humanoid->getCharacter();
+                                if (input.jump_requested() && charVirt && charVirt->IsSupported()) {
+                                    humanoid->jump();
+                                    JPH::Vec3 vel = charVirt->GetLinearVelocity();
+                                    vel.SetY(humanoid->jumpPower * 0.1f);
+                                    charVirt->SetLinearVelocity(vel);
+                                }
+                                
+                                if (charVirt) {
+                                    Math::Vector3 pos = Physics::fromJoltVec3(charVirt->GetPosition());
+                                    Math::Vector3 vel = Physics::fromJoltVec3(charVirt->GetLinearVelocity());
+                                    
+                                    Proto::PlayerStateSnapshotPacket snapshot = PacketSerializer::buildPlayerStateSnapshotPacket(
+                                        input.sequence_number(), pos, vel);
+                                        
+                                    Proto::NetworkPacket reply;
+                                    *reply.mutable_player_snapshot() = snapshot;
+                                    std::string serialized = reply.SerializeAsString();
+                                    
+                                    sendTo(pIncomingMsg->m_conn, NetChannel::Unreliable_State, serialized.data(), serialized.size());
+                                }
+                            }
                         }
                     }
                 }

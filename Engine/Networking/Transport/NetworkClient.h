@@ -6,8 +6,11 @@
 #include <functional>
 
 #include "NetworkServer.h" // For NetChannel enum
+#include <memory>
 
 namespace Engine::Networking {
+
+    class HumanoidPredictor;
 
     class NetworkClient {
     public:
@@ -22,6 +25,8 @@ namespace Engine::Networking {
         using PacketHandler = std::function<void(const uint8_t*, size_t, NetChannel)>;
         void setPacketHandler(PacketHandler handler) { m_packetHandler = handler; }
 
+        void setLocalPredictor(std::shared_ptr<HumanoidPredictor> predictor) { m_localPredictor = predictor; }
+
     private:
         NetworkClient() = default;
         ~NetworkClient() { disconnect(); }
@@ -33,5 +38,6 @@ namespace Engine::Networking {
         HSteamNetConnection m_connection = k_HSteamNetConnection_Invalid;
 
         PacketHandler m_packetHandler;
+        std::shared_ptr<HumanoidPredictor> m_localPredictor;
     };
 }

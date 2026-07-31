@@ -12,9 +12,14 @@ namespace Animation {
 
 struct BoneKeyframes {
     int boneIndex;
-    std::vector<float> times;
+    
+    std::vector<float> positionTimes;
     std::vector<Math::Vector3> positions;
+    
+    std::vector<float> rotationTimes;
     std::vector<Math::Quaternion> rotations;
+    
+    std::vector<float> scaleTimes;
     std::vector<Math::Vector3> scales;
 };
 
