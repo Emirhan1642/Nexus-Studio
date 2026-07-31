@@ -39,11 +39,15 @@
 #include "UI/PropertiesPanel.h"
 #include "UI/AssetBrowserPanel.h"
 #include "UI/MaterialEditorPanel.h"
+#include "UI/TopBar.h"
+#include "UI/LeftToolbar.h"
+#include "UI/AICopilotPanel.h"
 #include "Undo/UndoStack.h"
 
 #include "Engine/Assets/AssetDatabase.h"
 #include "Engine/Assets/ThumbnailCache.h"
 #include "Engine/Assets/AssetImportPipeline.h"
+#include "UI/IconRegistry.h"
 
 // Networking Headers
 #include "Engine/Networking/Transport/NetworkContext.h"
@@ -152,6 +156,9 @@ int main(int argc, char** argv) {
     ExplorerPanel explorer;
     PropertiesPanel properties;
     Editor::UI::MaterialEditorPanel materialEditor;
+    TopBar topBar;
+    LeftToolbar leftToolbar;
+    AICopilotPanel aiCopilot;
 
     // Create Test Parts
     std::cout << "[INIT] Create Test Parts" << std::endl;
@@ -169,6 +176,13 @@ int main(int argc, char** argv) {
     std::cout << "[INIT] Add part2 to Workspace" << std::endl;
     part2->setParent(DataModel::instance());
 
+    std::string projectRoot = Engine::Assets::AssetDatabase::instance().getProjectRoot();
+    std::cout << "[INIT] Project Root: " << projectRoot << std::endl;
+    
+    // Load Icons
+    IconRegistry::instance().loadAll(projectRoot + "/Assets/Icons");
+
+    // UI Panels
     std::cout << "[INIT] Setup DeltaTime" << std::endl;
     Engine::Renderer::Camera camera;
     camera.position = {0.0f, 2.0f, -10.0f};
@@ -251,41 +265,7 @@ int main(int argc, char** argv) {
 
         bool toggleSim = false;
 
-        if (ImGui::BeginMainMenuBar()) {
-            if (ImGui::BeginMenu("Simulation")) {
-                if (ImGui::MenuItem(isSimulating ? "Stop (F5)" : "Play (F5)")) {
-                    toggleSim = true;
-                }
-                ImGui::EndMenu();
-            }
-            if (ImGui::BeginMenu("Networking")) {
-                auto currentMode = Engine::Networking::NetworkContext::mode();
-                std::string modeStr = "Standalone";
-                if (currentMode == Engine::Networking::NetworkMode::Server) modeStr = "Server";
-                else if (currentMode == Engine::Networking::NetworkMode::Client) modeStr = "Client";
-                ImGui::Text("Current Mode: %s", modeStr.c_str());
-                ImGui::Separator();
-                
-                if (ImGui::MenuItem("Host Server", nullptr, false, currentMode == Engine::Networking::NetworkMode::Standalone)) {
-                    Engine::Networking::NetworkContext::setMode(Engine::Networking::NetworkMode::Server);
-                    Engine::Networking::NetworkServer::instance().start(7777);
-                }
-                if (ImGui::MenuItem("Connect to localhost", nullptr, false, currentMode == Engine::Networking::NetworkMode::Standalone)) {
-                    Engine::Networking::NetworkContext::setMode(Engine::Networking::NetworkMode::Client);
-                    Engine::Networking::NetworkClient::instance().connect("127.0.0.1", 7777);
-                }
-                if (ImGui::MenuItem("Disconnect / Stop", nullptr, false, currentMode != Engine::Networking::NetworkMode::Standalone)) {
-                    if (currentMode == Engine::Networking::NetworkMode::Server) {
-                        Engine::Networking::NetworkServer::instance().stop();
-                    } else {
-                        Engine::Networking::NetworkClient::instance().disconnect();
-                    }
-                    Engine::Networking::NetworkContext::setMode(Engine::Networking::NetworkMode::Standalone);
-                }
-                ImGui::EndMenu();
-            }
-            ImGui::EndMainMenuBar();
-        }
+
 
         // F5 shortcut to toggle simulation
         static bool f5Pressed = false;
@@ -319,6 +299,9 @@ int main(int argc, char** argv) {
         }
 
         if (frameCount < 5) std::cout << "[DEBUG] Frame " << frameCount << ": Draw Viewport" << std::endl;
+        topBar.draw(isSimulating, toggleSim);
+        leftToolbar.draw();
+        aiCopilot.draw();
         viewport.draw(camera);
         explorer.draw();
         properties.draw();

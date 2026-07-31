@@ -3,6 +3,9 @@
 #include "IconRegistry.h"
 #include "NexusTheme.h"
 #include "EditorLayout.h"
+#include "Engine/Networking/Transport/NetworkContext.h"
+#include "Engine/Networking/Transport/NetworkServer.h"
+#include "Engine/Networking/Transport/NetworkClient.h"
 
 void TopBar::draw(bool isSimulating, bool& toggleSim) {
     if (!ImGui::BeginMenuBar()) return;
@@ -37,6 +40,32 @@ void TopBar::draw(bool isSimulating, bool& toggleSim) {
             if (ImGui::MenuItem("Default")) { EditorLayout::instance().loadPreset("Default"); }
             if (ImGui::MenuItem("Minimal")) { EditorLayout::instance().loadPreset("Minimal"); }
             ImGui::EndMenu();
+        }
+        ImGui::EndMenu();
+    }
+    if (ImGui::BeginMenu("Networking")) {
+        auto currentMode = Engine::Networking::NetworkContext::mode();
+        std::string modeStr = "Standalone";
+        if (currentMode == Engine::Networking::NetworkMode::Server) modeStr = "Server";
+        else if (currentMode == Engine::Networking::NetworkMode::Client) modeStr = "Client";
+        ImGui::Text("Current Mode: %s", modeStr.c_str());
+        ImGui::Separator();
+        
+        if (ImGui::MenuItem("Host Server", nullptr, false, currentMode == Engine::Networking::NetworkMode::Standalone)) {
+            Engine::Networking::NetworkContext::setMode(Engine::Networking::NetworkMode::Server);
+            Engine::Networking::NetworkServer::instance().start(7777);
+        }
+        if (ImGui::MenuItem("Connect to localhost", nullptr, false, currentMode == Engine::Networking::NetworkMode::Standalone)) {
+            Engine::Networking::NetworkContext::setMode(Engine::Networking::NetworkMode::Client);
+            Engine::Networking::NetworkClient::instance().connect("127.0.0.1", 7777);
+        }
+        if (ImGui::MenuItem("Disconnect / Stop", nullptr, false, currentMode != Engine::Networking::NetworkMode::Standalone)) {
+            if (currentMode == Engine::Networking::NetworkMode::Server) {
+                Engine::Networking::NetworkServer::instance().stop();
+            } else {
+                Engine::Networking::NetworkClient::instance().disconnect();
+            }
+            Engine::Networking::NetworkContext::setMode(Engine::Networking::NetworkMode::Standalone);
         }
         ImGui::EndMenu();
     }
