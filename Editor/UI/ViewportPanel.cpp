@@ -1,7 +1,7 @@
 #define IMGUI_DEFINE_MATH_OPERATORS
 #include "ViewportPanel.h"
-#include <imgui/imgui.h>
-#include <dear-imgui/imgui_internal.h>
+#include <imgui.h>
+#include <imgui_internal.h>
 #include <widgets/gizmo.h>
 #include "SelectionManager.h"
 #include "../Undo/UndoStack.h"
@@ -35,14 +35,8 @@ void ViewportPanel::resize(uint16_t width, uint16_t height) {
 }
 
 void ViewportPanel::draw(Engine::Renderer::Camera& camera) {
-    ImGuiViewport* viewport = ImGui::GetMainViewport();
-    ImVec2 workPos = viewport->WorkPos;
-    ImVec2 workSize = viewport->WorkSize;
-
-    ImGui::SetNextWindowPos(workPos, ImGuiCond_Always);
-    ImGui::SetNextWindowSize(ImVec2(workSize.x * 0.75f, workSize.y), ImGuiCond_Always);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
-    ImGui::Begin("Viewport", nullptr, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoBringToFrontOnFocus);
+    ImGui::Begin("Viewport");
 
     ImVec2 availSize = ImGui::GetContentRegionAvail();
     if (availSize.x > 0 && availSize.y > 0) {
@@ -53,7 +47,7 @@ void ViewportPanel::draw(Engine::Renderer::Camera& camera) {
 
         // Display the frame buffer in ImGui
         ImVec2 screenPos = ImGui::GetCursorScreenPos();
-        ImGui::Image(colorTexture, availSize);
+        ImGui::Image((ImTextureID)(uintptr_t)colorTexture.idx, availSize);
 
         if (ImGui::BeginDragDropTarget()) {
             if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ASSET_GUID")) {
@@ -118,11 +112,46 @@ void ViewportPanel::draw(Engine::Renderer::Camera& camera) {
             drawConstraintsRecursive(DataModel::instance());
         }
 
-        // Checkbox at the top left
-        ImGui::SetCursorPos(ImVec2(10, 10));
-        ImGui::Checkbox("Show Constraints", &showConstraints);
-
         handleGizmoInput(camera);
+
+        ImDrawList* drawList = ImGui::GetWindowDrawList();
+        ImVec2 panelMin = ImGui::GetWindowPos();
+        ImVec2 panelMax = ImVec2(panelMin.x + ImGui::GetWindowWidth(), panelMin.y + ImGui::GetWindowHeight());
+        
+        // Viewport Overlay Toolbar (Top)
+        ImVec2 tbMin = panelMin;
+        ImVec2 tbMax = ImVec2(panelMax.x, panelMin.y + 26);
+        drawList->AddRectFilled(tbMin, tbMax, IM_COL32(20, 20, 20, 200));
+
+        ImGui::SetCursorScreenPos(ImVec2(panelMin.x + 8, panelMin.y + 4));
+        ImGui::Text("Perspective v"); ImGui::SameLine();
+        ImGui::Text("Lit (PBR) v"); ImGui::SameLine();
+        ImGui::Text("World");
+
+        ImGui::SetCursorScreenPos(ImVec2(panelMax.x - 180, panelMin.y + 4));
+        ImGui::Text("Cam: 4x v"); ImGui::SameLine();
+        ImGui::Text("[W]"); ImGui::SameLine();
+        ImGui::Text("[C]"); ImGui::SameLine();
+        ImGui::Text("FPS: 60.0");
+
+        // Orientation Cube (Top Right)
+        ImVec2 cubePos = ImVec2(panelMax.x - 50, panelMin.y + 36);
+        drawList->AddRectFilled(cubePos, ImVec2(cubePos.x+40, cubePos.y+40), IM_COL32(14, 14, 14, 220), 4.0f);
+        drawList->AddText(ImVec2(cubePos.x+10, cubePos.y+12), IM_COL32(255,255,255,255), "TOP");
+
+        // Status strip (Bottom)
+        ImVec2 stMin = ImVec2(panelMin.x, panelMax.y - 20);
+        ImVec2 stMax = panelMax;
+        drawList->AddRectFilled(stMin, stMax, IM_COL32(10, 10, 10, 220));
+        ImGui::SetCursorScreenPos(ImVec2(stMin.x + 8, stMin.y + 2));
+        auto selected = SelectionManager::instance().getSelected();
+        if (selected) {
+            ImGui::TextColored(ImVec4(0,0.82f,1,1), "Selected: %s", selected->name.c_str());
+        } else {
+            ImGui::TextDisabled("No Selection");
+        }
+        ImGui::SameLine(stMax.x - stMin.x - 120);
+        ImGui::TextDisabled("Frame Time: 16ms");
     }
 
     ImGui::End();

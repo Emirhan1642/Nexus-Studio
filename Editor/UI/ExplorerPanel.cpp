@@ -1,5 +1,5 @@
 #include "ExplorerPanel.h"
-#include <dear-imgui/imgui.h>
+#include <imgui.h>
 #include "SelectionManager.h"
 #include "../Undo/UndoStack.h"
 #include "Engine/Core/DataModel/DataModel.h"
@@ -8,24 +8,51 @@
 #include "Engine/Scripting/Script.h"
 
 void ExplorerPanel::draw() {
-    ImGuiViewport* viewport = ImGui::GetMainViewport();
-    ImVec2 workPos = viewport->WorkPos;
-    ImVec2 workSize = viewport->WorkSize;
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+    ImGui::Begin("Explorer");
 
-    ImGui::SetNextWindowPos(ImVec2(workPos.x + workSize.x * 0.75f, workPos.y), ImGuiCond_Always);
-    ImGui::SetNextWindowSize(ImVec2(workSize.x * 0.25f, workSize.y * 0.5f), ImGuiCond_Always);
-    ImGui::Begin("Explorer", nullptr, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoBringToFrontOnFocus);
+    // Header buttons
+    ImGui::SetCursorPos(ImVec2(ImGui::GetWindowWidth() - 50, 4));
+    if (ImGui::Button("+", ImVec2(20, 20))) {
+        // Open insert menu
+        ImGui::OpenPopup("ExplorerInsertPopup");
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("...", ImVec2(20, 20))) {}
+    
+    if (ImGui::BeginPopup("ExplorerInsertPopup")) {
+        drawInsertObjectMenu(DataModel::instance());
+        ImGui::EndPopup();
+    }
 
-    // Draw the root node (DataModel)
-    drawInstanceNode(DataModel::instance());
+    // Tabs
+    ImGui::SetCursorPosY(28);
+    if (ImGui::BeginTabBar("ExplorerTabs")) {
+        if (ImGui::BeginTabItem("Explorer")) {
+            ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 4);
+            drawInstanceNode(DataModel::instance());
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem("World")) {
+            ImGui::TextDisabled("World Settings");
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem("History")) {
+            ImGui::TextDisabled("History Log");
+            ImGui::EndTabItem();
+        }
+        ImGui::EndTabBar();
+    }
 
     ImGui::End();
+    ImGui::PopStyleVar();
 }
 
 void ExplorerPanel::drawInstanceNode(const std::shared_ptr<Instance>& inst) {
-    ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_DefaultOpen;
+    ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_SpanAvailWidth;
     
-    if (inst == SelectionManager::instance().getSelected()) {
+    bool isSelected = (inst == SelectionManager::instance().getSelected());
+    if (isSelected) {
         flags |= ImGuiTreeNodeFlags_Selected;
     }
     
@@ -33,7 +60,24 @@ void ExplorerPanel::drawInstanceNode(const std::shared_ptr<Instance>& inst) {
         flags |= ImGuiTreeNodeFlags_Leaf;
     }
 
+    ImVec2 pos = ImGui::GetCursorScreenPos();
     bool open = ImGui::TreeNodeEx(inst->name.c_str(), flags);
+
+    ImDrawList* drawList = ImGui::GetWindowDrawList();
+    ImVec2 rowMin = ImGui::GetItemRectMin();
+    ImVec2 rowMax = ImGui::GetItemRectMax();
+
+    if (isSelected) {
+        drawList->AddRectFilled(rowMin, rowMax, IM_COL32(0, 210, 255, 38));
+        drawList->AddLine(rowMin, ImVec2(rowMin.x, rowMax.y), IM_COL32(0, 210, 255, 255), 2.0f);
+    }
+
+    ImU32 typeColor = IM_COL32(100, 100, 100, 255); // default
+    if (inst->getClassName() == "Part") typeColor = IM_COL32(50, 150, 255, 255);
+    else if (inst->getClassName() == "Script") typeColor = IM_COL32(100, 200, 100, 255);
+    else if (inst->getClassName() == "Camera") typeColor = IM_COL32(255, 150, 50, 255);
+
+    drawList->AddRectFilled(rowMin, ImVec2(rowMin.x + 3, rowMin.y + 16), typeColor, 1.0f);
 
     if (ImGui::IsItemClicked()) {
         SelectionManager::instance().select(inst);

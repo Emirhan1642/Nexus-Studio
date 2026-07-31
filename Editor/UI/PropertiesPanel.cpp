@@ -1,5 +1,5 @@
 #include "PropertiesPanel.h"
-#include <dear-imgui/imgui.h>
+#include <imgui.h>
 #include "SelectionManager.h"
 #include "../Undo/UndoStack.h"
 #include "Engine/Core/Reflection/TypeRegistry.h"
@@ -13,13 +13,7 @@
 #include <vector>
 
 void PropertiesPanel::draw() {
-    ImGuiViewport* viewport = ImGui::GetMainViewport();
-    ImVec2 workPos = viewport->WorkPos;
-    ImVec2 workSize = viewport->WorkSize;
-
-    ImGui::SetNextWindowPos(ImVec2(workPos.x + workSize.x * 0.75f, workPos.y + workSize.y * 0.5f), ImGuiCond_Always);
-    ImGui::SetNextWindowSize(ImVec2(workSize.x * 0.25f, workSize.y * 0.5f), ImGuiCond_Always);
-    ImGui::Begin("Properties", nullptr, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoBringToFrontOnFocus);
+    ImGui::Begin("Properties");
 
     auto selected = SelectionManager::instance().getSelected();
     if (!selected) {

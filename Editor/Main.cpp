@@ -16,7 +16,7 @@
 
 #include <GLFW/glfw3native.h>
 
-#include <dear-imgui/imgui.h>
+#include <imgui.h>
 #include <map>
 
 #include "Engine/Core/Reflection/TypeRegistry.h"
@@ -100,13 +100,7 @@ int main(int argc, char** argv) {
         return -1; 
     }
 
-    // GLFW Callbacks for ImGui
-    glfwSetScrollCallback(window, [](GLFWwindow*, double xoffset, double yoffset) {
-        ImGuiLayer::instance().onScroll(yoffset);
-    });
-    glfwSetCharCallback(window, [](GLFWwindow*, unsigned int codepoint) {
-        ImGuiLayer::instance().onChar(codepoint);
-    });
+    // GLFW Callbacks for ImGui are handled by ImGui_ImplGlfw
 
     // 3. Initialize bgfx
     bgfx::PlatformData pd{};

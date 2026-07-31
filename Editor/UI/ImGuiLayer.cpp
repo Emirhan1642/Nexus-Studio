@@ -1,52 +1,94 @@
 #include "ImGuiLayer.h"
-#include <imgui/imgui.h> // from example-common
-#include <dear-imgui/imgui.h>
+#include <imgui.h>
+#include <imgui_internal.h>
+#include <backends/imgui_impl_glfw.h>
+#include "Backend/imgui_impl_bgfx.h"
+#include <filesystem>
+
+#define VIEW_ID_IMGUI 255
 
 void ImGuiLayer::init(GLFWwindow* window) {
     m_window = window;
-    
-    // Initialize bgfx imgui wrapper
-    imguiCreate(18.0f, nullptr);
-    
+
+    IMGUI_CHECKVERSION();
+    ImGui::CreateContext();
+
     ImGuiIO& io = ImGui::GetIO();
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+    io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+
+    // Font loading (Inter or fallback)
+    const char* fontPath = "Assets/Fonts/Inter-Regular.ttf";
+    if (std::filesystem::exists(fontPath)) {
+        io.Fonts->AddFontFromFileTTF(fontPath, 13.0f);
+    }
+
+    ImGui_ImplGlfw_InitForOther(window, true);
+    ImGui_ImplBgfx_Init(VIEW_ID_IMGUI);
 }
 
 void ImGuiLayer::shutdown() {
-    imguiDestroy();
-}
-
-void ImGuiLayer::onScroll(double yoffset) {
-    m_scroll += (int32_t)yoffset;
-}
-
-void ImGuiLayer::onChar(unsigned int codepoint) {
-    m_inputChar = (int)codepoint;
+    ImGui_ImplBgfx_Shutdown();
+    ImGui_ImplGlfw_Shutdown();
+    ImGui::DestroyContext();
 }
 
 void ImGuiLayer::beginFrame() {
-    int width, height;
-    glfwGetWindowSize(m_window, &width, &height);
-    
-    double mx, my;
-    glfwGetCursorPos(m_window, &mx, &my);
-    
-    uint8_t button = 0;
-    if (glfwGetMouseButton(m_window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS) button |= IMGUI_MBUT_LEFT;
-    if (glfwGetMouseButton(m_window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS) button |= IMGUI_MBUT_RIGHT;
-    if (glfwGetMouseButton(m_window, GLFW_MOUSE_BUTTON_MIDDLE) == GLFW_PRESS) button |= IMGUI_MBUT_MIDDLE;
-    
-    imguiBeginFrame((int32_t)mx, (int32_t)my, button, m_scroll, (uint16_t)width, (uint16_t)height, m_inputChar);
-    
-    // Reset inputs for next frame
-    m_scroll = 0;
-    m_inputChar = -1;
-    
-    // Window positions will be handled directly by their respective panels.
+    ImGui_ImplBgfx_NewFrame();
+    ImGui_ImplGlfw_NewFrame();
+    ImGui::NewFrame();
 
-    ImGuizmo::BeginFrame();
+    ImGuiViewport* vp = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(vp->WorkPos);
+    ImGui::SetNextWindowSize(vp->WorkSize);
+    ImGui::SetNextWindowViewport(vp->ID);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+    ImGui::Begin("##DockSpaceHost", nullptr,
+        ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse |
+        ImGuiWindowFlags_NoResize   | ImGuiWindowFlags_NoMove     |
+        ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus |
+        ImGuiWindowFlags_MenuBar);
+    ImGui::PopStyleVar(3);
+
+    m_dockspaceId = ImGui::GetID("MainDockSpace");
+    ImGui::DockSpace(m_dockspaceId, ImVec2(0, 0), ImGuiDockNodeFlags_PassthruCentralNode);
+
+    ImGuiIO& io = ImGui::GetIO();
+    if (io.IniFilename && !std::filesystem::exists(io.IniFilename)) {
+        buildDefaultLayout(m_dockspaceId, vp->WorkSize);
+    }
 }
 
 void ImGuiLayer::endFrame() {
-    imguiEndFrame();
+    ImGui::End(); // Close DockSpaceHost
+    ImGui::Render();
+    ImGui_ImplBgfx_RenderDrawData(ImGui::GetDrawData());
+}
+
+void ImGuiLayer::buildDefaultLayout(ImGuiID dockspaceId, ImVec2 size) {
+    ImGui::DockBuilderRemoveNode(dockspaceId);
+    ImGui::DockBuilderAddNode(dockspaceId, ImGuiDockNodeFlags_DockSpace);
+    ImGui::DockBuilderSetNodeSize(dockspaceId, size);
+
+    ImGuiID main      = dockspaceId;
+    ImGuiID left      = ImGui::DockBuilderSplitNode(main,  ImGuiDir_Left,  0.037f, nullptr, &main);
+    ImGuiID right     = ImGui::DockBuilderSplitNode(main,  ImGuiDir_Right, 0.27f,  nullptr, &main);
+    ImGuiID ai        = ImGui::DockBuilderSplitNode(right, ImGuiDir_Right, 0.45f,  nullptr, &right);
+    ImGuiID bottom    = ImGui::DockBuilderSplitNode(main,  ImGuiDir_Down,  0.28f,  nullptr, &main);
+    ImGuiID centerTop = main;
+    ImGuiID centerMid = ImGui::DockBuilderSplitNode(centerTop, ImGuiDir_Down, 0.47f, nullptr, &centerTop);
+    ImGuiID explorer  = right;
+    ImGuiID properties = ImGui::DockBuilderSplitNode(explorer, ImGuiDir_Down, 0.62f, nullptr, &explorer);
+
+    ImGui::DockBuilderDockWindow("##LeftToolbar",   left);
+    ImGui::DockBuilderDockWindow("Viewport",        centerTop);
+    ImGui::DockBuilderDockWindow("Material Editor", centerMid);
+    ImGui::DockBuilderDockWindow("Asset Browser",   bottom);
+    ImGui::DockBuilderDockWindow("Explorer",        explorer);
+    ImGui::DockBuilderDockWindow("Properties",      properties);
+    ImGui::DockBuilderDockWindow("AI Copilot",      ai);
+
+    ImGui::DockBuilderFinish(dockspaceId);
 }

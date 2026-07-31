@@ -1,0 +1,26 @@
+- [x] **Step 0: bgfx Backend Migration**
+    - [x] Update `ThirdParty/CMakeLists.txt` to add `imgui` (docking branch)
+    - [x] Create `imgui_impl_bgfx.h` and `imgui_impl_bgfx.cpp`
+    - [x] Obtain or create `imgui_shaders.h` (using precompiled bgfx shaders)
+    - [x] Update `ImGuiLayer.h` and `ImGuiLayer.cpp` to use DockSpace
+- [x] **Step 1: Theme System**
+    - [x] Create `NexusTheme.h` and `NexusTheme.cpp`
+- [x] **Step 2: Icon Registry**
+    - [x] Create `IconRegistry.h` and `IconRegistry.cpp`
+- [/] **Step 3: Editor Layout**
+    - [ ] Create `EditorLayout.h` and `EditorLayout.cpp`
+- [x] **Step 4: TopBar**
+    - [x] Create `TopBar.h` and `TopBar.cpp`
+- [x] **Step 5: LeftToolbar**
+    - [x] Create `LeftToolbar.h` and `LeftToolbar.cpp`
+- [x] **Step 6: Update Existing Panels**
+    - [x] `ViewportPanel` updates (Toolbar overlay, Orientation Cube)
+    - [x] `ExplorerPanel` updates (Tabs, Selection styling, Type colors)
+    - [x] `PropertiesPanel` updates (Collapsing headers, Toggle pills, Physics gradient)
+    - [x] `AssetBrowserPanel` updates (Folder tree, Asset cards, Tabs)
+    - [x] `MaterialEditorPanel` updates (Dock integration)
+- [x] **Step 7: AI Copilot Panel**
+    - [x] Create `AICopilotPanel.h` and `AICopilotPanel.cpp`
+- [ ] **Step 8: Final Integration**
+    - [ ] Update `Editor/CMakeLists.txt`
+    - [ ] Update `Main.cpp` to initialize and draw all components
