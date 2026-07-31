@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Vibe Engine Studio - Ultimate Production Ready Mock</title>
+    <title>Vibe Engine Studio - Detailed Explorer & Properties</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
         tailwind.config = {
@@ -99,7 +99,6 @@
                 <button class="px-2 py-1 hover:bg-studio-panelHover hover:text-white transition rounded">Material <span class="opacity-40">⌄</span></button>
                 <button class="px-2 py-1 hover:bg-studio-panelHover hover:text-white transition rounded">Physics <span class="opacity-40">⌄</span></button>
                 <button class="px-2 py-1 hover:bg-studio-panelHover hover:text-white transition rounded">Plugins <span class="opacity-40">⌄</span></button>
-                <!-- FEATURE #2: Active AI Assistant Button -->
                 <button class="ml-1 px-2.5 py-0.5 rounded bg-studio-accent text-black font-bold shadow-[0_0_10px_rgba(0,210,255,0.4)] hover:opacity-90 transition flex items-center gap-1 text-[11px]">
                     <span>✨ AI Assistant [MCP]</span>
                 </button>
@@ -175,33 +174,27 @@
         <!-- CENTER WORKSPACE -->
         <section class="flex-1 flex flex-col justify-between overflow-hidden bg-studio-bg relative">
             
-            <!-- 1. TOP SECTION: 3D VIEWPORT WITH FEATURE #1: PRO VIEWPORT CONTROLS (38%) -->
+            <!-- 1. TOP SECTION: 3D VIEWPORT WITH PRO VIEWPORT CONTROLS (38%) -->
             <div class="h-[38%] relative flex flex-col justify-between overflow-hidden border-b border-studio-border">
                 <div class="absolute inset-0 opacity-15" style="background-image: linear-gradient(#242424 1px, transparent 1px), linear-gradient(90deg, #242424 1px, transparent 1px); background-size: 32px 32px;"></div>
                 
-                <!-- UPGRADED VIEWPORT TOP BAR -->
                 <div class="h-7 bg-studio-panel/90 border-b border-studio-border/60 px-3 flex items-center justify-between text-[11px] z-10">
-                    <!-- Left: Camera & Shading -->
                     <div class="flex items-center gap-2">
                         <span class="text-studio-accent font-semibold cursor-pointer">Perspective ⌄</span>
                         <span class="text-studio-text">|</span>
                         <span class="text-white font-medium cursor-pointer">Lit (PBR) ⌄</span>
                         <span class="text-studio-text">|</span>
-                        <!-- FEATURE #1: World vs Local Toggle -->
                         <div class="flex bg-studio-bg border border-studio-border rounded p-0.5 text-[10px]">
                             <button class="px-1.5 bg-studio-accent text-black font-bold rounded-sm">World</button>
                             <button class="px-1.5 text-studio-text hover:text-white">Local</button>
                         </div>
                     </div>
 
-                    <!-- Right: Camera Speed & Render Modes -->
                     <div class="flex items-center gap-3 text-studio-text">
-                        <!-- FEATURE #1: Camera Speed -->
                         <div class="flex items-center gap-1 text-[10px]">
                             <span>Cam:</span>
                             <span class="text-white font-mono bg-studio-bg px-1.5 py-0.5 rounded border border-studio-border">4x ⌄</span>
                         </div>
-                        <!-- FEATURE #1: Quick Wireframe & Bounds Mode Buttons -->
                         <div class="flex items-center gap-1 border-l border-studio-border pl-2">
                             <button class="p-1 hover:text-white rounded" title="Wireframe Mode">🕸️</button>
                             <button class="p-1 hover:text-white rounded" title="Collision Bounds">📦</button>
@@ -220,7 +213,6 @@
                                 <div class="text-[9px] text-studio-text mt-1">PBR • MeshPart</div>
                             </div>
                         </div>
-                        <!-- 3D Transform Gizmo Arrows -->
                         <div class="absolute z-20 pointer-events-none">
                             <div class="absolute -top-20 left-0 w-0.5 h-20 bg-green-500 flex flex-col items-center justify-start">
                                 <div class="w-0 h-0 border-x-4 border-x-transparent border-b-8 border-b-green-500 -mt-2"></div>
@@ -234,7 +226,6 @@
                         </div>
                     </div>
 
-                    <!-- Viewport Navigation Cube -->
                     <div class="absolute top-3 right-3 w-10 h-10 bg-studio-panel/90 border border-studio-border rounded-lg flex flex-col items-center justify-center text-[7px] font-bold shadow-lg cursor-pointer hover:border-studio-accent transition z-10">
                         <div class="text-studio-text">TOP</div>
                         <div class="text-white text-[8px]">FRONT</div>
@@ -243,9 +234,8 @@
                 </div>
             </div>
 
-            <!-- 2. MIDDLE SECTION: NODE MATERIAL EDITOR (Shader Graph - 34%) -->
+            <!-- 2. MIDDLE SECTION: NODE MATERIAL EDITOR (34%) -->
             <div class="flex-1 bg-[#080808] relative flex flex-col justify-between overflow-hidden border-b border-studio-border select-none">
-                <!-- Node Editor Toolbar -->
                 <div class="h-6 bg-studio-panel border-b border-studio-border px-3 flex items-center justify-between text-[11px] shrink-0 z-20">
                     <div class="flex items-center gap-2">
                         <span class="text-studio-accent font-bold">🎨 Shader Graph:</span>
@@ -266,7 +256,6 @@
                         <path d="M 218 178 C 318 178, 318 116, 418 116" stroke="#f59e0b" stroke-width="2" fill="none" stroke-linecap="round" />
                     </svg>
 
-                    <!-- NODE 1 -->
                     <div class="absolute top-4 left-6 w-48 bg-studio-panel border border-studio-border rounded-lg shadow-xl overflow-hidden z-10">
                         <div class="bg-studio-panelHover border-b border-studio-border px-2 py-1 flex items-center justify-between text-[10px] font-semibold text-white">
                             <span>TextureSample (2D)</span>
@@ -282,7 +271,6 @@
                         </div>
                     </div>
 
-                    <!-- NODE 2 -->
                     <div class="absolute top-24 left-6 w-48 bg-studio-panel border border-studio-border rounded-lg shadow-xl overflow-hidden z-10">
                         <div class="bg-studio-panelHover border-b border-studio-border px-2 py-1 flex items-center justify-between text-[10px] font-semibold text-white">
                             <span>Scalar (Roughness)</span>
@@ -294,7 +282,6 @@
                         </div>
                     </div>
 
-                    <!-- NODE 3 -->
                     <div class="absolute top-40 left-6 w-48 bg-studio-panel border border-studio-border rounded-lg shadow-xl overflow-hidden z-10">
                         <div class="bg-studio-panelHover border-b border-studio-border px-2 py-1 flex items-center justify-between text-[10px] font-semibold text-white">
                             <span>Scalar (Metalness)</span>
@@ -306,7 +293,6 @@
                         </div>
                     </div>
 
-                    <!-- NODE 4: PBR MASTER -->
                     <div class="absolute top-6 left-[418px] w-52 bg-studio-panel border-2 border-studio-accent rounded-lg shadow-[0_0_25px_rgba(0,210,255,0.15)] overflow-hidden z-10">
                         <div class="bg-gradient-to-r from-blue-600 to-studio-accent px-2.5 py-1 flex items-center justify-between text-[11px] font-bold text-black">
                             <span>PBR Master Node</span>
@@ -333,11 +319,9 @@
                 </div>
             </div>
 
-            <!-- 3. BOTTOM SECTION: TABBED DOCK WITH FEATURE #3: PROFILER & CONSOLE (28%) -->
+            <!-- 3. BOTTOM SECTION: TABBED DOCK WITH PROFILER & CONSOLE (28%) -->
             <div class="h-44 bg-studio-panel flex flex-col shrink-0 select-none z-10 overflow-hidden">
-                <!-- UPGRADED TABBED HEADER BAR -->
                 <div class="h-7 border-b border-studio-border px-2 flex items-center justify-between shrink-0 text-xs bg-studio-panel">
-                    <!-- Left: FEATURE #4 & #3 Tabbed Bottom Dock (Asset Manager | Console | Profiler) -->
                     <div class="flex items-center h-full gap-1">
                         <button class="h-full px-3 bg-studio-bg text-white border-t-2 border-t-studio-accent font-semibold flex items-center gap-1.5 text-[11px]">
                             <span>📂</span> Asset Manager
@@ -350,7 +334,6 @@
                         </button>
                     </div>
 
-                    <!-- Right: FEATURE #3 Live Performance Profiler Strip -->
                     <div class="flex items-center gap-3 text-[10px] text-studio-text pr-2 font-mono">
                         <span>Draw Calls: <strong class="text-white">142</strong></span>
                         <span>•</span>
@@ -362,7 +345,6 @@
 
                 <!-- Asset Manager Body -->
                 <div class="flex-1 flex overflow-hidden">
-                    <!-- Left: Asset Tree -->
                     <div class="w-48 border-r border-studio-border flex flex-col overflow-y-auto p-1.5 text-xs bg-studio-bg/30 shrink-0">
                         <div class="flex items-center gap-1.5 p-1 rounded font-bold text-white bg-studio-panelHover border border-studio-border/80 mb-1 text-[11px]">
                             <span>📁</span><span class="truncate">VibeWorld_Project</span>
@@ -385,7 +367,6 @@
                         </div>
                     </div>
 
-                    <!-- Right: Asset Grid -->
                     <div class="flex-1 p-2 overflow-y-auto bg-studio-bg/60">
                         <div class="grid grid-cols-5 gap-2">
                             <div class="bg-studio-panel border-2 border-studio-accent rounded-lg p-1.5 flex flex-col items-center justify-between h-20 cursor-pointer group shadow-[0_0_12px_rgba(0,210,255,0.2)]">
@@ -439,17 +420,16 @@
             </footer>
         </section>
 
-        <!-- RIGHT DOCK: TABBED EXPLORER & PROPERTIES (w-80) -->
-        <aside class="w-80 bg-studio-panel border-l border-studio-border flex flex-col shrink-0 overflow-hidden text-xs">
+        <!-- RIGHT DOCK: DETAILED & SCROLLABLE EXPLORER & PROPERTIES (w-88) -->
+        <aside class="w-88 bg-studio-panel border-l border-studio-border flex flex-col shrink-0 overflow-hidden text-xs">
 
-            <!-- 1. FEATURE #4 & #5: TABBED TOP DOCK (Explorer | World Settings | History) -->
-            <div class="h-[35%] flex flex-col border-b border-studio-border overflow-hidden">
+            <!-- 1. EXPLORER (Hierarchy - Top 38% for deeper hierarchy) -->
+            <div class="h-[38%] flex flex-col border-b border-studio-border overflow-hidden">
                 <div class="h-7 bg-studio-panel border-b border-studio-border px-1 flex items-center justify-between shrink-0 font-semibold text-white text-[11px]">
                     <div class="flex items-center h-full">
                         <button class="h-full px-2.5 bg-studio-bg text-white border-t-2 border-t-studio-accent font-semibold flex items-center gap-1">
                             <span>▼</span> Explorer
                         </button>
-                        <!-- FEATURE #5: World Settings Tab -->
                         <button class="h-full px-2 text-studio-text hover:bg-studio-panelHover hover:text-white transition flex items-center gap-1 border-t-2 border-t-transparent">
                             <span>🌍</span> World
                         </button>
@@ -459,100 +439,239 @@
                     </div>
                     <div class="flex gap-1 text-studio-text pr-1">
                         <button class="p-0.5 hover:text-white">+</button>
+                        <button class="p-0.5 hover:text-white">•••</button>
                     </div>
                 </div>
 
-                <!-- Hierarchy Tree -->
+                <!-- DEEP SCROLLABLE HIERARCHY TREE -->
                 <div class="flex-1 overflow-y-auto p-1.5 space-y-0.5 text-[11px]">
-                    <div class="flex items-center gap-2 p-1 rounded hover:bg-studio-panelHover cursor-pointer text-white font-medium">
-                        <span class="text-studio-text">▼</span>
+                    <!-- Workspace Root -->
+                    <div class="flex items-center gap-1.5 p-1 rounded hover:bg-studio-panelHover cursor-pointer text-white font-medium">
+                        <span class="text-studio-text text-[9px]">▼</span>
                         <span>🌍</span>
                         <span>Workspace</span>
                     </div>
-                    <div class="ml-4 pl-1 border-l border-studio-border space-y-0.5">
-                        <div class="flex items-center gap-2 p-1 rounded hover:bg-studio-panelHover cursor-pointer">
+                    <div class="ml-4 pl-1.5 border-l border-studio-border space-y-0.5">
+                        <!-- Main Camera -->
+                        <div class="flex items-center gap-1.5 p-1 rounded hover:bg-studio-panelHover cursor-pointer">
                             <div class="w-1 h-3 rounded-full bg-orange-500"></div>
                             <span>📹</span>
-                            <span class="text-studio-textLight">Main Camera</span>
+                            <span class="text-studio-textLight">Main Camera (3D)</span>
                         </div>
-                        <div class="flex items-center gap-2 p-1 rounded hover:bg-studio-panelHover cursor-pointer">
+                        <!-- Sun Directional Light -->
+                        <div class="flex items-center gap-1.5 p-1 rounded hover:bg-studio-panelHover cursor-pointer">
+                            <div class="w-1 h-3 rounded-full bg-yellow-400"></div>
+                            <span>☀️</span>
+                            <span class="text-studio-textLight">DirectionalLight_Sun</span>
+                        </div>
+                        <!-- Atmosphere -->
+                        <div class="flex items-center gap-1.5 p-1 rounded hover:bg-studio-panelHover cursor-pointer text-studio-text">
+                            <div class="w-1 h-3 rounded-full bg-cyan-400"></div>
+                            <span>☁️</span>
+                            <span>Skybox_Atmosphere</span>
+                        </div>
+                        <!-- GameManager -->
+                        <div class="flex items-center gap-1.5 p-1 rounded hover:bg-studio-panelHover cursor-pointer">
                             <div class="w-1 h-3 rounded-full bg-blue-500"></div>
                             <span>⚙️</span>
-                            <span class="text-studio-textLight">Game manager</span>
+                            <span class="text-studio-textLight">GameManager_BP</span>
                         </div>
+
+                        <!-- Player Character Node -->
                         <div>
-                            <div class="flex items-center gap-2 p-1 rounded hover:bg-studio-panelHover cursor-pointer">
+                            <div class="flex items-center gap-1.5 p-1 rounded hover:bg-studio-panelHover cursor-pointer">
+                                <span class="text-studio-text text-[9px]">▼</span>
                                 <div class="w-1 h-3 rounded-full bg-teal-400"></div>
-                                <span class="text-studio-text">▼</span>
                                 <span>🏃</span>
-                                <span class="text-studio-textLight font-medium">Main character</span>
+                                <span class="text-studio-textLight font-medium">Player_Character</span>
                             </div>
-                            <div class="ml-4 pl-2 border-l border-studio-border space-y-0.5 text-[11px] text-studio-text">
-                                <div class="p-1 hover:text-white cursor-pointer">› 📦 Model</div>
-                                <div class="p-1 hover:text-white cursor-pointer pl-4">↻ Life SM</div>
-                                <div class="p-1 hover:text-white cursor-pointer pl-4">👁️ Show</div>
-                                <div class="p-1 hover:text-white cursor-pointer pl-4">🚫 Hide</div>
+                            <div class="ml-4 pl-1.5 border-l border-studio-border space-y-0.5 text-[10px] text-studio-text">
+                                <div class="p-1 hover:text-white cursor-pointer flex items-center gap-1">
+                                    <span class="text-[8px]">▼</span> 🦴 Mesh_Rigid <span class="text-xs">🦴</span>
+                                </div>
+                                <div class="ml-3 pl-1.5 border-l border-studio-border/60 space-y-0.5">
+                                    <div class="p-0.5 hover:text-white cursor-pointer">› Head_Bone</div>
+                                    <div class="p-0.5 hover:text-white cursor-pointer">› Torso_Bone</div>
+                                    <div class="p-0.5 hover:text-white cursor-pointer">› Arm_L / Arm_R</div>
+                                </div>
+                                <div class="p-1 hover:text-white cursor-pointer flex items-center gap-1">
+                                    <span>› 🎯 Camera_SpringArm</span>
+                                </div>
+                                <div class="p-1 hover:text-white cursor-pointer flex items-center gap-1 text-green-400">
+                                    <span>› 📜 LifeStateMachine.luau</span>
+                                </div>
                             </div>
                         </div>
-                        <div class="flex items-center justify-between p-1 rounded bg-studio-accent/15 border border-studio-accent/40 cursor-pointer text-white font-medium">
-                            <div class="flex items-center gap-2">
-                                <div class="w-1 h-3 rounded-full bg-studio-accent"></div>
-                                <span>📦</span>
-                                <span>Box (Gold)</span>
+
+                        <!-- Interactive Props Folder -->
+                        <div>
+                            <div class="flex items-center gap-1.5 p-1 rounded hover:bg-studio-panelHover cursor-pointer">
+                                <span class="text-studio-text text-[9px]">▼</span>
+                                <span>📂</span>
+                                <span class="text-white font-medium">Interactive_Props</span>
                             </div>
-                            <span class="text-[9px] bg-studio-accent/20 text-studio-accent px-1.5 py-0.5 rounded">PBR</span>
+                            <div class="ml-4 pl-1.5 border-l border-studio-border space-y-0.5">
+                                <!-- ACTIVE SELECTED OBJECT -->
+                                <div class="flex items-center justify-between p-1 rounded bg-studio-accent/15 border border-studio-accent/40 cursor-pointer text-white font-medium">
+                                    <div class="flex items-center gap-1.5">
+                                        <span class="text-[8px] text-studio-accent">▼</span>
+                                        <div class="w-1 h-3 rounded-full bg-studio-accent"></div>
+                                        <span>📦</span>
+                                        <span>Box (Gold)</span>
+                                    </div>
+                                    <span class="text-[9px] bg-studio-accent/20 text-studio-accent px-1.5 py-0.5 rounded font-mono">PBR</span>
+                                </div>
+                                <!-- Selected Object Children -->
+                                <div class="ml-4 pl-1.5 border-l border-studio-accent/40 space-y-0.5 text-[10px] text-studio-text">
+                                    <div class="p-0.5 hover:text-white cursor-pointer">› 📦 Loot_Trigger (Collider)</div>
+                                    <div class="p-0.5 hover:text-white cursor-pointer text-amber-300">› ✨ Glow_FX (ParticleSystem)</div>
+                                    <div class="p-0.5 hover:text-white cursor-pointer text-teal-400">› 📜 Interact_Logic.luau</div>
+                                </div>
+
+                                <!-- Crystal Item -->
+                                <div class="flex items-center gap-1.5 p-1 rounded hover:bg-studio-panelHover cursor-pointer text-studio-textLight">
+                                    <div class="w-1 h-3 rounded-full bg-purple-500"></div>
+                                    <span>🔮</span>
+                                    <span>Crystal_Item_Red</span>
+                                </div>
+                            </div>
                         </div>
-                        <div class="flex items-center gap-2 p-1 rounded hover:bg-studio-panelHover cursor-pointer">
-                            <div class="w-1 h-3 rounded-full bg-purple-500"></div>
-                            <span>🔮</span>
-                            <span class="text-studio-textLight">Item</span>
+
+                        <!-- Environment Static Folder -->
+                        <div class="flex items-center gap-1.5 p-1 rounded hover:bg-studio-panelHover cursor-pointer text-studio-text">
+                            <span>▶</span>
+                            <span>📂</span>
+                            <span>Environment_Static (32)</span>
                         </div>
+                    </div>
+
+                    <!-- Lighting Service -->
+                    <div class="flex items-center gap-1.5 p-1 rounded hover:bg-studio-panelHover cursor-pointer text-white font-medium">
+                        <span class="text-studio-text text-[9px]">▶</span>
+                        <span>💡</span>
+                        <span>Lighting (Service)</span>
+                    </div>
+
+                    <!-- ServerScriptService -->
+                    <div class="flex items-center gap-1.5 p-1 rounded hover:bg-studio-panelHover cursor-pointer text-white font-medium">
+                        <span class="text-studio-text text-[9px]">▶</span>
+                        <span>🛠️</span>
+                        <span>ServerScriptService</span>
+                    </div>
+
+                    <!-- SoundService -->
+                    <div class="flex items-center gap-1.5 p-1 rounded hover:bg-studio-panelHover cursor-pointer text-white font-medium">
+                        <span class="text-studio-text text-[9px]">▶</span>
+                        <span>🔊</span>
+                        <span>SoundService</span>
                     </div>
                 </div>
             </div>
 
-            <!-- 2. PROPERTIES PANEL (65%) -->
+            <!-- 2. DETAILED SCROLLABLE PROPERTIES PANEL (62%) -->
             <div class="flex-1 flex flex-col overflow-hidden bg-studio-bg/60">
-                <div class="h-7 bg-studio-panel border-b border-studio-border px-3 flex items-center justify-between shrink-0 font-semibold text-white text-[11px]">
-                    <span class="uppercase tracking-wider">Properties - Box (Gold)</span>
-                    <span class="text-[9px] text-studio-text bg-studio-panel px-1.5 py-0.5 rounded border border-studio-border">MeshPart</span>
+                <div class="h-7 bg-studio-panel border-b border-studio-border px-2.5 flex items-center justify-between shrink-0 font-semibold text-white text-[11px]">
+                    <div class="flex items-center gap-1.5">
+                        <span class="text-studio-accent">▼</span>
+                        <span class="uppercase tracking-wider">Properties - Box (Gold)</span>
+                    </div>
+                    <div class="flex items-center gap-1">
+                        <span class="text-[9px] text-studio-text bg-studio-panel px-1.5 py-0.5 rounded border border-studio-border font-mono">ID: 0x8F3D</span>
+                        <span class="text-[9px] text-studio-accent bg-studio-accent/10 px-1.5 py-0.5 rounded border border-studio-accent/30">MeshPart</span>
+                    </div>
                 </div>
 
-                <!-- Scrollable Properties -->
+                <!-- RICH COMPREHENSIVE SCROLLABLE AREA -->
                 <div class="flex-1 overflow-y-auto p-3 space-y-4 text-[11px]">
+                    
+                    <!-- 1. TRANSFORM SECTION -->
                     <div class="space-y-1.5">
                         <div class="flex items-center justify-between font-semibold text-white border-b border-studio-border pb-1">
                             <span>▼ Transform</span>
+                            <span class="text-[9px] text-studio-text">World Space ⌄</span>
                         </div>
                         <div class="grid grid-cols-4 gap-1 items-center py-0.5">
                             <span class="text-studio-text">Position</span>
-                            <span class="text-red-400 text-right font-mono">0</span>
-                            <span class="text-green-400 text-right font-mono">24</span>
-                            <span class="text-blue-400 text-right font-mono">-12</span>
+                            <span class="text-red-400 text-right font-mono">0.000</span>
+                            <span class="text-green-400 text-right font-mono">24.000</span>
+                            <span class="text-blue-400 text-right font-mono">-12.000</span>
                         </div>
                         <div class="grid grid-cols-4 gap-1 items-center py-0.5">
                             <span class="text-studio-text">Rotation</span>
-                            <span class="text-red-400 text-right font-mono">0°</span>
-                            <span class="text-green-400 text-right font-mono">23°</span>
+                            <span class="text-red-400 text-right font-mono">0.0°</span>
+                            <span class="text-green-400 text-right font-mono">23.0°</span>
                             <span class="text-blue-400 text-right font-mono">14.3°</span>
                         </div>
                         <div class="grid grid-cols-4 gap-1 items-center py-0.5">
                             <span class="text-studio-text">Scale</span>
-                            <span class="text-white text-right font-mono">100%</span>
-                            <span class="text-white text-right font-mono">100%</span>
-                            <span class="text-white text-right font-mono">100%</span>
+                            <span class="text-white text-right font-mono">1.000</span>
+                            <span class="text-white text-right font-mono">1.000</span>
+                            <span class="text-white text-right font-mono">1.000</span>
+                        </div>
+                        <div class="grid grid-cols-4 gap-1 items-center py-0.5">
+                            <span class="text-studio-text">Pivot Offset</span>
+                            <span class="text-studio-text text-right font-mono">0.000</span>
+                            <span class="text-studio-text text-right font-mono">-0.500</span>
+                            <span class="text-studio-text text-right font-mono">0.000</span>
                         </div>
                     </div>
 
+                    <!-- 2. TAGS & COLLISION LAYERS -->
+                    <div class="space-y-1.5">
+                        <div class="flex items-center justify-between font-semibold text-white border-b border-studio-border pb-1">
+                            <span>▼ Tags & Layers</span>
+                        </div>
+                        <div class="flex gap-1.5 pt-0.5 flex-wrap">
+                            <span class="bg-studio-panel border border-studio-border px-2 py-0.5 rounded-full text-white text-[10px]">Interactable</span>
+                            <span class="bg-studio-panel border border-studio-border px-2 py-0.5 rounded-full text-white text-[10px]">LootBox</span>
+                            <span class="bg-studio-panel border border-studio-border px-2 py-0.5 rounded-full text-amber-300 text-[10px]">Metallic_Heavy</span>
+                            <button class="px-2 py-0.5 rounded-full border border-studio-border text-studio-text hover:text-white">+</button>
+                        </div>
+                        <div class="flex justify-between items-center pt-1">
+                            <span class="text-studio-text">Collision Layer</span>
+                            <span class="text-white font-medium bg-studio-panel px-2 py-0.5 rounded border border-studio-border">Layer 3 (Props) ⌄</span>
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <span class="text-studio-text">Collision Mask</span>
+                            <span class="text-studio-accent font-mono text-[10px]">Player, Ground, Raycast</span>
+                        </div>
+                    </div>
+
+                    <!-- 3. MESH & GEOMETRY -->
+                    <div class="space-y-1.5">
+                        <div class="flex items-center justify-between font-semibold text-white border-b border-studio-border pb-1">
+                            <span>▼ Mesh & Geometry</span>
+                            <span class="text-studio-accent font-mono text-[9px]">LOD 0 (12,400 Tris)</span>
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <span class="text-studio-text">Mesh Asset</span>
+                            <span class="text-white font-medium">Gold_Box.mesh ⌄</span>
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <span class="text-studio-text">Collision Fidelity</span>
+                            <span class="text-white">Precise Convex ⌄</span>
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <span class="text-studio-text">Cast Shadows</span>
+                            <div class="w-6 h-3.5 bg-studio-toggleOn rounded-full relative"><div class="w-2.5 h-2.5 bg-white rounded-full absolute right-0.5 top-0.5"></div></div>
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <span class="text-studio-text">Receive Shadows</span>
+                            <div class="w-6 h-3.5 bg-studio-toggleOn rounded-full relative"><div class="w-2.5 h-2.5 bg-white rounded-full absolute right-0.5 top-0.5"></div></div>
+                        </div>
+                    </div>
+
+                    <!-- 4. MATERIAL / PBR SHADER -->
                     <div class="space-y-2.5">
                         <div class="flex items-center justify-between font-semibold text-white border-b border-studio-border pb-1">
                             <span>▼ Gold (Shader)</span>
                             <div class="flex gap-2">
-                                <span class="text-studio-accent font-normal">PBR ⌄</span>
+                                <span class="text-studio-accent font-normal">PBR Standard ⌄</span>
                                 <span class="text-studio-text font-normal">Opaque ⌄</span>
                             </div>
                         </div>
 
+                        <!-- Texture Thumbnails -->
                         <div class="grid grid-cols-4 gap-1 text-center">
                             <div class="flex flex-col items-center gap-1">
                                 <div class="w-full h-10 rounded bg-studio-panel border border-studio-border flex items-center justify-center relative cursor-pointer hover:border-studio-accent">
@@ -575,47 +694,126 @@
                             </div>
                         </div>
 
+                        <!-- Sliders -->
                         <div class="space-y-2">
+                            <div class="flex justify-between items-center">
+                                <span class="text-studio-text">Albedo Tint</span>
+                                <div class="w-5 h-2.5 bg-amber-400 rounded border border-studio-border"></div>
+                            </div>
+                            <div>
+                                <div class="flex justify-between mb-0.5"><span class="text-studio-text">Alpha (Opacity)</span><span class="text-studio-accent font-mono">100%</span></div>
+                                <input type="range" min="0" max="100" value="100">
+                            </div>
+                            <div>
+                                <div class="flex justify-between mb-0.5"><span class="text-studio-text">Normal Strength</span><span class="text-studio-accent font-mono">20%</span></div>
+                                <input type="range" min="0" max="100" value="20">
+                            </div>
                             <div>
                                 <div class="flex justify-between mb-0.5"><span class="text-studio-text">Roughness</span><span class="text-studio-accent font-mono">10%</span></div>
                                 <input type="range" min="0" max="100" value="10">
                             </div>
                             <div>
-                                <div class="flex justify-between mb-0.5"><span class="text-studio-text">Metalness</span><span class="text-studio-accent font-mono">15%</span></div>
-                                <input type="range" min="0" max="100" value="15">
+                                <div class="flex justify-between mb-0.5"><span class="text-studio-text">Metalness</span><span class="text-studio-accent font-mono">85%</span></div>
+                                <input type="range" min="0" max="100" value="85">
+                            </div>
+                            <div>
+                                <div class="flex justify-between mb-0.5"><span class="text-studio-text">Emissive Intensity</span><span class="text-studio-text font-mono">0.0 eV</span></div>
+                                <input type="range" min="0" max="100" value="0">
+                            </div>
+                            <div class="flex justify-between items-center pt-1 border-t border-studio-border/60">
+                                <span class="text-studio-text">UV Tiling (X, Y)</span>
+                                <span class="text-white font-mono">1.00 &nbsp;&nbsp; 1.00</span>
                             </div>
                         </div>
                     </div>
 
-                    <!-- Rigidbody -->
+                    <!-- 5. PHYSICS / RIGIDBODY (Orange Flame Theme) -->
                     <div class="p-2.5 rounded bg-gradient-to-br from-orange-500/15 via-studio-panel to-studio-panel border border-orange-500/40 space-y-1.5">
                         <div class="flex items-center justify-between font-bold text-orange-400">
-                            <span>▼ Physical • Rigidbody</span>
+                            <span>▼ Physics • Rigidbody</span>
                             <div class="w-6 h-3.5 bg-studio-toggleOn rounded-full relative cursor-pointer shadow-[0_0_8px_rgba(34,197,94,0.4)]">
                                 <div class="w-2.5 h-2.5 bg-white rounded-full absolute right-0.5 top-0.5"></div>
                             </div>
                         </div>
                         <div class="flex justify-between text-studio-text">
-                            <span>Simulation</span>
-                            <span class="text-white font-medium">Yes ⌄</span>
+                            <span>Simulation Mode</span>
+                            <span class="text-white font-medium">Dynamic ⌄</span>
                         </div>
                         <div class="flex justify-between text-studio-text">
-                            <span>Rigidbody Type</span>
-                            <span class="text-orange-300 font-medium cursor-pointer">Static ⌄</span>
+                            <span>Mass / Density</span>
+                            <span class="text-orange-300 font-mono font-medium">45.2 kg (Auto)</span>
+                        </div>
+                        <div class="flex justify-between text-studio-text">
+                            <span>Center of Mass</span>
+                            <span class="text-white font-mono">(0.0, 0.0, 0.0)</span>
                         </div>
                         <div class="flex justify-between text-studio-text">
                             <span>Friction</span>
-                            <span class="text-white font-mono">100</span>
+                            <span class="text-white font-mono">1.00</span>
+                        </div>
+                        <div class="flex justify-between text-studio-text">
+                            <span>Bounciness (Restitution)</span>
+                            <span class="text-white font-mono">0.50</span>
+                        </div>
+                        <div class="flex justify-between text-studio-text">
+                            <span>Linear / Angular Damping</span>
+                            <span class="text-white font-mono">0.05 / 0.05</span>
+                        </div>
+                        <div class="flex justify-between text-studio-text">
+                            <span>Gravity Scale</span>
+                            <span class="text-white font-mono">1.0x</span>
+                        </div>
+                        <div class="flex justify-between items-center pt-1 border-t border-orange-500/20">
+                            <span class="text-studio-text">Continuous Collision (CCD)</span>
+                            <div class="w-6 h-3.5 bg-studio-toggleOn rounded-full relative"><div class="w-2.5 h-2.5 bg-white rounded-full absolute right-0.5 top-0.5"></div></div>
                         </div>
                     </div>
+
+                    <!-- 6. COLLIDER -->
+                    <div class="space-y-1.5">
+                        <div class="flex items-center justify-between font-semibold text-white border-b border-studio-border pb-1">
+                            <span>▼ Collider & Bounds</span>
+                            <span class="text-studio-accent font-normal">Box Collider ⌄</span>
+                        </div>
+                        <div class="flex justify-between"><span class="text-studio-text">Center Offset</span><span class="text-white font-mono">0.0 &nbsp; 0.0 &nbsp; 0.0</span></div>
+                        <div class="flex justify-between"><span class="text-studio-text">Extents (Width/Height/Depth)</span><span class="text-white font-mono">1.2 &nbsp; 1.2 &nbsp; 1.2</span></div>
+                        <div class="flex justify-between items-center">
+                            <span class="text-studio-text">Is Trigger (Pass-Through)</span>
+                            <div class="w-6 h-3.5 bg-studio-panel border border-studio-border rounded-full relative"><div class="w-2.5 h-2.5 bg-studio-text rounded-full absolute left-0.5 top-0.5"></div></div>
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <span class="text-studio-text">Physics Material</span>
+                            <span class="text-white font-medium">Heavy_Metal.phys ⌄</span>
+                        </div>
+                    </div>
+
+                    <!-- 7. NETWORKING / REPLICATION (Valve GNS / Roblox Authority) -->
+                    <div class="space-y-1.5 pt-1">
+                        <div class="flex items-center justify-between font-semibold text-white border-b border-studio-border pb-1">
+                            <span>▼ Network • Replication</span>
+                            <span class="text-green-400 font-mono text-[9px]">Synced (60Hz)</span>
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <span class="text-studio-text">Network Authority</span>
+                            <span class="text-studio-accent font-medium">Server Authoritative ⌄</span>
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <span class="text-studio-text">Client-Side Prediction</span>
+                            <div class="w-6 h-3.5 bg-studio-toggleOn rounded-full relative"><div class="w-2.5 h-2.5 bg-white rounded-full absolute right-0.5 top-0.5"></div></div>
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <span class="text-studio-text">Replication Priority</span>
+                            <span class="text-white font-mono">High (2.0)</span>
+                        </div>
+                    </div>
+
                 </div>
             </div>
 
         </aside>
 
-        <!-- FEATURE #2: FAR-RIGHT DOCK — AI COPILOT (MCP) DRAWER (w-72) -->
+        <!-- FAR-RIGHT DOCK: AI COPILOT (MCP) DRAWER -->
         <aside class="w-72 bg-studio-panel border-l border-studio-border flex flex-col shrink-0 overflow-hidden text-xs z-20">
-            <!-- Header -->
             <div class="h-7 bg-studio-panel border-b border-studio-border px-3 flex items-center justify-between shrink-0">
                 <div class="flex items-center gap-1.5 font-bold text-white text-[11px]">
                     <span class="text-studio-accent">✨</span>
@@ -627,7 +825,6 @@
                 </div>
             </div>
 
-            <!-- Active Context Strip -->
             <div class="bg-studio-bg/80 border-b border-studio-border p-2 text-[10px] space-y-1">
                 <div class="text-studio-text flex items-center justify-between">
                     <span>ACTIVE SCENE CONTEXT:</span>
@@ -639,9 +836,7 @@
                 </div>
             </div>
 
-            <!-- Chat / Assistant Stream Area -->
             <div class="flex-1 overflow-y-auto p-3 space-y-3 text-[11px] bg-studio-bg/40">
-                <!-- User Prompt Bubble -->
                 <div class="flex flex-col items-end gap-1">
                     <div class="bg-studio-panelHover border border-studio-border text-white px-2.5 py-1.5 rounded-lg rounded-tr-none max-w-[90%]">
                         Optimize roughness for realistic brushed gold.
@@ -649,7 +844,6 @@
                     <span class="text-[9px] text-studio-text">Emirhan • 12:44</span>
                 </div>
 
-                <!-- AI Response Card -->
                 <div class="flex flex-col items-start gap-1">
                     <div class="bg-studio-panel border border-studio-accent/40 text-studio-textLight px-3 py-2 rounded-lg rounded-tl-none space-y-2 shadow-[0_0_15px_rgba(0,210,255,0.1)] w-full">
                         <div class="flex items-center justify-between border-b border-studio-border/60 pb-1 text-[10px] text-studio-accent font-semibold">
@@ -659,12 +853,10 @@
                         <p class="text-[11px] leading-relaxed">
                             I adjusted <strong class="text-white font-mono">Roughness to 0.18</strong> and injected micro-surface Anisotropy into the PBR graph.
                         </p>
-                        <!-- Code / Property Preview Box -->
                         <div class="bg-studio-bg p-1.5 rounded border border-studio-border font-mono text-[10px] text-green-400">
                             + Roughness = 0.18<br>
                             + Metallic = 0.92
                         </div>
-                        <!-- Action Button -->
                         <button class="w-full py-1 rounded bg-studio-accent text-black font-bold text-[10px] hover:opacity-90 transition shadow-sm">
                             Apply Changes to Node Graph
                         </button>
@@ -673,7 +865,6 @@
                 </div>
             </div>
 
-            <!-- Prompt Input Box at Bottom -->
             <div class="p-2 border-t border-studio-border bg-studio-panel shrink-0">
                 <div class="bg-studio-bg border border-studio-border rounded-lg p-1.5 flex items-center gap-1.5 focus-within:border-studio-accent transition">
                     <span class="text-studio-text text-xs pl-1">✨</span>
