@@ -5,6 +5,8 @@
 #include <imgui.h>
 #include <filesystem>
 #include <nlohmann/json.hpp>
+#include "IconRegistry.h"
+#include "NexusTheme.h"
 
 namespace fs = std::filesystem;
 
@@ -21,14 +23,53 @@ void AssetBrowserPanel::draw() {
     Engine::Assets::AssetImportPipeline::instance().update();
     Engine::Assets::ThumbnailCache::instance().processPendingRenders(2);
 
-    ImGui::BeginChild("AssetGrid");
+    // Create split view: Left Folders, Right Grid
+    ImGui::Columns(2, "AssetBrowserColumns", true);
+    ImGui::SetColumnWidth(0, 200.0f);
+
+    // Left Folder View (Mocked hierarchy)
+    ImGui::BeginChild("FolderTree", ImVec2(0, 0), false);
+    
+    ImTextureID folderTex = IconRegistry::instance().get("icon_folder");
+    std::function<void(const char*, bool)> drawFolderNode = [&](const char* label, bool leaf) {
+        ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanFullWidth;
+        if (leaf) flags |= ImGuiTreeNodeFlags_Leaf;
+        
+        bool open = ImGui::TreeNodeEx(label, flags, "");
+        ImGui::SameLine();
+        if (folderTex) {
+            ImGui::Image(folderTex, ImVec2(14, 14));
+            ImGui::SameLine();
+        }
+        ImGui::Text("%s", label);
+        if (open) {
+            if (!leaf) {
+                // Mock subfolders
+                drawFolderNode("3D Models", true);
+                drawFolderNode("Materials", true);
+                drawFolderNode("Scripts", true);
+            }
+            ImGui::TreePop();
+        }
+    };
+    
+    ImGui::SetNextItemOpen(true, ImGuiCond_FirstUseEver);
+    drawFolderNode("Content", false);
+    
+    ImGui::EndChild();
+
+    ImGui::NextColumn();
+
+    // Right Grid View
+    ImGui::BeginChild("AssetGrid", ImVec2(0, 0), false);
     drawAssetGrid();
     ImGui::EndChild();
+    
+    ImGui::Columns(1);
     
     // Progress Overlay
     auto& progress = Engine::Assets::AssetImportPipeline::instance().getProgress();
     if (progress.completedAssets < progress.totalAssets) {
-        // Calculate progress at the bottom right corner
         ImGui::SetNextWindowPos(ImVec2(ImGui::GetWindowPos().x + ImGui::GetWindowSize().x - 320, ImGui::GetWindowPos().y + ImGui::GetWindowSize().y - 80), ImGuiCond_Always);
         ImGui::SetNextWindowSize(ImVec2(300, 60), ImGuiCond_Always);
         if (ImGui::Begin("Importing Assets", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoBackground)) {
@@ -104,7 +145,22 @@ void AssetBrowserPanel::drawAssetGrid() {
         ImGui::PushID(guid.toString().c_str());
         
         // Thumbnail
-        ImGui::ImageButton("##thumb", (ImTextureID)(uintptr_t)thumb.idx, ImVec2(cardSize, cardSize));
+        // If thumb is invalid (e.g. not generated yet), fallback to generic icon
+        if (thumb.idx == bgfx::kInvalidHandle) {
+            std::string ext = fs::path(meta ? meta->relativePath : "").extension().string();
+            const char* fallbackIcon = "icon_script";
+            if (ext == ".fbx" || ext == ".obj" || ext == ".gltf") fallbackIcon = "icon_mesh";
+            else if (ext == ".png" || ext == ".jpg") fallbackIcon = "icon_particle";
+            
+            ImTextureID fallbackTex = IconRegistry::instance().get(fallbackIcon);
+            if (fallbackTex) {
+                ImGui::ImageButton("##thumb", fallbackTex, ImVec2(cardSize, cardSize));
+            } else {
+                ImGui::Button("?", ImVec2(cardSize, cardSize));
+            }
+        } else {
+            ImGui::ImageButton("##thumb", (ImTextureID)(uintptr_t)thumb.idx, ImVec2(cardSize, cardSize));
+        }
         
         if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
             if (meta && meta->importerType == "Mesh") {

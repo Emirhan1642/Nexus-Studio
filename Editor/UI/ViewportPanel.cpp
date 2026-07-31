@@ -3,6 +3,7 @@
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <widgets/gizmo.h>
+#include "NexusTheme.h"
 #include "SelectionManager.h"
 #include "../Undo/UndoStack.h"
 #include "Engine/Renderer/Renderer.h"
@@ -115,42 +116,43 @@ void ViewportPanel::draw(Engine::Renderer::Camera& camera) {
         handleGizmoInput(camera);
 
         ImDrawList* drawList = ImGui::GetWindowDrawList();
-        ImVec2 panelMin = ImGui::GetWindowPos();
-        ImVec2 panelMax = ImVec2(panelMin.x + ImGui::GetWindowWidth(), panelMin.y + ImGui::GetWindowHeight());
+        ImVec2 panelMin = screenPos; // the start of the Image
+        ImVec2 panelMax = ImVec2(screenPos.x + availSize.x, screenPos.y + availSize.y);
         
         // Viewport Overlay Toolbar (Top)
         ImVec2 tbMin = panelMin;
-        ImVec2 tbMax = ImVec2(panelMax.x, panelMin.y + 26);
-        drawList->AddRectFilled(tbMin, tbMax, IM_COL32(20, 20, 20, 200));
+        ImVec2 tbMax = ImVec2(panelMax.x, panelMin.y + 28);
+        drawList->AddRectFilled(tbMin, tbMax, IM_COL32(14, 14, 14, 230));
 
-        ImGui::SetCursorScreenPos(ImVec2(panelMin.x + 8, panelMin.y + 4));
-        ImGui::Text("Perspective v"); ImGui::SameLine();
-        ImGui::Text("Lit (PBR) v"); ImGui::SameLine();
-        ImGui::Text("World");
+        ImGui::SetCursorScreenPos(ImVec2(panelMin.x + 8, panelMin.y + 6));
+        ImGui::TextColored(NexusTheme::instance().textPrimary, "Perspective v"); ImGui::SameLine();
+        ImGui::TextColored(NexusTheme::instance().textPrimary, "Lit (PBR) v"); ImGui::SameLine();
+        ImGui::TextColored(NexusTheme::instance().textMuted, "World");
 
-        ImGui::SetCursorScreenPos(ImVec2(panelMax.x - 180, panelMin.y + 4));
-        ImGui::Text("Cam: 4x v"); ImGui::SameLine();
-        ImGui::Text("[W]"); ImGui::SameLine();
-        ImGui::Text("[C]"); ImGui::SameLine();
-        ImGui::Text("FPS: 60.0");
+        ImGui::SetCursorScreenPos(ImVec2(panelMax.x - 200, panelMin.y + 6));
+        ImGui::TextColored(NexusTheme::instance().textMuted, "Cam: 4x v"); ImGui::SameLine();
+        ImGui::TextColored(NexusTheme::instance().textMuted, "[W]"); ImGui::SameLine();
+        ImGui::TextColored(NexusTheme::instance().textMuted, "[C]"); ImGui::SameLine();
+        ImGui::TextColored(NexusTheme::instance().accent, "FPS: 60.0");
 
         // Orientation Cube (Top Right)
-        ImVec2 cubePos = ImVec2(panelMax.x - 50, panelMin.y + 36);
-        drawList->AddRectFilled(cubePos, ImVec2(cubePos.x+40, cubePos.y+40), IM_COL32(14, 14, 14, 220), 4.0f);
-        drawList->AddText(ImVec2(cubePos.x+10, cubePos.y+12), IM_COL32(255,255,255,255), "TOP");
+        ImVec2 cubePos = ImVec2(panelMax.x - 56, panelMin.y + 40);
+        drawList->AddRectFilled(cubePos, ImVec2(cubePos.x+44, cubePos.y+44), IM_COL32(14, 14, 14, 220), 6.0f);
+        drawList->AddRect(cubePos, ImVec2(cubePos.x+44, cubePos.y+44), IM_COL32(36, 36, 36, 255), 6.0f);
+        drawList->AddText(ImVec2(cubePos.x+10, cubePos.y+14), IM_COL32(255,255,255,255), "TOP");
 
         // Status strip (Bottom)
-        ImVec2 stMin = ImVec2(panelMin.x, panelMax.y - 20);
+        ImVec2 stMin = ImVec2(panelMin.x, panelMax.y - 24);
         ImVec2 stMax = panelMax;
         drawList->AddRectFilled(stMin, stMax, IM_COL32(10, 10, 10, 220));
-        ImGui::SetCursorScreenPos(ImVec2(stMin.x + 8, stMin.y + 2));
+        ImGui::SetCursorScreenPos(ImVec2(stMin.x + 8, stMin.y + 4));
         auto selected = SelectionManager::instance().getSelected();
         if (selected) {
-            ImGui::TextColored(ImVec4(0,0.82f,1,1), "Selected: %s", selected->name.c_str());
+            ImGui::TextColored(NexusTheme::instance().accent, "Selected: %s", selected->name.c_str());
         } else {
             ImGui::TextDisabled("No Selection");
         }
-        ImGui::SameLine(stMax.x - stMin.x - 120);
+        ImGui::SameLine(stMax.x - stMin.x - 140);
         ImGui::TextDisabled("Frame Time: 16ms");
     }
 

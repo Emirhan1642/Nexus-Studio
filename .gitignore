@@ -3,3 +3,10 @@ out.log
 nexus_editor_log.txt
 exit_code.log
 /Assets
+error.log
+error2.log
+error3.log
+error4.log
+error5.log
+error6.log
+imgui.ini

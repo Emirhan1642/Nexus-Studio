@@ -6,6 +6,8 @@
 #include "Engine/Core/Reflection/TypeRegistry.h"
 #include "Engine/Core/DataModel/Part.h"
 #include "Engine/Scripting/Script.h"
+#include "IconRegistry.h"
+#include "NexusTheme.h"
 
 void ExplorerPanel::draw() {
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
@@ -61,7 +63,7 @@ void ExplorerPanel::drawInstanceNode(const std::shared_ptr<Instance>& inst) {
     }
 
     ImVec2 pos = ImGui::GetCursorScreenPos();
-    bool open = ImGui::TreeNodeEx(inst->name.c_str(), flags);
+    bool open = ImGui::TreeNodeEx((void*)inst.get(), flags, "");
 
     ImDrawList* drawList = ImGui::GetWindowDrawList();
     ImVec2 rowMin = ImGui::GetItemRectMin();
@@ -73,27 +75,36 @@ void ExplorerPanel::drawInstanceNode(const std::shared_ptr<Instance>& inst) {
     }
 
     ImU32 typeColor = IM_COL32(100, 100, 100, 255); // default
-    if (inst->getClassName() == "Part") typeColor = IM_COL32(50, 150, 255, 255);
-    else if (inst->getClassName() == "Script") typeColor = IM_COL32(100, 200, 100, 255);
-    else if (inst->getClassName() == "Camera") typeColor = IM_COL32(255, 150, 50, 255);
+    const char* iconName = "icon_folder";
+    
+    if (inst == DataModel::instance()) { typeColor = IM_COL32(150, 150, 150, 255); iconName = "icon_world"; }
+    else if (inst->getClassName() == "Part") { typeColor = IM_COL32(50, 150, 255, 255); iconName = "icon_mesh"; }
+    else if (inst->getClassName() == "Script") { typeColor = IM_COL32(100, 200, 100, 255); iconName = "icon_script"; }
+    else if (inst->getClassName() == "Camera") { typeColor = IM_COL32(255, 150, 50, 255); iconName = "icon_camera"; }
 
     drawList->AddRectFilled(rowMin, ImVec2(rowMin.x + 3, rowMin.y + 16), typeColor, 1.0f);
+
+    ImGui::SameLine(0, 2.0f);
+    ImTextureID tex = IconRegistry::instance().get(iconName);
+    if (tex) {
+        ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 2.0f);
+        ImGui::Image(tex, ImVec2(14, 14));
+        ImGui::SameLine(0, 4.0f);
+        ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 2.0f);
+    }
+    
+    ImGui::TextColored(isSelected ? NexusTheme::instance().textPrimary : NexusTheme::instance().textMuted, inst->name.c_str());
 
     if (ImGui::IsItemClicked()) {
         SelectionManager::instance().select(inst);
     }
 
-    if (ImGui::BeginPopupContextItem()) {
+    if (ImGui::BeginPopupContextItem(inst->name.c_str())) {
         drawInsertObjectMenu(inst);
         
         if (inst != DataModel::instance()) {
             ImGui::Separator();
             if (ImGui::MenuItem("Delete")) {
-                // Delete logic (should be undoable, but for MVP just setParent(nullptr))
-                auto cmd = std::make_unique<CreateInstanceCommand>(inst, nullptr); // setting parent to nullptr
-                // Actually CreateInstanceCommand works for deletion too!
-                // Wait, if it sets parent to nullptr, undo sets it to nullptr. That's wrong.
-                // For MVP, just directly delete it from workspace:
                 inst->setParent(nullptr);
                 SelectionManager::instance().clear();
             }

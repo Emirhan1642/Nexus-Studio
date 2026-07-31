@@ -3,6 +3,8 @@
 #include "../../Engine/Renderer/Renderer.h"
 #include <imgui.h>
 #include <iostream>
+#include "IconRegistry.h"
+#include "NexusTheme.h"
 
 namespace Editor::UI {
 
@@ -31,16 +33,42 @@ MaterialEditorPanel::~MaterialEditorPanel() {
 }
 
 void MaterialEditorPanel::draw(bool* p_open) {
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0,0));
     if (!ImGui::Begin("Material Editor", p_open)) {
         ImGui::End();
+        ImGui::PopStyleVar();
         return;
     }
 
-    if (ImGui::Button("Compile Shader")) {
+    // Custom Header
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, NexusTheme::instance().panel);
+    ImGui::BeginChild("MatHeader", ImVec2(0, 32), false);
+    ImGui::SetCursorPos(ImVec2(8, 8));
+    
+    ImTextureID matIcon = IconRegistry::instance().get("icon_material_outline");
+    if (matIcon) {
+        ImGui::Image(matIcon, ImVec2(14, 14));
+        ImGui::SameLine();
+        ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 2.0f);
+    }
+    
+    ImGui::TextColored(NexusTheme::instance().accent, "Shader Graph:");
+    ImGui::SameLine();
+    ImGui::TextColored(NexusTheme::instance().textPrimary, "PBR_Gold.mat");
+
+    ImGui::SameLine(ImGui::GetWindowWidth() - 120.0f);
+    ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 2.0f);
+    ImGui::PushStyleColor(ImGuiCol_Button, NexusTheme::instance().accent);
+    ImGui::PushStyleColor(ImGuiCol_Text, NexusTheme::HexColor(0x000000));
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 4.0f);
+    if (ImGui::Button("Compile Shader", ImVec2(100, 20))) {
         compileGraph();
     }
-
-    ImGui::Separator();
+    ImGui::PopStyleVar();
+    ImGui::PopStyleColor(2);
+    
+    ImGui::EndChild();
+    ImGui::PopStyleColor();
 
     ImNodes::SetCurrentContext(m_editorContext);
     ImNodes::BeginNodeEditor();
@@ -74,6 +102,7 @@ void MaterialEditorPanel::draw(bool* p_open) {
     }
 
     ImGui::End();
+    ImGui::PopStyleVar();
 }
 
 void MaterialEditorPanel::drawNode(Engine::Renderer::ShaderNode& node) {

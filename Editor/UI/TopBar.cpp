@@ -11,11 +11,17 @@ void TopBar::draw(bool isSimulating, bool& toggleSim) {
     if (!ImGui::BeginMenuBar()) return;
 
     // Logo
-    ImGui::Image(IconRegistry::instance().get("logo_nexus"), ImVec2(18, 18));
+    ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 4.0f); // Center vertically
+    if (IconRegistry::instance().get("logo_nexus")) {
+        ImGui::Image(IconRegistry::instance().get("logo_nexus"), ImVec2(18, 18));
+    }
     ImGui::SameLine();
+    ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 2.0f);
     ImGui::TextColored(NexusTheme::instance().accent, "NEXUS");
 
+    ImGui::SameLine(0, 15.0f);
     ImGui::Separator();
+    ImGui::SameLine(0, 15.0f);
 
     // Menus
     if (ImGui::BeginMenu("File")) {
@@ -70,27 +76,87 @@ void TopBar::draw(bool isSimulating, bool& toggleSim) {
         ImGui::EndMenu();
     }
     
-    // AI Copilot Button
-    ImGui::Separator();
+    // Additional Mock Menus from HTML
+    if (ImGui::BeginMenu("Scene")) { ImGui::EndMenu(); }
+    if (ImGui::BeginMenu("Object")) { ImGui::EndMenu(); }
+    if (ImGui::BeginMenu("Material")) { ImGui::EndMenu(); }
+    if (ImGui::BeginMenu("Physics")) { ImGui::EndMenu(); }
+    if (ImGui::BeginMenu("Plugins")) { ImGui::EndMenu(); }
+
+    // AI Copilot Button (Highlighted)
+    ImGui::SameLine(0, 10.0f);
+    ImGui::PushStyleColor(ImGuiCol_Button, NexusTheme::instance().accentDim);
     ImGui::PushStyleColor(ImGuiCol_Text, NexusTheme::instance().accent);
-    if (ImGui::MenuItem("AI Copilot", nullptr, &EditorLayout::instance().showAICopilot)) {}
-    ImGui::PopStyleColor();
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 4.0f);
+    
+    ImTextureID aiIcon = IconRegistry::instance().get("icon_ai");
+    if (aiIcon) {
+        ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 2.0f);
+        if (ImGui::ImageButton("##aiBtn", aiIcon, ImVec2(14, 14))) {
+            EditorLayout::instance().showAICopilot = !EditorLayout::instance().showAICopilot;
+        }
+        ImGui::SameLine(0, 4.0f);
+    }
+    
+    ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 4.0f);
+    if (ImGui::Selectable("AI Assistant [MCP]", false, 0, ImVec2(120, 0))) {
+        EditorLayout::instance().showAICopilot = !EditorLayout::instance().showAICopilot;
+    }
+    
+    ImGui::PopStyleVar();
+    ImGui::PopStyleColor(2);
+
+    // Document Tabs (Mock)
+    ImGui::SameLine(0, 20.0f);
+    ImGui::Separator();
+    ImGui::SameLine(0, 20.0f);
+
+    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0,0,0,0));
+    ImGui::PushStyleColor(ImGuiCol_Text, NexusTheme::instance().textPrimary);
+    
+    if (IconRegistry::instance().get("icon_world")) {
+        ImGui::Image(IconRegistry::instance().get("icon_world"), ImVec2(14, 14));
+        ImGui::SameLine();
+    }
+    ImGui::TextColored(NexusTheme::instance().accent, "3D Viewport");
+    ImGui::SameLine(0, 20.0f);
+
+    if (IconRegistry::instance().get("icon_material_outline")) {
+        ImGui::Image(IconRegistry::instance().get("icon_material_outline"), ImVec2(14, 14));
+        ImGui::SameLine();
+    }
+    ImGui::Text("PBR_Gold.mat");
+    ImGui::SameLine(0, 20.0f);
+
+    if (IconRegistry::instance().get("icon_script")) {
+        ImGui::Image(IconRegistry::instance().get("icon_script"), ImVec2(14, 14));
+        ImGui::SameLine();
+    }
+    ImGui::Text("MainCharacter.luau");
+
+    ImGui::PopStyleColor(2);
 
     // Right align play controls
-    float rightWidth = 220.0f;
+    float rightWidth = 180.0f;
     ImGui::SetCursorPosX(ImGui::GetWindowWidth() - rightWidth);
 
-    ImGui::PushStyleColor(ImGuiCol_Button, NexusTheme::instance().panel);
-    ImGui::Button("PC / DX12  v", ImVec2(90, 0));
+    ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 2.0f);
+    ImGui::TextDisabled("Target:");
+    ImGui::SameLine();
+    ImGui::PushStyleColor(ImGuiCol_Button, NexusTheme::instance().bg);
+    ImGui::Button("PC / DX12 v", ImVec2(80, 20));
     ImGui::PopStyleColor();
 
     ImGui::SameLine();
 
     ImGui::PushStyleColor(ImGuiCol_Button, NexusTheme::instance().accent);
-    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0, 0, 0, 1));
-    if (ImGui::Button(isSimulating ? "  Stop" : "  Play", ImVec2(70, 0))) {
+    ImGui::PushStyleColor(ImGuiCol_Text, NexusTheme::HexColor(0x000000));
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 4.0f);
+    
+    if (ImGui::Button(isSimulating ? "Stop" : "Play", ImVec2(50, 20))) {
         toggleSim = true;
     }
+    ImGui::PopStyleVar();
     ImGui::PopStyleColor(2);
 
     ImGui::EndMenuBar();
