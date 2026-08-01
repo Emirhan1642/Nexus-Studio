@@ -11,11 +11,7 @@ public:
 
 private:
     void drawAssetGrid();
-    void drawSingleCard(
-        const Engine::Assets::AssetGuid& guid,
-        const char* label,
-        const char* typeLbl,
-        bool isActive);
+    void drawSingleCard(const Engine::Assets::AssetGuid& guid, const char* label, const char* typeLbl, bool isActive, float cardW = 80.0f, float cardH = 80.0f);
 
     std::string m_currentFolder;
 };

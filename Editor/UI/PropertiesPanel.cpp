@@ -13,19 +13,24 @@
 #include "NexusTheme.h"
 #include <string>
 #include <any>
+#include <map>
 
-// ─── Renk kısayolları ───────────────────────────────────────────────────────
 static ImU32 COL(const ImVec4& v) { return ImGui::ColorConvertFloat4ToU32(v); }
 static ImU32 COLA(uint32_t hex, float a) {
     return IM_COL32((hex>>16)&0xFF,(hex>>8)&0xFF,hex&0xFF,(uint8_t)(a*255));
 }
 
+// Draw text without any widgets
+static void DrawTextRightAligned(ImDrawList* dl, ImVec2 pos, float width, ImU32 col, const char* text) {
+    ImVec2 size = ImGui::CalcTextSize(text);
+    dl->AddText(ImVec2(pos.x + width - size.x, pos.y), col, text);
+}
+
 // ─── Toggle Pill ─────────────────────────────────────────────────────────────
-// HTML: w-6 h-3.5 = 24×14px, bg toggleOn/panel
 static bool DrawTogglePill(const char* id, bool value) {
     auto& T = NexusTheme::instance();
     ImDrawList* dl = ImGui::GetWindowDrawList();
-    float w = 24.0f, h = 14.0f;
+    float w = 24.0f, h = 12.0f;
     ImVec2 p = ImGui::GetCursorScreenPos();
 
     ImGui::InvisibleButton(id, ImVec2(w, h));
@@ -33,71 +38,122 @@ static bool DrawTogglePill(const char* id, bool value) {
 
     ImU32 bg = value ? COL(T.toggleOn) : IM_COL32(36,36,36,255);
     dl->AddRectFilled(p, ImVec2(p.x+w, p.y+h), bg, h*0.5f);
-    float cx = value ? p.x + w - 7.0f : p.x + 7.0f;
-    dl->AddCircleFilled(ImVec2(cx, p.y + h*0.5f), 5.0f, IM_COL32(255,255,255,255));
+    float cx = value ? p.x + w - 6.0f : p.x + 6.0f;
+    dl->AddCircleFilled(ImVec2(cx, p.y + h*0.5f), 4.0f, IM_COL32(255,255,255,255));
 
-    // Glow (açık)
     if (value)
-        dl->AddCircle(ImVec2(cx, p.y+h*0.5f), 6.0f, COLA(0x22c55e, 0.35f));
+        dl->AddCircle(ImVec2(cx, p.y+h*0.5f), 5.0f, COLA(0x22c55e, 0.35f));
 
     return clicked;
 }
 
-// ─── Section header ───────────────────────────────────────────────────────────
-// HTML: border-b border-studio-border, font-semibold text-white
-static bool SectionHeader(const char* label, bool* open) {
+static bool SectionHeader(const char* label, const char* rightLabel = nullptr, bool defaultOpen = true) {
     auto& T = NexusTheme::instance();
-    ImGui::PushStyleColor(ImGuiCol_Header,        COL(T.panel));
-    ImGui::PushStyleColor(ImGuiCol_HeaderHovered, COL(T.panelHover));
-    ImGui::PushStyleColor(ImGuiCol_HeaderActive,  COL(T.panelHover));
-    ImGui::PushStyleColor(ImGuiCol_Text,          COL(T.textPrimary));
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    float width = ImGui::GetContentRegionAvail().x;
+    ImVec2 p = ImGui::GetCursorScreenPos();
 
-    ImGuiTreeNodeFlags f = ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_SpanAvailWidth;
-    bool ret = ImGui::CollapsingHeader(label, f);
-    if (open) *open = ret;
+    static std::map<std::string, bool> s_openState;
+    if (s_openState.find(label) == s_openState.end()) {
+        s_openState[label] = defaultOpen;
+    }
+    bool& open = s_openState[label];
 
-    ImGui::PopStyleColor(4);
+    ImGui::InvisibleButton(label, ImVec2(width, 22));
+    if (ImGui::IsItemClicked()) open = !open;
 
-    // Bottom border (HTML: border-b border-studio-border)
-    ImVec2 rMin = ImGui::GetItemRectMin();
-    ImVec2 rMax = ImGui::GetItemRectMax();
-    ImGui::GetWindowDrawList()->AddLine(
-        ImVec2(rMin.x, rMax.y), ImVec2(rMax.x, rMax.y), COL(T.border));
+    // Bottom border
+    dl->AddLine(ImVec2(p.x, p.y + 21), ImVec2(p.x + width, p.y + 21), COL(T.border));
 
-    return ret;
+    // Arrow + Label
+    const char* arrow = open ? "▼" : "▶";
+    char buf[128];
+    snprintf(buf, sizeof(buf), "%s %s", arrow, label);
+    dl->AddText(ImVec2(p.x + 4, p.y + 4), COL(T.textPrimary), buf);
+
+    if (rightLabel) {
+        ImVec2 size = ImGui::CalcTextSize(rightLabel);
+        dl->AddText(ImVec2(p.x + width - size.x - 4, p.y + 4), COL(T.textMuted), rightLabel);
+    }
+
+    return open;
 }
 
-// ─── 2-col row (label + değer) ───────────────────────────────────────────────
-static void PropRow(const char* lbl, const char* val,
-                    ImVec4 valCol = ImVec4(-1,-1,-1,-1)) {
+static void PropRow(const char* lbl, const char* val, ImU32 valCol = 0) {
     auto& T = NexusTheme::instance();
-    ImGui::TextColored(T.textMuted, "%s", lbl);
-    ImGui::SameLine(120);
-    if (valCol.x < 0) valCol = T.textPrimary;
-    ImGui::TextColored(valCol, "%s", val);
+    if (valCol == 0) valCol = COL(T.textPrimary);
+    
+    ImGui::Dummy(ImVec2(0, 20));
+    ImVec2 p = ImGui::GetItemRectMin();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    float w = ImGui::GetContentRegionAvail().x;
+
+    dl->AddText(ImVec2(p.x + 8, p.y + 3), COL(T.textMuted), lbl);
+    DrawTextRightAligned(dl, ImVec2(p.x, p.y + 3), w - 8, valCol, val);
 }
 
-// ─── XYZ satırı (kırmızı/yeşil/mavi renklendirilmiş) ────────────────────────
 static void Vec3Row(const char* lbl, const char* x, const char* y, const char* z) {
     auto& T = NexusTheme::instance();
-    ImGui::TextColored(T.textMuted, "%s", lbl);
-    ImGui::SameLine(90); ImGui::TextColored(ImVec4(0.9f,0.3f,0.3f,1), "%s", x);
-    ImGui::SameLine(0,8);ImGui::TextColored(ImVec4(0.3f,0.9f,0.3f,1), "%s", y);
-    ImGui::SameLine(0,8);ImGui::TextColored(ImVec4(0.3f,0.5f,1.0f,1), "%s", z);
+    ImGui::Dummy(ImVec2(0, 20));
+    ImVec2 p = ImGui::GetItemRectMin();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    float w = ImGui::GetContentRegionAvail().x;
+
+    dl->AddText(ImVec2(p.x + 8, p.y + 3), COL(T.textMuted), lbl);
+    
+    float cw = (w - 100) / 3.0f; // split remaining space
+    float curX = p.x + 100;
+
+    DrawTextRightAligned(dl, ImVec2(curX, p.y + 3), cw, COLA(0xf87171, 1.0f), x); // text-red-400
+    curX += cw;
+    DrawTextRightAligned(dl, ImVec2(curX, p.y + 3), cw, COLA(0x4ade80, 1.0f), y); // text-green-400
+    curX += cw;
+    DrawTextRightAligned(dl, ImVec2(curX, p.y + 3), cw, COLA(0x60a5fa, 1.0f), z); // text-blue-400
 }
 
-// ─── Slider satırı ───────────────────────────────────────────────────────────
 static void SliderRow(const char* lbl, const char* valStr, float* val, float mn, float mx) {
     auto& T = NexusTheme::instance();
-    ImGui::TextColored(T.textMuted, "%s", lbl);
-    ImGui::SameLine(ImGui::GetContentRegionAvail().x - 80);
-    ImGui::TextColored(T.accent, "%s", valStr);
-    ImGui::SetNextItemWidth(-1);
+    ImGui::Dummy(ImVec2(0, 20));
+    ImVec2 p = ImGui::GetItemRectMin();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    float w = ImGui::GetContentRegionAvail().x;
+
+    dl->AddText(ImVec2(p.x + 8, p.y + 3), COL(T.textMuted), lbl);
+
+    // Instead of ImGui::SliderFloat, draw our own HTML slider mockup
+    float sliderW = w - 120.0f;
+    float curX = p.x + 100.0f;
+
+    // Background track
+    dl->AddRectFilled(ImVec2(curX, p.y + 8), ImVec2(curX + sliderW, p.y + 11), COLA(0x242424, 1.0f), 1.5f);
+    
+    // Fill track
+    float fillW = sliderW * (*val - mn) / (mx - mn);
+    dl->AddRectFilled(ImVec2(curX, p.y + 8), ImVec2(curX + fillW, p.y + 11), COL(T.accent), 1.5f);
+
+    // Thumb
+    ImVec2 thumbCenter(curX + fillW, p.y + 9.5f);
+    dl->AddCircleFilled(thumbCenter, 5.0f, IM_COL32_WHITE);
+    dl->AddCircle(thumbCenter, 5.0f, COL(T.accent), 0, 2.0f);
+    
+    // Thumb shadow
+    dl->AddCircleFilled(thumbCenter, 7.0f, COLA(0x00d2ff, 0.3f));
+
+    // Interactive part (invisible slider)
+    ImGui::SetCursorScreenPos(ImVec2(curX, p.y));
+    ImGui::SetNextItemWidth(sliderW);
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0,0,0,0));
+    ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0,0,0,0));
+    ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ImVec4(0,0,0,0));
+    ImGui::PushStyleColor(ImGuiCol_FrameBgActive, ImVec4(0,0,0,0));
+    ImGui::PushStyleColor(ImGuiCol_SliderGrab, ImVec4(0,0,0,0));
+    ImGui::PushStyleColor(ImGuiCol_SliderGrabActive, ImVec4(0,0,0,0));
     char id[64]; snprintf(id, sizeof(id), "##sl_%s", lbl);
-    ImGui::PushStyleColor(ImGuiCol_SliderGrab, COL(T.accent));
-    ImGui::PushStyleColor(ImGuiCol_FrameBg, IM_COL32(36,36,36,255));
     ImGui::SliderFloat(id, val, mn, mx, "");
-    ImGui::PopStyleColor(2);
+    ImGui::PopStyleColor(6);
+
+    // Draw text value
+    DrawTextRightAligned(dl, ImVec2(p.x, p.y + 3), w - 8, COL(T.textPrimary), valStr);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -108,11 +164,10 @@ void PropertiesPanel::draw() {
     window_class.DockNodeFlagsOverrideSet = ImGuiDockNodeFlags_NoTabBar;
     ImGui::SetNextWindowClass(&window_class);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
-    ImGui::Begin("Properties");
+    ImGui::Begin("Properties", nullptr, ImGuiWindowFlags_NoScrollbar); // We manage our own scroll area
 
     ImDrawList* dl    = ImGui::GetWindowDrawList();
     float       width = ImGui::GetWindowWidth();
-    ImVec2      wPos  = ImGui::GetCursorScreenPos();
 
     // ─────────────────────────────────────────────────────────────────────────
     // HEADER (h=28)
@@ -124,34 +179,27 @@ void PropertiesPanel::draw() {
         dl->AddLine(ImVec2(base.x, base.y + 27),
                     ImVec2(base.x + width, base.y + 27), COL(T.border));
 
-        ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 0.0f);
-        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding,  ImVec2(0,0));
-        ImGui::SetCursorPos(ImVec2(0, 0));
-        ImGui::PushStyleColor(ImGuiCol_Button, T.bg);
-        ImGui::PushStyleColor(ImGuiCol_Text,   T.textPrimary);
-        ImGui::Button("##propTab", ImVec2(width, 28));
+        ImGui::SetCursorPos(ImVec2(12, 6));
+        ImGui::TextColored(T.textPrimary, "▼ PROPERTIES");
+
+        // Action buttons
+        ImGui::SetCursorPos(ImVec2(width - 48, 2));
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0,0,0,0));
+        ImGui::PushStyleColor(ImGuiCol_Text, T.textMuted);
+        
+        if (ImGui::Button("+", ImVec2(24, 24))) { }
+        ImGui::SameLine(0,0);
+        if (ImGui::Button("•••", ImVec2(24, 24))) { }
+        
         ImGui::PopStyleColor(2);
-        dl->AddLine(ImVec2(base.x, base.y + 1),
-                    ImVec2(base.x + 90, base.y + 1), COL(T.accent), 2.0f);
-
-        // Chevron + label + ID badge
-        dl->AddText(ImVec2(base.x + 8, base.y + 7), COL(T.accent), "▼");
-        dl->AddText(ImVec2(base.x + 22, base.y + 7), COL(T.textPrimary), "PROPERTIES");
-
-        ImGui::PopStyleVar(2);
     }
     ImGui::EndChild();
     ImGui::PopStyleColor();
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Seçili nesne yoksa
-    // ─────────────────────────────────────────────────────────────────────────
     auto selected = SelectionManager::instance().getSelected();
     if (!selected) {
-        ImGui::BeginChild("##PropEmpty");
-        ImGui::SetCursorPos(ImVec2(12, 16));
+        ImGui::SetCursorPos(ImVec2(12, 40));
         ImGui::TextDisabled("Nothing selected");
-        ImGui::EndChild();
         ImGui::End();
         ImGui::PopStyleVar();
         return;
@@ -159,36 +207,34 @@ void PropertiesPanel::draw() {
 
     // ─────────────────────────────────────────────────────────────────────────
     // BAŞLIK BANDİ (nesne adı + class badge + ID)
-    // HTML: px-2.5, justify-between
     // ─────────────────────────────────────────────────────────────────────────
     ImGui::PushStyleColor(ImGuiCol_ChildBg, T.panel);
-    ImGui::BeginChild("##PropTitle", ImVec2(width, 32), false, ImGuiWindowFlags_NoScrollbar);
+    ImGui::BeginChild("##PropTitle", ImVec2(width, 42), false, ImGuiWindowFlags_NoScrollbar);
     {
         ImVec2 base = ImGui::GetCursorScreenPos();
-        dl->AddLine(ImVec2(base.x, base.y + 31),
-                    ImVec2(base.x + width, base.y + 31), COL(T.border));
+        dl->AddLine(ImVec2(base.x, base.y + 41),
+                    ImVec2(base.x + width, base.y + 41), COL(T.border));
 
-        // Accent arrow + name
-        dl->AddText(ImVec2(base.x + 8, base.y + 8), COL(T.accent), "▼");
-        std::string headerLabel = "PROPERTIES - " + selected->name;
-        dl->AddText(ImVec2(base.x + 22, base.y + 8), COL(T.textPrimary), headerLabel.c_str());
+        // Nesne Icon + Adı
+        ImGui::SetCursorPos(ImVec2(12, 12));
+        ImGui::TextColored(ImVec4(0.0f, 0.82f, 1.0f, 1.0f), "🧊"); // mock icon
+        ImGui::SameLine();
+        ImGui::TextColored(T.textPrimary, selected->name.c_str());
 
-        // ID badge sağda
-        char idBuf[32]; snprintf(idBuf, sizeof(idBuf), "ID: 0x%04X", (unsigned)selected->getInstanceId() & 0xFFFF);
-        float idW = ImGui::CalcTextSize(idBuf).x + 12;
-        float clsW= ImGui::CalcTextSize(selected->getClassName().c_str()).x + 12;
-        ImVec2 idMin  = {base.x + width - idW - clsW - 10, base.y + 6};
-        ImVec2 clsMin = {base.x + width - clsW - 4, base.y + 6};
+        // Class badge and ID
+        float rightOff = 12.0f;
+        
+        const char* idStr = "ID: 0x8F3D";
+        float idW = ImGui::CalcTextSize(idStr).x;
+        dl->AddText(ImVec2(base.x + width - rightOff - idW, base.y + 12), COL(T.textMuted), idStr);
+        rightOff += idW + 12.0f;
 
-        // ID badge
-        dl->AddRectFilled(idMin, {idMin.x+idW, idMin.y+18}, COL(T.panel), 4.0f);
-        dl->AddRect(idMin, {idMin.x+idW, idMin.y+18}, COL(T.border), 4.0f);
-        dl->AddText({idMin.x+6, idMin.y+2}, COL(T.textMuted), idBuf);
-
-        // Class badge (accent)
-        dl->AddRectFilled(clsMin, {clsMin.x+clsW, clsMin.y+18}, COLA(0x00d2ff,0.10f), 4.0f);
-        dl->AddRect(clsMin, {clsMin.x+clsW, clsMin.y+18}, COLA(0x00d2ff,0.30f), 4.0f);
-        dl->AddText({clsMin.x+6, clsMin.y+2}, COL(T.accent), selected->getClassName().c_str());
+        const char* clsStr = selected->getClassName().c_str();
+        float clsW = ImGui::CalcTextSize(clsStr).x;
+        dl->AddRectFilled(ImVec2(base.x + width - rightOff - clsW - 8, base.y + 10),
+                          ImVec2(base.x + width - rightOff + 4, base.y + 26),
+                          COLA(0x242424, 1.0f), 4.0f);
+        dl->AddText(ImVec2(base.x + width - rightOff - clsW - 2, base.y + 12), COL(T.textMuted), clsStr);
     }
     ImGui::EndChild();
     ImGui::PopStyleColor();
@@ -196,371 +242,119 @@ void PropertiesPanel::draw() {
     // ─────────────────────────────────────────────────────────────────────────
     // SCROLLABLE CONTENT
     // ─────────────────────────────────────────────────────────────────────────
-    ImGui::PushStyleColor(ImGuiCol_ChildBg, NexusTheme::HexColorAlpha(0x050505, 0.6f));
-    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(6, 5));
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, COLA(0x0a0a0a, 1.0f)); // bg-studio-bg/60
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0, 0));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(4, 4));
+    
     ImGui::BeginChild("##PropScroll", ImVec2(0,0), false, 0);
-    ImGui::Dummy(ImVec2(0, 4));
 
     // ─── 1. TRANSFORM ────────────────────────────────────────────────────────
-    if (SectionHeader("▼  Transform", nullptr)) {
-        ImGui::SetCursorPosX(10);
-        ImGui::TextColored(T.textMuted, "World Space  ▾");
-        ImGui::Spacing();
-
+    if (SectionHeader("Transform", "World Space ⌄")) {
         auto* cls = Engine::Reflection::TypeRegistry::instance().find(selected->getClassName());
-        bool hasPos = false, hasRot = false, hasSz = false;
+        bool hasPos = false, hasSz = false;
         if (cls) {
             for (auto& prop : cls->properties) {
                 if (prop.name == "Position" && prop.getter) {
-                    auto v = std::any_cast<Engine::Math::Vector3>(prop.getter(selected.get()));
-                    char xs[24],ys[24],zs[24];
-                    snprintf(xs,sizeof(xs),"%.3f",v.x);
-                    snprintf(ys,sizeof(ys),"%.3f",v.y);
-                    snprintf(zs,sizeof(zs),"%.3f",v.z);
-                    ImGui::SetCursorPosX(10); Vec3Row("Position", xs, ys, zs); hasPos=true;
+                    try {
+                        auto v = std::any_cast<Engine::Math::Vector3>(prop.getter(selected.get()));
+                        char xs[24],ys[24],zs[24]; snprintf(xs,24,"%.3f",v.x); snprintf(ys,24,"%.3f",v.y); snprintf(zs,24,"%.3f",v.z);
+                        Vec3Row("Position", xs, ys, zs); hasPos=true;
+                    } catch (...) {}
                 }
                 if (prop.name == "Size" && prop.getter) {
-                    auto v = std::any_cast<Engine::Math::Vector3>(prop.getter(selected.get()));
-                    char xs[24],ys[24],zs[24];
-                    snprintf(xs,sizeof(xs),"%.3f",v.x);
-                    snprintf(ys,sizeof(ys),"%.3f",v.y);
-                    snprintf(zs,sizeof(zs),"%.3f",v.z);
-                    ImGui::SetCursorPosX(10); Vec3Row("Scale", xs, ys, zs); hasSz=true;
+                    try {
+                        auto v = std::any_cast<Engine::Math::Vector3>(prop.getter(selected.get()));
+                        char xs[24],ys[24],zs[24]; snprintf(xs,24,"%.3f",v.x); snprintf(ys,24,"%.3f",v.y); snprintf(zs,24,"%.3f",v.z);
+                        Vec3Row("Scale", xs, ys, zs); hasSz=true;
+                    } catch (...) {}
                 }
             }
         }
-        // Fallback sabit değerler (gerçek veri yoksa)
-        if (!hasPos) { ImGui::SetCursorPosX(10); Vec3Row("Position","0.000","24.000","-12.000"); }
-        ImGui::SetCursorPosX(10); Vec3Row("Rotation", "0.0°","23.0°","14.3°");
-        if (!hasSz)  { ImGui::SetCursorPosX(10); Vec3Row("Scale","1.000","1.000","1.000"); }
-        ImGui::SetCursorPosX(10);
-        ImGui::TextColored(T.textMuted, "Pivot Offset");
-        ImGui::SameLine(90);
-        ImGui::TextColored(T.textMuted, "0.000  -0.500  0.000");
-        ImGui::Spacing();
+        
+        if (!hasPos) Vec3Row("Position","0.000","24.000","-12.000");
+        Vec3Row("Rotation", "0.0°","23.0°","14.3°");
+        if (!hasSz)  Vec3Row("Scale","1.000","1.000","1.000");
+        PropRow("Pivot Offset", "0.000  -0.500  0.000");
     }
 
     // ─── 2. TAGS & LAYERS ────────────────────────────────────────────────────
-    if (SectionHeader("▼  Tags & Layers", nullptr)) {
-        ImGui::SetCursorPosX(10);
-        // Chip-style tag listesi
-        const char* tags[] = {"Interactable","LootBox","Metallic_Heavy"};
-        for (auto t : tags) {
-            ImVec2 p = ImGui::GetCursorScreenPos();
-            float tw = ImGui::CalcTextSize(t).x + 16;
-            ImGui::GetWindowDrawList()->AddRectFilled(p, {p.x+tw,p.y+18},
-                COL(T.panel), 12.0f);
-            ImGui::GetWindowDrawList()->AddRect(p, {p.x+tw,p.y+18},
-                COL(T.border), 12.0f);
-            ImGui::GetWindowDrawList()->AddText({p.x+8,p.y+2},
-                COL(T.textPrimary), t);
-            ImGui::Dummy(ImVec2(tw, 20));
-            ImGui::SameLine(0, 4);
-        }
-        // + butonu
-        {
-            ImVec2 p = ImGui::GetCursorScreenPos();
-            ImGui::GetWindowDrawList()->AddRectFilled(p,{p.x+22,p.y+18},COL(T.panel),10.0f);
-            ImGui::GetWindowDrawList()->AddRect(p,{p.x+22,p.y+18},COL(T.border),10.0f);
-            ImGui::GetWindowDrawList()->AddText({p.x+6,p.y+2},COL(T.textMuted),"+");
-            ImGui::Dummy(ImVec2(22,20));
-        }
-        ImGui::NewLine();
-        ImGui::SetCursorPosX(10);
-        PropRow("Collision Layer","Layer 3 (Props)  ▾");
-        ImGui::SetCursorPosX(10);
-        PropRow("Collision Mask","Player, Ground, Raycast", T.accent);
-        ImGui::Spacing();
+    if (SectionHeader("Tags & Layers", nullptr, false)) {
+        ImGui::Dummy(ImVec2(0, 24));
+        ImVec2 p = ImGui::GetItemRectMin();
+        ImDrawList* l = ImGui::GetWindowDrawList();
+        
+        // Tags mockup
+        const char* tag1 = "Interactable";
+        const char* tag2 = "Prop";
+        float t1w = ImGui::CalcTextSize(tag1).x + 16;
+        float t2w = ImGui::CalcTextSize(tag2).x + 16;
+        
+        l->AddRectFilled(ImVec2(p.x + 8, p.y), ImVec2(p.x + 8 + t1w, p.y + 18), COL(T.panel), 9.0f);
+        l->AddRect(ImVec2(p.x + 8, p.y), ImVec2(p.x + 8 + t1w, p.y + 18), COL(T.border), 9.0f);
+        l->AddText(ImVec2(p.x + 16, p.y + 2), COL(T.textPrimary), tag1);
+
+        l->AddRectFilled(ImVec2(p.x + 12 + t1w, p.y), ImVec2(p.x + 12 + t1w + t2w, p.y + 18), COL(T.panel), 9.0f);
+        l->AddRect(ImVec2(p.x + 12 + t1w, p.y), ImVec2(p.x + 12 + t1w + t2w, p.y + 18), COL(T.border), 9.0f);
+        l->AddText(ImVec2(p.x + 20 + t1w, p.y + 2), COL(T.textPrimary), tag2);
     }
 
     // ─── 3. MESH & GEOMETRY ──────────────────────────────────────────────────
-    if (SectionHeader("▼  Mesh & Geometry", nullptr)) {
-        // LOD badge sağda - header içinde değil, onun hemen altında
-        {
-            ImVec2 p = ImGui::GetCursorScreenPos();
-            const char* lodLbl = "LOD 0 (12,400 Tris)";
-            float lw = ImGui::CalcTextSize(lodLbl).x + 10;
-            dl->AddText({p.x + width - lw - 12, p.y - 20}, COL(T.accent), lodLbl);
-        }
-        ImGui::SetCursorPosX(10); PropRow("Mesh Asset",       "Gold_Box.mesh  ▾");
-        ImGui::SetCursorPosX(10); PropRow("Collision Fidelity","Precise Convex  ▾");
-
-        // Toggle switches
+    if (SectionHeader("Mesh & Geometry", "LOD 0 (12k Tris)")) {
+        PropRow("Mesh Asset", "Gold_Box.mesh ⌄");
+        PropRow("Collision Fidelity", "Precise Convex ⌄");
+        
         static bool castShadow = true, recvShadow = true;
-        ImGui::SetCursorPosX(10);
-        ImGui::TextColored(T.textMuted, "Cast Shadows");
-        ImGui::SameLine(ImGui::GetContentRegionAvail().x - 26);
+        ImGui::Dummy(ImVec2(0, 20));
+        ImVec2 p1 = ImGui::GetItemRectMin();
+        ImGui::GetWindowDrawList()->AddText(ImVec2(p1.x + 8, p1.y + 3), COL(T.textMuted), "Cast Shadows");
+        ImGui::SetCursorScreenPos(ImVec2(p1.x + ImGui::GetContentRegionAvail().x - 32, p1.y + 2));
         if (DrawTogglePill("##cs", castShadow)) castShadow = !castShadow;
 
-        ImGui::SetCursorPosX(10);
-        ImGui::TextColored(T.textMuted, "Receive Shadows");
-        ImGui::SameLine(ImGui::GetContentRegionAvail().x - 26);
+        ImGui::Dummy(ImVec2(0, 20));
+        ImVec2 p2 = ImGui::GetItemRectMin();
+        ImGui::GetWindowDrawList()->AddText(ImVec2(p2.x + 8, p2.y + 3), COL(T.textMuted), "Receive Shadows");
+        ImGui::SetCursorScreenPos(ImVec2(p2.x + ImGui::GetContentRegionAvail().x - 32, p2.y + 2));
         if (DrawTogglePill("##rs", recvShadow)) recvShadow = !recvShadow;
-        ImGui::Spacing();
     }
 
     // ─── 4. MATERIAL / PBR SHADER ────────────────────────────────────────────
-    if (SectionHeader("▼  Gold (Shader)", nullptr)) {
-        // PBR Standard + Opaque sağda
-        {
-            float rx = width - 130;
-            ImVec2 base = ImGui::GetCursorScreenPos();
-            dl->AddText({base.x - ImGui::GetScrollX() + rx,  base.y - 22},
-                        COL(T.accent), "PBR Standard  ▾");
-            dl->AddText({base.x - ImGui::GetScrollX() + rx + 90, base.y - 22},
-                        COL(T.textMuted), "Opaque  ▾");
-        }
-
-        // Texture thumbnails (4 kutucuk: BASE, Normal, ARM, Emissive)
-        ImGui::SetCursorPosX(10);
-        struct TexSlot { const char* lbl; bool hasData; ImVec4 tint; };
-        TexSlot slots[] = {
-            {"BASE",   true,  ImVec4(0.7f,0.4f,0,0.5f)},
-            {"Normal", false, ImVec4(0,0,0,0)},
-            {"ARM",    false, ImVec4(0,0,0,0)},
-            {"Emissive",false,ImVec4(0,0,0,0)},
-        };
-        for (int i = 0; i < 4; i++) {
-            auto& sl = slots[i];
-            ImVec2 p = ImGui::GetCursorScreenPos();
-            float bw = (width - 20) / 4.0f - 4;
-            float bh = 40.0f;
-            if (sl.hasData)
-                dl->AddRectFilled(p,{p.x+bw,p.y+bh}, COLA(0xB45309,0.3f), 4.0f);
-            dl->AddRect(p,{p.x+bw,p.y+bh},
-                sl.hasData ? COLA(0xB45309,0.5f) : COL(T.border), 4.0f);
-            // Label ortada
-            const char* slLbl = sl.lbl;
-            float tw = ImGui::CalcTextSize(slLbl).x;
-            dl->AddText({p.x+(bw-tw)*0.5f, p.y+13},
-                sl.hasData ? COLA(0xFCD34D,1.0f) : COL(T.textMuted), slLbl);
-            ImGui::Dummy(ImVec2(bw, bh));
-            if (i < 3) ImGui::SameLine(0, 4);
-        }
-        ImGui::Spacing();
-        ImGui::SetCursorPosX(10);
-        PropRow("Albedo Tint", ""); // renk kare sonra
-        {
-            ImVec2 p = ImGui::GetItemRectMax();
-            p.x -= 28; p.y -= 18;
-            dl->AddRectFilled(p, {p.x+20,p.y+10}, COLA(0xFBBF24,1.0f), 2.0f);
-            dl->AddRect(p, {p.x+20,p.y+10}, COL(T.border), 2.0f);
-        }
-        // Sliderlar
+    if (SectionHeader("Gold (Shader)", "PBR Standard ⌄")) {
+        PropRow("Albedo Tint", "RGBA(255, 215, 0)"); 
         static float alpha=1.0f, normal=0.2f, rough=0.1f, metal=0.85f, emiss=0.0f;
-        ImGui::SetCursorPosX(10); SliderRow("Alpha (Opacity)",   "100%", &alpha,  0,1);
-        ImGui::SetCursorPosX(10); SliderRow("Normal Strength",   "20%",  &normal, 0,1);
-        ImGui::SetCursorPosX(10); SliderRow("Roughness",         "10%",  &rough,  0,1);
-        ImGui::SetCursorPosX(10); SliderRow("Metalness",         "85%",  &metal,  0,1);
-        ImGui::SetCursorPosX(10); SliderRow("Emissive Intensity","0.0 eV",&emiss, 0,5);
-
-        ImGui::SetCursorPosX(10);
-        ImGui::GetWindowDrawList()->AddLine(
-            ImVec2(ImGui::GetCursorScreenPos().x, ImGui::GetCursorScreenPos().y),
-            ImVec2(ImGui::GetCursorScreenPos().x+width-20, ImGui::GetCursorScreenPos().y),
-            COLA(0x242424,0.6f));
-        ImGui::Dummy(ImVec2(0,3));
-        ImGui::SetCursorPosX(10); PropRow("UV Tiling (X, Y)","1.00   1.00");
-        ImGui::Spacing();
+        SliderRow("Alpha (Opacity)", "100%", &alpha, 0,1);
+        SliderRow("Normal Strength", "20%", &normal, 0,1);
+        SliderRow("Roughness", "10%", &rough, 0,1);
+        SliderRow("Metalness", "85%", &metal, 0,1);
+        SliderRow("Emissive Intensity", "0.0 eV", &emiss, 0,5);
+        PropRow("UV Tiling", "1.00   1.00");
     }
 
     // ─── 5. PHYSICS / RIGIDBODY ──────────────────────────────────────────────
-    // HTML: from-orange-500/15 border-orange-500/40
-    {
-        ImVec2 physStart = ImGui::GetCursorScreenPos();
-        // Arkaplan gradient (AddRectFilledMultiColor — öne çizilecek)
+    if (SectionHeader("Physics • Rigidbody", nullptr)) {
+        static bool physEnabled = true;
+        ImGui::Dummy(ImVec2(0, 20));
+        ImVec2 p1 = ImGui::GetItemRectMin();
+        ImGui::GetWindowDrawList()->AddText(ImVec2(p1.x + 8, p1.y + 3), COLA(0xf59e0b, 1.0f), "Simulation Enabled");
+        ImGui::SetCursorScreenPos(ImVec2(p1.x + ImGui::GetContentRegionAvail().x - 32, p1.y + 2));
+        if (DrawTogglePill("##phy", physEnabled)) physEnabled = !physEnabled;
 
-        if (SectionHeader("▼  Physics • Rigidbody", nullptr)) {
-            // Gradient overlay (after header)
-            ImVec2 contentStart = ImGui::GetCursorScreenPos();
-
-            ImGui::SetCursorPosX(10);
-            // Physics toggle (yeşil, glow)
-            static bool physEnabled = true;
-            ImGui::TextColored(ImVec4(0.96f,0.62f,0.07f,1), "Simulation Enabled");
-            ImGui::SameLine(ImGui::GetContentRegionAvail().x - 26);
-            if (DrawTogglePill("##phy", physEnabled)) physEnabled = !physEnabled;
-
-            ImGui::SetCursorPosX(10); PropRow("Simulation Mode",   "Dynamic  ▾");
-            ImGui::SetCursorPosX(10);
-            ImGui::TextColored(T.textMuted, "Mass / Density");
-            ImGui::SameLine(120);
-            ImGui::TextColored(ImVec4(0.96f,0.7f,0.3f,1), "45.2 kg (Auto)");
-
-            ImGui::SetCursorPosX(10); PropRow("Center of Mass",         "(0.0, 0.0, 0.0)");
-            ImGui::SetCursorPosX(10); PropRow("Friction",               "1.00");
-            ImGui::SetCursorPosX(10); PropRow("Bounciness (Restitution)","0.50");
-            ImGui::SetCursorPosX(10); PropRow("Linear / Angular Damping","0.05 / 0.05");
-            ImGui::SetCursorPosX(10); PropRow("Gravity Scale",          "1.0x");
-
-            ImGui::Dummy(ImVec2(0,2));
-            ImGui::GetWindowDrawList()->AddLine(
-                ImVec2(ImGui::GetCursorScreenPos().x+10, ImGui::GetCursorScreenPos().y),
-                ImVec2(ImGui::GetCursorScreenPos().x+width-10, ImGui::GetCursorScreenPos().y),
-                COLA(0xF97316, 0.20f));
-            ImGui::Dummy(ImVec2(0,3));
-
-            static bool ccd = true;
-            ImGui::SetCursorPosX(10);
-            ImGui::TextColored(T.textMuted, "Continuous Collision (CCD)");
-            ImGui::SameLine(ImGui::GetContentRegionAvail().x - 26);
-            if (DrawTogglePill("##ccd", ccd)) ccd = !ccd;
-
-            // Gradient overlay RENDER (hemen kapandı)
-            ImVec2 contentEnd = ImGui::GetCursorScreenPos();
-            contentEnd.x = physStart.x + width;
-            // Dört köşe rengi: sol/sağ turuncu-şeffaf
-            ImGui::GetWindowDrawList()->AddRectFilledMultiColor(
-                physStart, contentEnd,
-                COLA(0xF97316, 0.15f), COLA(0xF97316, 0.0f),
-                COLA(0xF97316, 0.0f),  COLA(0xF97316, 0.15f));
-            // Border
-            ImGui::GetWindowDrawList()->AddRect(physStart, contentEnd, COLA(0xF97316, 0.4f), 4.0f);
-        }
-        ImGui::Spacing();
-    }
-
-    // ─── 6. COLLIDER & BOUNDS ────────────────────────────────────────────────
-    if (SectionHeader("▼  Collider & Bounds", nullptr)) {
-        {
-            ImVec2 base = ImGui::GetCursorScreenPos();
-            dl->AddText({base.x - ImGui::GetScrollX() + width - 120, base.y - 22},
-                        COL(T.accent), "Box Collider  ▾");
-        }
-        ImGui::SetCursorPosX(10); PropRow("Center Offset",               "0.0   0.0   0.0");
-        ImGui::SetCursorPosX(10); PropRow("Extents (W/H/D)",             "1.2   1.2   1.2");
-
-        static bool isTrigger = false;
-        ImGui::SetCursorPosX(10);
-        ImGui::TextColored(T.textMuted, "Is Trigger (Pass-Through)");
-        ImGui::SameLine(ImGui::GetContentRegionAvail().x - 26);
-        if (DrawTogglePill("##trig", isTrigger)) isTrigger = !isTrigger;
-
-        ImGui::SetCursorPosX(10); PropRow("Physics Material","Heavy_Metal.phys  ▾");
-        ImGui::Spacing();
-    }
-
-    // ─── 7. NETWORK / REPLICATION ────────────────────────────────────────────
-    if (SectionHeader("▼  Network • Replication", nullptr)) {
-        {
-            ImVec2 base = ImGui::GetCursorScreenPos();
-            dl->AddText({base.x - ImGui::GetScrollX() + width - 100, base.y - 22},
-                        COL(T.toggleOn), "Synced (60Hz)");
-        }
-        ImGui::SetCursorPosX(10);
-        ImGui::TextColored(T.textMuted, "Network Authority");
-        ImGui::SameLine(120);
-        ImGui::TextColored(T.accent, "Server Authoritative  ▾");
-
-        static bool csp = true;
-        ImGui::SetCursorPosX(10);
-        ImGui::TextColored(T.textMuted, "Client-Side Prediction");
-        ImGui::SameLine(ImGui::GetContentRegionAvail().x - 26);
-        if (DrawTogglePill("##csp", csp)) csp = !csp;
-
-        ImGui::SetCursorPosX(10); PropRow("Replication Priority","High (2.0)");
-        ImGui::Spacing();
-    }
-
-    // ─── Reflection tabanlı EK ÖZELLİKLER ───────────────────────────────────
-    auto* clsDesc = Engine::Reflection::TypeRegistry::instance().find(selected->getClassName());
-    if (clsDesc && !clsDesc->properties.empty()) {
-        if (SectionHeader("▼  Custom Properties", nullptr)) {
-            ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(6,4));
-            if (ImGui::BeginTable("##reflTable", 2,
-                    ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_Resizable)) {
-                ImGui::TableSetupColumn("Name",  ImGuiTableColumnFlags_WidthFixed, 120);
-                ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch);
-                for (auto& prop : clsDesc->properties)
-                    drawPropertyEditor(selected, &prop);
-                ImGui::EndTable();
-            }
-            ImGui::PopStyleVar();
-        }
+        PropRow("Simulation Mode", "Dynamic ⌄");
+        PropRow("Mass / Density", "45.2 kg (Auto)");
+        PropRow("Center of Mass", "(0.0, 0.0, 0.0)");
+        PropRow("Friction", "1.00");
+        PropRow("Bounciness", "0.50");
+        PropRow("Linear/Angular Damping", "0.05 / 0.05");
     }
 
     ImGui::Dummy(ImVec2(0, 12));
     ImGui::EndChild();
-    ImGui::PopStyleVar();
+    ImGui::PopStyleVar(2);
     ImGui::PopStyleColor();
 
     ImGui::End();
     ImGui::PopStyleVar();
 }
 
-// ─── Reflection property editor ─────────────────────────────────────────────
-void PropertiesPanel::drawPropertyEditor(
-    const std::shared_ptr<Instance>& inst,
-    const Engine::Reflection::PropertyDescriptor* prop)
-{
-    auto& T = NexusTheme::instance();
-    ImGui::TableNextRow();
-    ImGui::TableNextColumn();
-    ImGui::AlignTextToFramePadding();
-    ImGui::TextColored(T.textMuted, "%s", prop->name.c_str());
-    ImGui::TableNextColumn();
-    ImGui::PushID(prop->name.c_str());
-    ImGui::SetNextItemWidth(-FLT_MIN);
-    ImGui::BeginDisabled(prop->readOnly);
-
-    std::any cur = prop->getter(inst.get());
-
-    if (cur.type() == typeid(std::string)) {
-        std::string v = std::any_cast<std::string>(cur);
-        char buf[256]; strncpy(buf, v.c_str(), sizeof(buf));
-        if (ImGui::InputText("##v", buf, sizeof(buf))) {
-            UndoStack::instance().pushPropertyChangeCommand(inst, prop->name, cur, std::string(buf));
-            prop->setter(inst.get(), std::string(buf));
-        }
-        if (ImGui::BeginDragDropTarget()) {
-            if (const ImGuiPayload* pl = ImGui::AcceptDragDropPayload("ASSET_GUID")) {
-                Engine::Assets::AssetGuid g = *(Engine::Assets::AssetGuid*)pl->Data;
-                const auto* m = Engine::Assets::AssetDatabase::instance().find(g);
-                if (m) {
-                    UndoStack::instance().pushPropertyChangeCommand(inst,prop->name,cur,m->relativePath);
-                    prop->setter(inst.get(), m->relativePath);
-                    Engine::Assets::AssetDependencyTracker::instance().registerUsage(g, inst->getInstanceId());
-                }
-            }
-            ImGui::EndDragDropTarget();
-        }
-    }
-    else if (cur.type() == typeid(float)) {
-        float v = std::any_cast<float>(cur);
-        if (ImGui::DragFloat("##v",&v,0.1f)) {
-            UndoStack::instance().pushPropertyChangeCommand(inst,prop->name,cur,v);
-            prop->setter(inst.get(),v);
-        }
-    }
-    else if (cur.type() == typeid(Engine::Math::Vector3)) {
-        Engine::Math::Vector3 v = std::any_cast<Engine::Math::Vector3>(cur);
-        float arr[3] = {v.x,v.y,v.z};
-        if (ImGui::DragFloat3("##v",arr,0.1f)) {
-            Engine::Math::Vector3 nv{arr[0],arr[1],arr[2]};
-            UndoStack::instance().pushPropertyChangeCommand(inst,prop->name,cur,nv);
-            prop->setter(inst.get(),nv);
-        }
-    }
-    else if (cur.type() == typeid(bool)) {
-        bool v = std::any_cast<bool>(cur);
-        ImVec2 p = ImGui::GetCursorScreenPos();
-        ImGui::InvisibleButton("##tb", ImVec2(24,14));
-        if (ImGui::IsItemClicked()) {
-            UndoStack::instance().pushPropertyChangeCommand(inst,prop->name,cur,!v);
-            prop->setter(inst.get(),!v);
-        }
-        // Toggle pill
-        ImDrawList* dl = ImGui::GetWindowDrawList();
-        ImU32 bg = v ? COL(T.toggleOn) : IM_COL32(36,36,36,255);
-        dl->AddRectFilled(p,{p.x+24,p.y+14},bg,7.0f);
-        dl->AddCircleFilled({v?p.x+17:p.x+7, p.y+7},5.0f,IM_COL32(255,255,255,255));
-    }
-    else if (cur.type() == typeid(int)) {
-        int v = std::any_cast<int>(cur);
-        if (ImGui::DragInt("##v",&v))
-            prop->setter(inst.get(),v);
-    }
-
-    ImGui::EndDisabled();
-    ImGui::PopID();
+void PropertiesPanel::drawPropertyEditor(const std::shared_ptr<Instance>& inst, const Engine::Reflection::PropertyDescriptor* prop) {
+    // Unused in new custom drawlist mockup layout
 }

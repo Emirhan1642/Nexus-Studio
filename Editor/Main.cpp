@@ -139,15 +139,16 @@ int main(int argc, char** argv) {
     std::cout << "[INIT] PhysicsWorld::initialize()" << std::endl;
     Engine::Physics::PhysicsWorld::instance().initialize();
 
-    // Initialize UI
-    std::cout << "[INIT] ImGuiLayer::init()" << std::endl;
-    ImGuiLayer::instance().init(window);
-
-    // Initialize Assets System
+    // Initialize Assets System (ImGuiLayer'dan once - font path icin gerekli)
     std::cout << "[INIT] Asset System" << std::endl;
     Engine::Assets::AssetDatabase::instance().initialize("C:/Users/Emirhan/Desktop/Emirhan/Projects/Nexus Studio");
     Engine::Assets::AssetImportPipeline::instance().initialize();
     Engine::Assets::ThumbnailCache::instance().initialize();
+
+    // Initialize UI
+    std::cout << "[INIT] ImGuiLayer::init()" << std::endl;
+    ImGuiLayer::instance().init(window);
+
     Editor::UI::AssetBrowserPanel assetBrowser;
     assetBrowser.initialize();
 

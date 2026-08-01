@@ -271,9 +271,9 @@ void AssetBrowserPanel::drawAssetGrid() {
     auto& T  = NexusTheme::instance();
     ImDrawList* dl = ImGui::GetWindowDrawList();
 
-    float cardW = 80.0f, cardH = 80.0f;
+    float cardW = 92.0f, cardH = 80.0f;
     float panelW = ImGui::GetContentRegionAvail().x;
-    int   cols   = std::max(1, (int)((panelW + 8) / (cardW + 8)));
+    int cols = std::max(1, (int)(panelW / (cardW + 8.0f)));
 
     // Alt-asset (FBX içi) görünümü
     if (m_currentFolder.starts_with("guid:")) {
@@ -294,24 +294,27 @@ void AssetBrowserPanel::drawAssetGrid() {
             try { settings = nlohmann::json::parse(parentMeta->importSettings); }
             catch (...) {}
             if (settings.contains("subAssets")) {
-                ImGui::Columns(cols, nullptr, false);
+                int colIndex = 0;
                 for (auto& [name, guidStr] : settings["subAssets"].items()) {
                     Engine::Assets::AssetGuid sg =
                         Engine::Assets::AssetGuid::fromString(guidStr.get<std::string>());
                     ImGui::PushID(sg.toString().c_str());
-                    drawSingleCard(sg, name.c_str(), "Mesh", false);
+                    drawSingleCard(sg, name.c_str(), "Mesh", false, cardW, cardH);
                     ImGui::PopID();
-                    ImGui::NextColumn();
+                    
+                    colIndex++;
+                    if (colIndex < cols) ImGui::SameLine(0, 8.0f);
+                    else colIndex = 0;
                 }
-                ImGui::Columns(1);
+                if (colIndex != 0) ImGui::NewLine();
             }
         }
         return;
     }
 
     auto assets = Engine::Assets::AssetDatabase::instance().getAllAssets();
-    ImGui::Columns(cols, nullptr, false);
-
+    
+    int colIndex = 0;
     for (auto& guid : assets) {
         const auto* meta = Engine::Assets::AssetDatabase::instance().find(guid);
         if (meta && meta->importerType == "Virtual") continue;
@@ -322,11 +325,14 @@ void AssetBrowserPanel::drawAssetGrid() {
         std::string typeStr = meta ? meta->importerType : "?";
 
         ImGui::PushID(guid.toString().c_str());
-        drawSingleCard(guid, fname.c_str(), typeStr.c_str(), false);
+        drawSingleCard(guid, fname.c_str(), typeStr.c_str(), false, cardW, cardH);
         ImGui::PopID();
-        ImGui::NextColumn();
+        
+        colIndex++;
+        if (colIndex < cols) ImGui::SameLine(0, 8.0f);
+        else colIndex = 0;
     }
-    ImGui::Columns(1);
+    if (colIndex != 0) ImGui::NewLine();
 }
 
 // ─── Tek kart ────────────────────────────────────────────────────────────────
@@ -337,13 +343,12 @@ void AssetBrowserPanel::drawSingleCard(
     const Engine::Assets::AssetGuid& guid,
     const char* label,
     const char* typeLbl,
-    bool isActive)
+    bool isActive,
+    float cardW,
+    float cardH)
 {
     auto& T  = NexusTheme::instance();
     ImDrawList* dl = ImGui::GetWindowDrawList();
-
-    float cardW = ImGui::GetColumnWidth() - 8.0f;
-    float cardH = 80.0f;
 
     ImVec2 p   = ImGui::GetCursorScreenPos();
     ImVec2 pMax= {p.x + cardW, p.y + cardH};

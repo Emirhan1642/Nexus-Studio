@@ -4,6 +4,9 @@
 #include <backends/imgui_impl_glfw.h>
 #include "Backend/imgui_impl_bgfx.h"
 #include <filesystem>
+#include <widgets/gizmo.h>
+#include "Engine/Assets/AssetDatabase.h"
+#include "NexusTheme.h"
 
 #define VIEW_ID_IMGUI 255
 
@@ -17,21 +20,48 @@ void ImGuiLayer::init(GLFWwindow* window) {
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
 
-    // Font loading (Inter or fallback)
-    const char* fontPath = "Assets/Fonts/Inter-Regular.ttf";
+    // ImGui 1.92.6: GLFW -> bgfx -> fontlar sirasi zorunlu
+    // 1. Platform backend
+    ImGui_ImplGlfw_InitForOther(window, true);
+    // 2. Renderer backend (ImGuiBackendFlags_RendererHasTextures set edilir)
+    ImGui_ImplBgfx_Init(VIEW_ID_IMGUI);
+
+    // 3. Fontlari ekle (RendererHasTextures set edildikten SONRA)
+    std::string projectRoot = Engine::Assets::AssetDatabase::instance().getProjectRoot();
+    std::string fontPath = projectRoot + "/Assets/Fonts/Inter-Regular.ttf";
+    
+    if (!std::filesystem::exists(fontPath)) {
+        fontPath = "Assets/Fonts/Inter-Regular.ttf"; // CWD relative fallback
+    }
+
     if (std::filesystem::exists(fontPath)) {
         ImFontConfig fontCfg;
         fontCfg.OversampleH = 3;
-        fontCfg.OversampleV = 3;
-        fontCfg.PixelSnapH = true;
-        io.Fonts->AddFontFromFileTTF(fontPath, 14.0f, &fontCfg);
+        fontCfg.OversampleV = 1;
+        fontCfg.PixelSnapH = false;
+        printf("[ImGuiLayer] Loading Inter from: %s\n", fontPath.c_str());
+        ImFont* font = io.Fonts->AddFontFromFileTTF(fontPath.c_str(), 18.0f, &fontCfg);
+        if (font) {
+            io.FontDefault = font;
+            printf("[ImGuiLayer] SUCCESS: Inter loaded as default.\n");
+        } else {
+            printf("[ImGuiLayer] ERROR: AddFontFromFileTTF failed!\n");
+        }
+    } else {
+        printf("[ImGuiLayer] WARNING: Inter not found at '%s'. Using default.\n", fontPath.c_str());
     }
 
-    ImGui_ImplGlfw_InitForOther(window, true);
-    ImGui_ImplBgfx_Init(VIEW_ID_IMGUI);
+    // NOT: Build() cagirma - ImGui 1.92.6 RendererHasTextures ile otomatik halleder!
+
+    // 4. Tema uygula
+    NexusTheme::instance().apply();
+
+    ImGuizmo::SetImGuiContext(ImGui::GetCurrentContext());
+    ImGuizmo::Create();
 }
 
 void ImGuiLayer::shutdown() {
+    ImGuizmo::Destroy();
     ImGui_ImplBgfx_Shutdown();
     ImGui_ImplGlfw_Shutdown();
     ImGui::DestroyContext();
@@ -41,6 +71,7 @@ void ImGuiLayer::beginFrame() {
     ImGui_ImplBgfx_NewFrame();
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
+    ImGuizmo::BeginFrame();
 
     ImGuiViewport* vp = ImGui::GetMainViewport();
     ImVec2 workPos = vp->WorkPos;
@@ -67,6 +98,8 @@ void ImGuiLayer::beginFrame() {
     ImGui::DockSpace(m_dockspaceId, ImVec2(0, 0), ImGuiDockNodeFlags_PassthruCentralNode);
 
     ImGuiIO& io = ImGui::GetIO();
+    
+
     if (io.IniFilename && !std::filesystem::exists(io.IniFilename)) {
         buildDefaultLayout(m_dockspaceId, workSize);
     }
@@ -85,11 +118,11 @@ void ImGuiLayer::buildDefaultLayout(ImGuiID dockspaceId, ImVec2 size) {
 
     ImGuiID main = dockspaceId;
     
-    // Left Dock (Toolbar) - very narrow
-    ImGuiID left = ImGui::DockBuilderSplitNode(main, ImGuiDir_Left, 0.035f, nullptr, &main);
+    // Left Dock (Toolbar) - fixed roughly 44px, ratio depends on screen, let's say ~0.03f
+    ImGuiID left = ImGui::DockBuilderSplitNode(main, ImGuiDir_Left, 0.025f, nullptr, &main);
     
-    // Right Dock (Explorer + Properties) - ~300px roughly or 25%
-    ImGuiID right = ImGui::DockBuilderSplitNode(main, ImGuiDir_Right, 0.25f, nullptr, &main);
+    // Right Dock (Explorer + Properties + AICopilot)
+    ImGuiID right = ImGui::DockBuilderSplitNode(main, ImGuiDir_Right, 0.35f, nullptr, &main);
     
     // Center Bottom (Asset Browser) - 28%
     ImGuiID bottom = ImGui::DockBuilderSplitNode(main, ImGuiDir_Down, 0.28f, nullptr, &main);
@@ -98,12 +131,12 @@ void ImGuiLayer::buildDefaultLayout(ImGuiID dockspaceId, ImVec2 size) {
     ImGuiID centerTop = main;
     ImGuiID centerMid = ImGui::DockBuilderSplitNode(centerTop, ImGuiDir_Down, 0.47f, nullptr, &centerTop);
     
-    // Right Split (Explorer 38%, Properties 62%)
+    // Right Split: AI Copilot on the far right (w=288px ~ 45% of right panel)
+    ImGuiID ai = ImGui::DockBuilderSplitNode(right, ImGuiDir_Right, 0.45f, nullptr, &right);
+    
+    // Right Split remaining (Explorer 38%, Properties 62%)
     ImGuiID explorer = right;
     ImGuiID properties = ImGui::DockBuilderSplitNode(explorer, ImGuiDir_Down, 0.62f, nullptr, &explorer);
-
-    // AI Copilot dock fallback (hidden usually)
-    ImGuiID ai = ImGui::DockBuilderSplitNode(explorer, ImGuiDir_Right, 0.2f, nullptr, &explorer);
 
     ImGui::DockBuilderDockWindow("##LeftToolbar",   left);
     ImGui::DockBuilderDockWindow("Viewport",        centerTop);
