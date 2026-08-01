@@ -42,6 +42,9 @@ void AICopilotPanel::draw() {
     auto& T = NexusTheme::instance();
     s_mcpPulse += ImGui::GetIO().DeltaTime * 2.0f;
 
+    ImGuiWindowClass window_class;
+    window_class.DockNodeFlagsOverrideSet = ImGuiDockNodeFlags_NoTabBar;
+    ImGui::SetNextWindowClass(&window_class);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
     ImGui::Begin("AI Copilot", &EditorLayout::instance().showAICopilot);
 

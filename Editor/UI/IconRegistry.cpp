@@ -34,7 +34,9 @@ void IconRegistry::loadAll(const std::string& iconsDir) {
 
             bgfx::TextureHandle handle = bgfx::createTexture2D(
                 (uint16_t)w, (uint16_t)h, false, 1,
-                bgfx::TextureFormat::RGBA8, 0, mem
+                bgfx::TextureFormat::RGBA8, 
+                BGFX_SAMPLER_MIN_ANISOTROPIC | BGFX_SAMPLER_MAG_ANISOTROPIC, 
+                mem
             );
 
             m_icons[name] = handle;

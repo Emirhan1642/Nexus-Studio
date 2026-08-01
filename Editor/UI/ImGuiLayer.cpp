@@ -20,7 +20,11 @@ void ImGuiLayer::init(GLFWwindow* window) {
     // Font loading (Inter or fallback)
     const char* fontPath = "Assets/Fonts/Inter-Regular.ttf";
     if (std::filesystem::exists(fontPath)) {
-        io.Fonts->AddFontFromFileTTF(fontPath, 13.0f);
+        ImFontConfig fontCfg;
+        fontCfg.OversampleH = 3;
+        fontCfg.OversampleV = 3;
+        fontCfg.PixelSnapH = true;
+        io.Fonts->AddFontFromFileTTF(fontPath, 14.0f, &fontCfg);
     }
 
     ImGui_ImplGlfw_InitForOther(window, true);

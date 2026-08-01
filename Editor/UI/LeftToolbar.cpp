@@ -112,7 +112,10 @@ void LeftToolbar::draw() {
 
     auto& T = NexusTheme::instance();
 
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 8));
+    ImGuiWindowClass window_class;
+    window_class.DockNodeFlagsOverrideSet = ImGuiDockNodeFlags_NoTabBar;
+    ImGui::SetNextWindowClass(&window_class);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,   ImVec2(0, 4));
     ImGui::PushStyleColor(ImGuiCol_WindowBg, T.panel);
 

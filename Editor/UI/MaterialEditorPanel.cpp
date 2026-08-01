@@ -141,6 +141,9 @@ MaterialEditorPanel::~MaterialEditorPanel() {
 void MaterialEditorPanel::draw(bool* p_open) {
     auto& T = NexusTheme::instance();
 
+    ImGuiWindowClass window_class;
+    window_class.DockNodeFlagsOverrideSet = ImGuiDockNodeFlags_NoTabBar;
+    ImGui::SetNextWindowClass(&window_class);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
     if (!ImGui::Begin("Material Editor", p_open)) {
         ImGui::End();

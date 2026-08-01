@@ -104,6 +104,9 @@ static void SliderRow(const char* lbl, const char* valStr, float* val, float mn,
 void PropertiesPanel::draw() {
     auto& T = NexusTheme::instance();
 
+    ImGuiWindowClass window_class;
+    window_class.DockNodeFlagsOverrideSet = ImGuiDockNodeFlags_NoTabBar;
+    ImGui::SetNextWindowClass(&window_class);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
     ImGui::Begin("Properties");
 

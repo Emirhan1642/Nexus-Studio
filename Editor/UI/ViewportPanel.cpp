@@ -57,6 +57,9 @@ void ViewportPanel::resize(uint16_t width, uint16_t height) {
 void ViewportPanel::draw(Engine::Renderer::Camera& camera) {
     auto& T = NexusTheme::instance();
 
+    ImGuiWindowClass window_class;
+    window_class.DockNodeFlagsOverrideSet = ImGuiDockNodeFlags_NoTabBar;
+    ImGui::SetNextWindowClass(&window_class);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
     ImGui::Begin("Viewport");
 
