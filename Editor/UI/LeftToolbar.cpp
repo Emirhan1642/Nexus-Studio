@@ -11,96 +11,122 @@ static bool gridSnap = false;
 void LeftToolbar::draw() {
     if (!EditorLayout::instance().showLeftToolbar) return;
 
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 8));
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, NexusTheme::instance().panel);
     ImGui::Begin("##LeftToolbar", nullptr, 
         ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoScrollbar | 
         ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize);
 
     ImDrawList* drawList = ImGui::GetWindowDrawList();
-    ImVec2 iconSize(24, 24);
+    ImVec2 iconSize(20, 20);
+    float windowWidth = ImGui::GetWindowWidth();
+    float btnSize = 32.0f;
 
-    auto drawToolBtn = [&](Tool toolType, const char* iconName, const char* tooltip) {
+    auto drawToolBtn = [&](Tool toolType, const char* label, const char* tooltip, bool isAccentHover = false) {
         bool isActive = (currentTool == toolType);
         
-        ImGui::SameLine(0, 4.0f);
-        ImTextureID tex = IconRegistry::instance().get(iconName);
+        ImGui::SetCursorPosX((windowWidth - btnSize) * 0.5f);
+        
+        if (isActive) {
+            ImGui::PushStyleColor(ImGuiCol_Button, NexusTheme::instance().accentDim);
+            ImGui::PushStyleColor(ImGuiCol_Border, NexusTheme::HexColorAlpha(0x00d2ff, 0.5f));
+            ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
+        } else {
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0,0,0,0));
+            ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0,0,0,0));
+            ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
+        }
+        
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, NexusTheme::instance().panelHover);
+        
+        // No actual icons since we are mocking/reusing, let's just use text for now or IconRegistry if available
+        ImTextureID tex = IconRegistry::instance().get(label);
+        ImVec4 tint = isActive ? NexusTheme::instance().accent : NexusTheme::instance().textMuted;
+        
         if (tex) {
-            if (ImGui::ImageButton(iconName, tex, iconSize, ImVec2(0,0), ImVec2(1,1), ImVec4(0,0,0,0), isActive ? NexusTheme::instance().accent : NexusTheme::instance().textPrimary)) {
+            if (ImGui::ImageButton(label, tex, ImVec2(btnSize, btnSize), ImVec2(0,0), ImVec2(1,1), ImVec4(0,0,0,0), tint)) {
                 currentTool = toolType;
             }
         } else {
-            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0,0,0,0));
-            if (ImGui::Button(iconName, iconSize)) {
+            ImGui::PushStyleColor(ImGuiCol_Text, tint);
+            if (ImGui::Button(label, ImVec2(btnSize, btnSize))) {
                 currentTool = toolType;
             }
             ImGui::PopStyleColor();
         }
         
-        if (ImGui::IsItemHovered()) {ImGui::SetTooltip("%s", tooltip);}
-        ImGui::SetCursorPos(ImVec2(ImGui::GetCursorPos().x - 2, ImGui::GetCursorPos().y + 2));
+        if (isActive) {
+            ImGui::PopStyleVar();
+            ImGui::PopStyleColor(2);
+        } else {
+            ImGui::PopStyleVar();
+            ImGui::PopStyleColor(2);
+        }
+        ImGui::PopStyleColor(); // hover
+        
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tooltip);
+        ImGui::Dummy(ImVec2(0, 2));
     };
 
-    drawToolBtn(Tool::Select, "icon_cursor", "Select (Q)");
-    drawToolBtn(Tool::Move, "icon_move", "Move (W)");
-    drawToolBtn(Tool::Rotate, "icon_rotate", "Rotate (E)");
-    drawToolBtn(Tool::Scale, "icon_scale", "Scale (R)");
+    drawToolBtn(Tool::Select, "SEL", "Select Tool (Q)");
+    drawToolBtn(Tool::Move, "MOV", "Move Tool (W)", true);
+    drawToolBtn(Tool::Rotate, "ROT", "Rotate Tool (E)");
+    drawToolBtn(Tool::Scale, "SCL", "Scale Tool (R)");
     
-    ImGui::Separator();
-    
-    ImGui::SameLine(0, 10.0f);
-    
-    ImTextureID snapTex = IconRegistry::instance().get("icon_snap");
-    ImVec4 snapColor = gridSnap ? NexusTheme::instance().accent : NexusTheme::instance().textMuted;
-    
-    if (snapTex) {
-        if (ImGui::ImageButton("snapBtn", snapTex, iconSize, ImVec2(0,0), ImVec2(1,1), ImVec4(0,0,0,0), snapColor)) {
-            gridSnap = !gridSnap;
-        }
-    } else {
-        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0,0,0,0));
-        if (ImGui::Button("SNP", iconSize)) {
-            gridSnap = !gridSnap;
-        }
-        ImGui::PopStyleColor();
+    // Grid Snap
+    ImGui::SetCursorPosX((windowWidth - btnSize) * 0.5f);
+    ImVec4 snapColor = gridSnap ? NexusTheme::instance().toggleOn : NexusTheme::instance().textMuted;
+    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0,0,0,0));
+    ImGui::PushStyleColor(ImGuiCol_Text, snapColor);
+    if (ImGui::Button("SNP", ImVec2(btnSize, btnSize))) {
+        gridSnap = !gridSnap;
     }
+    ImGui::PopStyleColor(2);
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Grid Snap (Active) 1m / 15 deg");
     
-    if (ImGui::IsItemHovered()) {ImGui::SetTooltip("Grid Snap");}
+    ImGui::Dummy(ImVec2(0, 6));
+    ImVec2 p = ImGui::GetCursorScreenPos();
+    drawList->AddLine(ImVec2(p.x + (windowWidth - 20)/2, p.y), ImVec2(p.x + (windowWidth + 20)/2, p.y), ImGui::GetColorU32(NexusTheme::instance().border));
+    ImGui::Dummy(ImVec2(0, 6));
 
-    ImGui::Separator();
-    
-    if (ImGui::ImageButton("assetBtn", IconRegistry::instance().get("icon_folder"), iconSize, ImVec2(0,0), ImVec2(1,1), ImVec4(0,0,0,0), NexusTheme::instance().textPrimary)) {
-        EditorLayout::instance().showAssetBrowser = !EditorLayout::instance().showAssetBrowser;
-    }
+    // Asset Manager
+    ImGui::SetCursorPosX((windowWidth - btnSize) * 0.5f);
+    ImGui::PushStyleColor(ImGuiCol_Button, NexusTheme::instance().accentDim);
+    ImGui::PushStyleColor(ImGuiCol_Border, NexusTheme::HexColorAlpha(0x00d2ff, 0.4f));
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
+    ImGui::PushStyleColor(ImGuiCol_Text, NexusTheme::instance().accent);
+    if (ImGui::Button("AST", ImVec2(btnSize, btnSize))) { EditorLayout::instance().showAssetBrowser = !EditorLayout::instance().showAssetBrowser; }
+    ImGui::PopStyleColor(3);
+    ImGui::PopStyleVar();
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Asset Manager");
+    ImGui::Dummy(ImVec2(0, 2));
 
-    if (ImGui::ImageButton("matBtn", IconRegistry::instance().get("icon_material_outline"), iconSize, ImVec2(0,0), ImVec2(1,1), ImVec4(0,0,0,0), NexusTheme::instance().textPrimary)) {
-        EditorLayout::instance().showMaterialEditor = !EditorLayout::instance().showMaterialEditor;
-    }
+    // Material Editor
+    ImGui::SetCursorPosX((windowWidth - btnSize) * 0.5f);
+    ImGui::PushStyleColor(ImGuiCol_Button, NexusTheme::instance().panelHover);
+    ImGui::PushStyleColor(ImGuiCol_Border, NexusTheme::instance().border);
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
+    ImGui::PushStyleColor(ImGuiCol_Text, NexusTheme::instance().textPrimary);
+    if (ImGui::Button("MAT", ImVec2(btnSize, btnSize))) { EditorLayout::instance().showMaterialEditor = !EditorLayout::instance().showMaterialEditor; }
+    ImGui::PopStyleColor(3);
+    ImGui::PopStyleVar();
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Material Editor");
-
-    ImGui::Separator();
+    ImGui::Dummy(ImVec2(0, 2));
     
-    // Bottom padding simulation by pushing cursor or we can just draw settings
-    // Since ImGui doesn't have flex-1 easily without a child window, we can calculate available space
+    // Bottom Project Settings
     float availY = ImGui::GetContentRegionAvail().y;
-    float settingsHeight = iconSize.y + ImGui::GetStyle().FramePadding.y * 2.0f;
-    if (availY > settingsHeight + 10.0f) {
-        ImGui::SetCursorPosY(ImGui::GetWindowHeight() - 40);
+    if (availY > btnSize + 10.0f) {
+        ImGui::SetCursorPosY(ImGui::GetWindowHeight() - btnSize - 10.0f);
     }
-    ImGui::SameLine(0, 4.0f);
     
-    ImTextureID settingTex = IconRegistry::instance().get("icon_setting");
-    if (settingTex) {
-        if (ImGui::ImageButton("settingsBtn", settingTex, iconSize, ImVec2(0,0), ImVec2(1,1), ImVec4(0,0,0,0), NexusTheme::instance().textMuted)) {
-            // Open settings
-        }
-    } else {
-        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0,0,0,0));
-        if (ImGui::Button("SET", iconSize)) {
-            // Open settings
-        }
-        ImGui::PopStyleColor();
-    }
+    ImGui::SetCursorPosX((windowWidth - btnSize) * 0.5f);
+    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0,0,0,0));
+    ImGui::PushStyleColor(ImGuiCol_Text, NexusTheme::instance().textMuted);
+    ImGui::Button("SET", ImVec2(btnSize, btnSize));
+    ImGui::PopStyleColor(2);
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Project Settings");
 
     ImGui::End();
+    ImGui::PopStyleColor();
+    ImGui::PopStyleVar();
 }

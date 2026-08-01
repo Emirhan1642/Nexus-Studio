@@ -17,37 +17,72 @@ void PropertiesPanel::draw() {
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
     ImGui::Begin("Properties");
 
+    ImDrawList* drawList = ImGui::GetWindowDrawList();
+    ImVec2 p = ImGui::GetCursorScreenPos();
+    float width = ImGui::GetWindowWidth();
+
+    // Custom Header (Tabs)
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, NexusTheme::instance().panel);
+    ImGui::BeginChild("##PropHeader", ImVec2(width, 28), false, ImGuiWindowFlags_NoScrollbar);
+    drawList->AddLine(ImVec2(p.x, p.y + 27), ImVec2(p.x + width, p.y + 27), ImGui::GetColorU32(NexusTheme::instance().border));
+    
+    ImGui::PushStyleColor(ImGuiCol_Button, NexusTheme::instance().bg);
+    ImGui::PushStyleColor(ImGuiCol_Text, NexusTheme::instance().textPrimary);
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 0.0f);
+    ImGui::SetCursorPos(ImVec2(0, 0));
+    ImGui::Button(" v Properties ", ImVec2(90, 28));
+    ImVec2 tabP = ImGui::GetItemRectMin();
+    drawList->AddLine(ImVec2(tabP.x, tabP.y), ImVec2(tabP.x + 90, tabP.y), ImGui::GetColorU32(NexusTheme::instance().accent), 2.0f);
+    ImGui::PopStyleVar();
+    ImGui::PopStyleColor(2);
+    ImGui::EndChild();
+    ImGui::PopStyleColor();
+
     auto selected = SelectionManager::instance().getSelected();
     if (!selected) {
-        ImGui::Text("Nothing selected");
+        ImGui::SetCursorPos(ImVec2(8, 38));
+        ImGui::TextDisabled("Nothing selected");
         ImGui::End();
         ImGui::PopStyleVar();
         return;
     }
 
-    // Styled Header
-    ImGui::PushStyleColor(ImGuiCol_ChildBg, NexusTheme::instance().panel);
-    ImGui::BeginChild("PropHeader", ImVec2(0, 30), false);
-    ImGui::SetCursorPos(ImVec2(8, 8));
-    ImGui::TextColored(NexusTheme::instance().textPrimary, "PROPERTIES - %s", selected->name.c_str());
+    // Title area
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, NexusTheme::instance().bg);
+    ImGui::BeginChild("##PropTitleArea", ImVec2(width, 36), false, ImGuiWindowFlags_NoScrollbar);
+    p = ImGui::GetCursorScreenPos();
+    drawList->AddLine(ImVec2(p.x, p.y + 35), ImVec2(p.x + width, p.y + 35), ImGui::GetColorU32(NexusTheme::instance().border));
+    ImGui::SetCursorPos(ImVec2(8, 10));
+    ImGui::PushFont(ImGui::GetIO().Fonts->Fonts[0]);
+    ImGui::TextColored(NexusTheme::instance().textPrimary, "%s", selected->name.c_str());
+    ImGui::PopFont();
+    ImGui::SameLine(width - 40);
+    ImGui::SetCursorPosY(10);
+    ImGui::TextDisabled(selected->getClassName().c_str());
     ImGui::EndChild();
     ImGui::PopStyleColor();
 
-    ImGui::SetCursorPos(ImVec2(8, 38));
     ImGui::BeginChild("PropScroll");
 
     auto* classDesc = Engine::Reflection::TypeRegistry::instance().find(selected->getClassName());
     if (!classDesc) {
-        ImGui::Text("Unknown class: %s", selected->getClassName().c_str());
+        ImGui::SetCursorPos(ImVec2(8, 8));
+        ImGui::TextDisabled("Unknown class: %s", selected->getClassName().c_str());
         ImGui::EndChild();
         ImGui::End();
         ImGui::PopStyleVar();
         return;
     }
 
+    ImGui::PushStyleColor(ImGuiCol_Header, NexusTheme::instance().panel);
+    ImGui::PushStyleColor(ImGuiCol_HeaderHovered, NexusTheme::instance().panelHover);
+    ImGui::PushStyleColor(ImGuiCol_HeaderActive, NexusTheme::instance().panelHover);
     if (ImGui::CollapsingHeader("General", ImGuiTreeNodeFlags_DefaultOpen)) {
-        if (ImGui::BeginTable("PropTable", 2, ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_Resizable)) {
-            ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthFixed, 100.0f);
+        ImGui::PopStyleColor(3);
+        
+        ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(4, 4));
+        if (ImGui::BeginTable("PropTable", 2, ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_Resizable)) {
+            ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthFixed, 120.0f);
             ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch);
 
             for (auto& prop : classDesc->properties) {
@@ -55,6 +90,9 @@ void PropertiesPanel::draw() {
             }
             ImGui::EndTable();
         }
+        ImGui::PopStyleVar();
+    } else {
+        ImGui::PopStyleColor(3);
     }
     
     ImGui::EndChild();

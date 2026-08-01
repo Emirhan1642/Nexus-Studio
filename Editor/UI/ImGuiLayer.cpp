@@ -39,8 +39,16 @@ void ImGuiLayer::beginFrame() {
     ImGui::NewFrame();
 
     ImGuiViewport* vp = ImGui::GetMainViewport();
-    ImGui::SetNextWindowPos(vp->WorkPos);
-    ImGui::SetNextWindowSize(vp->WorkSize);
+    ImVec2 workPos = vp->WorkPos;
+    ImVec2 workSize = vp->WorkSize;
+    float topBarHeight = 40.0f;
+    
+    // Offset dockspace for our custom 40px TopBar
+    workPos.y += topBarHeight;
+    workSize.y -= topBarHeight;
+
+    ImGui::SetNextWindowPos(workPos);
+    ImGui::SetNextWindowSize(workSize);
     ImGui::SetNextWindowViewport(vp->ID);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
@@ -48,8 +56,7 @@ void ImGuiLayer::beginFrame() {
     ImGui::Begin("##DockSpaceHost", nullptr,
         ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse |
         ImGuiWindowFlags_NoResize   | ImGuiWindowFlags_NoMove     |
-        ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus |
-        ImGuiWindowFlags_MenuBar);
+        ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus);
     ImGui::PopStyleVar(3);
 
     m_dockspaceId = ImGui::GetID("MainDockSpace");
@@ -57,7 +64,7 @@ void ImGuiLayer::beginFrame() {
 
     ImGuiIO& io = ImGui::GetIO();
     if (io.IniFilename && !std::filesystem::exists(io.IniFilename)) {
-        buildDefaultLayout(m_dockspaceId, vp->WorkSize);
+        buildDefaultLayout(m_dockspaceId, workSize);
     }
 }
 
@@ -72,15 +79,27 @@ void ImGuiLayer::buildDefaultLayout(ImGuiID dockspaceId, ImVec2 size) {
     ImGui::DockBuilderAddNode(dockspaceId, ImGuiDockNodeFlags_DockSpace);
     ImGui::DockBuilderSetNodeSize(dockspaceId, size);
 
-    ImGuiID main      = dockspaceId;
-    ImGuiID left      = ImGui::DockBuilderSplitNode(main,  ImGuiDir_Left,  0.037f, nullptr, &main);
-    ImGuiID right     = ImGui::DockBuilderSplitNode(main,  ImGuiDir_Right, 0.27f,  nullptr, &main);
-    ImGuiID ai        = ImGui::DockBuilderSplitNode(right, ImGuiDir_Right, 0.45f,  nullptr, &right);
-    ImGuiID bottom    = ImGui::DockBuilderSplitNode(main,  ImGuiDir_Down,  0.28f,  nullptr, &main);
+    ImGuiID main = dockspaceId;
+    
+    // Left Dock (Toolbar) - very narrow
+    ImGuiID left = ImGui::DockBuilderSplitNode(main, ImGuiDir_Left, 0.035f, nullptr, &main);
+    
+    // Right Dock (Explorer + Properties) - ~300px roughly or 25%
+    ImGuiID right = ImGui::DockBuilderSplitNode(main, ImGuiDir_Right, 0.25f, nullptr, &main);
+    
+    // Center Bottom (Asset Browser) - 28%
+    ImGuiID bottom = ImGui::DockBuilderSplitNode(main, ImGuiDir_Down, 0.28f, nullptr, &main);
+    
+    // Center Top vs Middle (Viewport vs Material Editor)
     ImGuiID centerTop = main;
     ImGuiID centerMid = ImGui::DockBuilderSplitNode(centerTop, ImGuiDir_Down, 0.47f, nullptr, &centerTop);
-    ImGuiID explorer  = right;
+    
+    // Right Split (Explorer 38%, Properties 62%)
+    ImGuiID explorer = right;
     ImGuiID properties = ImGui::DockBuilderSplitNode(explorer, ImGuiDir_Down, 0.62f, nullptr, &explorer);
+
+    // AI Copilot dock fallback (hidden usually)
+    ImGuiID ai = ImGui::DockBuilderSplitNode(explorer, ImGuiDir_Right, 0.2f, nullptr, &explorer);
 
     ImGui::DockBuilderDockWindow("##LeftToolbar",   left);
     ImGui::DockBuilderDockWindow("Viewport",        centerTop);

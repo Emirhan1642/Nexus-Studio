@@ -17,7 +17,41 @@ void AssetBrowserPanel::initialize() {
 }
 
 void AssetBrowserPanel::draw() {
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
     ImGui::Begin("Asset Browser");
+
+    ImDrawList* drawList = ImGui::GetWindowDrawList();
+    ImVec2 p = ImGui::GetCursorScreenPos();
+    float width = ImGui::GetWindowWidth();
+
+    // Custom Header (Tabs)
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, NexusTheme::instance().panel);
+    ImGui::BeginChild("##AssetHeader", ImVec2(width, 28), false, ImGuiWindowFlags_NoScrollbar);
+    drawList->AddLine(ImVec2(p.x, p.y + 27), ImVec2(p.x + width, p.y + 27), ImGui::GetColorU32(NexusTheme::instance().border));
+    
+    // Tab 1
+    ImGui::PushStyleColor(ImGuiCol_Button, NexusTheme::instance().bg);
+    ImGui::PushStyleColor(ImGuiCol_Text, NexusTheme::instance().textPrimary);
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 0.0f);
+    ImGui::SetCursorPos(ImVec2(0, 0));
+    ImGui::Button(" v Content ", ImVec2(80, 28));
+    ImVec2 tabP = ImGui::GetItemRectMin();
+    drawList->AddLine(ImVec2(tabP.x, tabP.y), ImVec2(tabP.x + 80, tabP.y), ImGui::GetColorU32(NexusTheme::instance().accent), 2.0f);
+    ImGui::PopStyleColor(2);
+    
+    // Tab 2 & 3
+    ImGui::SameLine(0, 0);
+    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0,0,0,0));
+    ImGui::PushStyleColor(ImGuiCol_Text, NexusTheme::instance().textMuted);
+    ImGui::Button(" Output ", ImVec2(70, 28));
+    ImGui::SameLine(0, 0);
+    ImGui::Button(" Find Results ", ImVec2(100, 28));
+    ImGui::PopStyleColor(2);
+    
+    ImGui::PopStyleVar(); // FrameRounding
+    
+    ImGui::EndChild();
+    ImGui::PopStyleColor(); // ChildBg
 
     // Process background imports or pending renders
     Engine::Assets::AssetImportPipeline::instance().update();
@@ -81,6 +115,7 @@ void AssetBrowserPanel::draw() {
     }
 
     ImGui::End();
+    ImGui::PopStyleVar();
 }
 
 void AssetBrowserPanel::drawAssetGrid() {

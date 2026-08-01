@@ -4,6 +4,7 @@
 #include <imgui_internal.h>
 #include <widgets/gizmo.h>
 #include "NexusTheme.h"
+#include "IconRegistry.h"
 #include "SelectionManager.h"
 #include "../Undo/UndoStack.h"
 #include "Engine/Renderer/Renderer.h"
@@ -122,38 +123,88 @@ void ViewportPanel::draw(Engine::Renderer::Camera& camera) {
         // Viewport Overlay Toolbar (Top)
         ImVec2 tbMin = panelMin;
         ImVec2 tbMax = ImVec2(panelMax.x, panelMin.y + 28);
-        drawList->AddRectFilled(tbMin, tbMax, IM_COL32(14, 14, 14, 230));
+        drawList->AddRectFilled(tbMin, tbMax, ImGui::GetColorU32(NexusTheme::HexColorAlpha(0x0e0e0e, 0.9f)));
+        drawList->AddLine(ImVec2(tbMin.x, tbMax.y), ImVec2(tbMax.x, tbMax.y), ImGui::GetColorU32(NexusTheme::HexColorAlpha(0x242424, 0.6f)));
 
-        ImGui::SetCursorScreenPos(ImVec2(panelMin.x + 8, panelMin.y + 6));
-        ImGui::TextColored(NexusTheme::instance().textPrimary, "Perspective v"); ImGui::SameLine();
-        ImGui::TextColored(NexusTheme::instance().textPrimary, "Lit (PBR) v"); ImGui::SameLine();
-        ImGui::TextColored(NexusTheme::instance().textMuted, "World");
+        ImGui::SetCursorScreenPos(ImVec2(panelMin.x + 12, panelMin.y + 6));
+        
+        // Left side
+        ImGui::TextColored(NexusTheme::instance().accent, "Perspective v"); ImGui::SameLine(0, 8);
+        ImGui::TextColored(NexusTheme::instance().textMuted, "|"); ImGui::SameLine(0, 8);
+        ImGui::TextColored(NexusTheme::instance().textPrimary, "Lit (PBR) v"); ImGui::SameLine(0, 8);
+        ImGui::TextColored(NexusTheme::instance().textMuted, "|"); ImGui::SameLine(0, 8);
+        
+        ImGui::PushStyleColor(ImGuiCol_ChildBg, NexusTheme::instance().bg);
+        ImGui::PushStyleColor(ImGuiCol_Border, NexusTheme::instance().border);
+        ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 4.0f);
+        ImGui::BeginChild("##TransformSpace", ImVec2(90, 18), true, ImGuiWindowFlags_NoScrollbar);
+        ImGui::PushStyleColor(ImGuiCol_Button, NexusTheme::instance().accent);
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0,0,0,1));
+        ImGui::SetCursorPos(ImVec2(1,1));
+        ImGui::Button("World", ImVec2(40, 14));
+        ImGui::PopStyleColor(2);
+        ImGui::SameLine(0, 2);
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0,0,0,0));
+        ImGui::PushStyleColor(ImGuiCol_Text, NexusTheme::instance().textMuted);
+        ImGui::Button("Local", ImVec2(40, 14));
+        ImGui::PopStyleColor(2);
+        ImGui::EndChild();
+        ImGui::PopStyleVar();
+        ImGui::PopStyleColor(2);
 
-        ImGui::SetCursorScreenPos(ImVec2(panelMax.x - 200, panelMin.y + 6));
-        ImGui::TextColored(NexusTheme::instance().textMuted, "Cam: 4x v"); ImGui::SameLine();
-        ImGui::TextColored(NexusTheme::instance().textMuted, "[W]"); ImGui::SameLine();
-        ImGui::TextColored(NexusTheme::instance().textMuted, "[C]"); ImGui::SameLine();
-        ImGui::TextColored(NexusTheme::instance().accent, "FPS: 60.0");
+        // Right side (aligned to right)
+        float rightContentWidth = 220.0f;
+        ImGui::SameLine(availSize.x - rightContentWidth);
+        
+        ImGui::TextColored(NexusTheme::instance().textMuted, "Cam:"); ImGui::SameLine(0, 4);
+        
+        ImGui::PushStyleColor(ImGuiCol_ChildBg, NexusTheme::instance().bg);
+        ImGui::PushStyleColor(ImGuiCol_Border, NexusTheme::instance().border);
+        ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 4.0f);
+        ImGui::BeginChild("##CamSpeed", ImVec2(40, 18), true, ImGuiWindowFlags_NoScrollbar);
+        ImGui::SetCursorPos(ImVec2(6, 1));
+        ImGui::TextColored(NexusTheme::instance().textPrimary, "4x v");
+        ImGui::EndChild();
+        ImGui::PopStyleVar();
+        ImGui::PopStyleColor(2);
+        
+        ImGui::SameLine(0, 8);
+        ImGui::TextColored(NexusTheme::instance().textMuted, "|"); ImGui::SameLine(0, 8);
+        
+        ImTextureID wireTex = IconRegistry::instance().get("icon_wireframe");
+        ImTextureID boundsTex = IconRegistry::instance().get("icon_bounds");
+        
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0,0,0,0));
+        if (wireTex) ImGui::ImageButton("##wire", wireTex, ImVec2(14,14)); else ImGui::Button("W", ImVec2(16,16));
+        ImGui::SameLine(0, 4);
+        if (boundsTex) ImGui::ImageButton("##bnd", boundsTex, ImVec2(14,14)); else ImGui::Button("B", ImVec2(16,16));
+        ImGui::PopStyleColor();
+
+        ImGui::SameLine(0, 8);
+        ImGui::TextColored(NexusTheme::instance().textMuted, "|"); ImGui::SameLine(0, 8);
+        
+        ImVec2 dotPos = ImGui::GetCursorScreenPos();
+        drawList->AddCircleFilled(ImVec2(dotPos.x + 4, dotPos.y + 7), 3.0f, ImGui::GetColorU32(NexusTheme::instance().toggleOn));
+        ImGui::SameLine(0, 12);
+        
+        ImGui::TextColored(NexusTheme::instance().textMuted, "FPS:"); ImGui::SameLine(0, 4);
+        ImGui::TextColored(NexusTheme::instance().textPrimary, "60.0");
+
 
         // Orientation Cube (Top Right)
         ImVec2 cubePos = ImVec2(panelMax.x - 56, panelMin.y + 40);
-        drawList->AddRectFilled(cubePos, ImVec2(cubePos.x+44, cubePos.y+44), IM_COL32(14, 14, 14, 220), 6.0f);
-        drawList->AddRect(cubePos, ImVec2(cubePos.x+44, cubePos.y+44), IM_COL32(36, 36, 36, 255), 6.0f);
-        drawList->AddText(ImVec2(cubePos.x+10, cubePos.y+14), IM_COL32(255,255,255,255), "TOP");
+        drawList->AddRectFilled(cubePos, ImVec2(cubePos.x+44, cubePos.y+44), ImGui::GetColorU32(NexusTheme::HexColorAlpha(0x0e0e0e, 0.9f)), 8.0f);
+        drawList->AddRect(cubePos, ImVec2(cubePos.x+44, cubePos.y+44), ImGui::GetColorU32(NexusTheme::instance().border), 8.0f);
+        drawList->AddText(ImVec2(cubePos.x+10, cubePos.y+6), ImGui::GetColorU32(NexusTheme::instance().textMuted), "TOP");
+        drawList->AddText(ImVec2(cubePos.x+6, cubePos.y+18), ImGui::GetColorU32(NexusTheme::instance().textPrimary), "FRONT");
+        drawList->AddText(ImVec2(cubePos.x+6, cubePos.y+30), ImGui::GetColorU32(NexusTheme::instance().accent), "RIGHT");
 
         // Status strip (Bottom)
-        ImVec2 stMin = ImVec2(panelMin.x, panelMax.y - 24);
+        ImVec2 stMin = ImVec2(panelMin.x, panelMax.y - 20);
         ImVec2 stMax = panelMax;
-        drawList->AddRectFilled(stMin, stMax, IM_COL32(10, 10, 10, 220));
-        ImGui::SetCursorScreenPos(ImVec2(stMin.x + 8, stMin.y + 4));
-        auto selected = SelectionManager::instance().getSelected();
-        if (selected) {
-            ImGui::TextColored(NexusTheme::instance().accent, "Selected: %s", selected->name.c_str());
-        } else {
-            ImGui::TextDisabled("No Selection");
-        }
-        ImGui::SameLine(stMax.x - stMin.x - 140);
-        ImGui::TextDisabled("Frame Time: 16ms");
+        // drawList->AddRectFilled(stMin, stMax, ImGui::GetColorU32(NexusTheme::instance().panel)); // Keep transparent per HTML layout actually there is no bottom status strip in viewport in HTML, wait!
+        // HTML has: footer is globally at the bottom. Viewport does not have a bottom status bar in HTML.
+        // Let's remove the bottom status bar for Viewport.
     }
 
     ImGui::End();
