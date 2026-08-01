@@ -13,12 +13,12 @@ public:
 
 private:
     Engine::Renderer::ShaderGraph m_graph;
-    ImNodesContext* m_editorContext;
+    ImNodesContext* m_editorContext = nullptr;
 
     void drawNode(Engine::Renderer::ShaderNode& node);
     void handleContextMenu();
-    
-    // Will be moved to ShaderGraphCompiler soon
+    void addColorNode();
+    void addScalarNode(const char* label, float value);
     void compileGraph();
 };
 

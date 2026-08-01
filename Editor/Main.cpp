@@ -148,7 +148,8 @@ int main(int argc, char** argv) {
     Engine::Assets::AssetDatabase::instance().initialize("C:/Users/Emirhan/Desktop/Emirhan/Projects/Nexus Studio");
     Engine::Assets::AssetImportPipeline::instance().initialize();
     Engine::Assets::ThumbnailCache::instance().initialize();
-    Editor::UI::AssetBrowserPanel::instance().initialize();
+    Editor::UI::AssetBrowserPanel assetBrowser;
+    assetBrowser.initialize();
 
     // Create Panels
     std::cout << "[INIT] Create Panels" << std::endl;
@@ -305,7 +306,7 @@ int main(int argc, char** argv) {
         viewport.draw(camera);
         explorer.draw();
         properties.draw();
-        Editor::UI::AssetBrowserPanel::instance().draw();
+        assetBrowser.draw();
         
         static bool showMaterialEditor = true;
         materialEditor.draw(&showMaterialEditor);
