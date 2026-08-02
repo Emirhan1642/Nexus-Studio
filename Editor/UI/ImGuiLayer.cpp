@@ -26,29 +26,37 @@ void ImGuiLayer::init(GLFWwindow* window) {
     // 2. Renderer backend (ImGuiBackendFlags_RendererHasTextures set edilir)
     ImGui_ImplBgfx_Init(VIEW_ID_IMGUI);
 
-    // 3. Fontlari ekle (RendererHasTextures set edildikten SONRA)
+    // 3. Fontlari ekle
     std::string projectRoot = Engine::Assets::AssetDatabase::instance().getProjectRoot();
     std::string fontPath = projectRoot + "/Assets/Fonts/Inter-Regular.ttf";
+    std::string fontBoldPath = projectRoot + "/Assets/Fonts/Roboto-Medium.ttf";
     
-    if (!std::filesystem::exists(fontPath)) {
-        fontPath = "Assets/Fonts/Inter-Regular.ttf"; // CWD relative fallback
-    }
+    if (!std::filesystem::exists(fontPath)) fontPath = "Assets/Fonts/Inter-Regular.ttf";
+    if (!std::filesystem::exists(fontBoldPath)) fontBoldPath = "Assets/Fonts/Roboto-Medium.ttf";
 
     if (std::filesystem::exists(fontPath)) {
         ImFontConfig fontCfg;
         fontCfg.OversampleH = 3;
         fontCfg.OversampleV = 1;
         fontCfg.PixelSnapH = false;
-        printf("[ImGuiLayer] Loading Inter from: %s\n", fontPath.c_str());
-        ImFont* font = io.Fonts->AddFontFromFileTTF(fontPath.c_str(), 18.0f, &fontCfg);
-        if (font) {
-            io.FontDefault = font;
-            printf("[ImGuiLayer] SUCCESS: Inter loaded as default.\n");
+        
+        // Font 0: Default (14px)
+        io.Fonts->AddFontFromFileTTF(fontPath.c_str(), 14.0f, &fontCfg);
+        
+        // Font 1: Small (12px)
+        io.Fonts->AddFontFromFileTTF(fontPath.c_str(), 12.0f, &fontCfg);
+        
+        // Font 2: Tiny (10px)
+        io.Fonts->AddFontFromFileTTF(fontPath.c_str(), 10.0f, &fontCfg);
+        
+        // Font 3: Medium/Bold (12px)
+        if (std::filesystem::exists(fontBoldPath)) {
+            io.Fonts->AddFontFromFileTTF(fontBoldPath.c_str(), 12.0f, &fontCfg);
         } else {
-            printf("[ImGuiLayer] ERROR: AddFontFromFileTTF failed!\n");
+            io.Fonts->AddFontFromFileTTF(fontPath.c_str(), 12.0f, &fontCfg);
         }
-    } else {
-        printf("[ImGuiLayer] WARNING: Inter not found at '%s'. Using default.\n", fontPath.c_str());
+        
+        io.FontDefault = io.Fonts->Fonts[0];
     }
 
     // NOT: Build() cagirma - ImGui 1.92.6 RendererHasTextures ile otomatik halleder!

@@ -21,98 +21,101 @@ static ImU32 COLA(uint32_t hex, float a) {
 static int s_activeTab = 0; // 0=Explorer, 1=World, 2=History
 
 // ─── Sınıf → ikon/renk tablosu ─────────────────────────────────────────────
-struct ClassMeta { const char* iconKey; ImU32 barColor; const char* emojiFallback; };
+struct ClassMeta { const char* iconKey; const char* emojiFallback; ImU32 barColor; };
 
 static ClassMeta getClassMeta(const std::string& cls) {
-    if (cls == "Part"           ) return {"icon_mesh",      COLA(0x00d2ff, 1.0f), "🧊"}; // cyan
-    if (cls == "Script"         ) return {"icon_script",    COLA(0x2DD4BF, 1.0f), "📜"}; // teal
-    if (cls == "Camera"         ) return {"icon_camera",    COLA(0xF97316, 1.0f), "📹"}; // orange
-    if (cls == "DirectionalLight") return {"icon_light_dir", COLA(0xFACC15, 1.0f), "☀️"}; // yellow
-    if (cls == "ParticleSystem" ) return {"icon_particle",  COLA(0xFBBF24, 1.0f), "✨"}; // amber
-    if (cls == "Workspace"      ) return {"icon_world",     COLA(0x9CA3AF, 1.0f), "🌍"}; // grey
-    if (cls == "Folder"         ) return {"icon_folder",    COLA(0x6B7280, 1.0f), "📂"}; // grey
-    return                               {"icon_mesh",      COLA(0x6B7280, 1.0f), "📦"};
-}
-
-// ─── Küçük ikon çizici ──────────────────────────────────────────────────────
-static void DrawInlineIcon(ImDrawList* dl, const char* key, const char* fallback, ImVec2 pos, float size, ImU32 col) {
-    ImTextureID tex = IconRegistry::instance().get(key);
-    if (tex)
-        dl->AddImage(tex, pos, {pos.x+size, pos.y+size}, {0,0},{1,1}, col);
-    else
-        dl->AddText(pos, IM_COL32(255,255,255,255), fallback);
+    if (cls == "Workspace") return {"icon_world",    "🌍", COLA(0x9CA3AF, 1.0f)};
+    if (cls == "Part")      return {"icon_part",     "🧊", COLA(0x00d2ff, 1.0f)}; // Cyan
+    if (cls == "MeshPart")  return {"icon_mesh",     "📦", COLA(0xf59e0b, 1.0f)}; // Orange
+    if (cls == "Script")    return {"icon_script",   "📜", COLA(0x2dd4bf, 1.0f)}; // Teal
+    if (cls == "Camera")    return {"icon_camera",   "📹", COLA(0xf97316, 1.0f)}; // Orange Red
+    if (cls == "DirectionalLight") return {"icon_light","☀️", COLA(0xfacc15, 1.0f)}; // Yellow
+    if (cls == "Skybox")    return {"icon_sky",      "☁️", COLA(0x22d3ee, 1.0f)}; // Cyan 400
+    if (cls == "Model")     return {"icon_model",    "🏃", COLA(0x2dd4bf, 1.0f)}; // Teal 400
+    if (cls == "Bone")      return {"icon_bone",     "🦴", COLA(0x9ca3af, 1.0f)}; // Gray
+    if (cls == "Folder")    return {"icon_folder",   "📂", COLA(0x9ca3af, 1.0f)}; // Gray
+    if (cls == "ParticleSystem") return {"icon_fx",  "✨", COLA(0xfcd34d, 1.0f)}; // Amber 300
+    if (cls == "Lighting")  return {"icon_light2",   "💡", COLA(0x9ca3af, 1.0f)}; // Gray
+    if (cls == "ServerScriptService") return {"icon_svr","🛠️", COLA(0x9ca3af, 1.0f)};
+    if (cls == "SoundService") return {"icon_snd",   "🔊", COLA(0x9ca3af, 1.0f)};
+    if (cls == "Manager")   return {"icon_mgr",      "⚙️", COLA(0x3b82f6, 1.0f)}; // Blue 500
+    if (cls == "Item")      return {"icon_item",     "🔮", COLA(0xa855f7, 1.0f)}; // Purple 500
+    return {"icon_generic", "⚙️", COLA(0x6b7280, 1.0f)}; // Gray
 }
 
 void ExplorerPanel::draw() {
     auto& T = NexusTheme::instance();
-
+    
     ImGuiWindowClass window_class;
     window_class.DockNodeFlagsOverrideSet = ImGuiDockNodeFlags_NoTabBar;
     ImGui::SetNextWindowClass(&window_class);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
-    ImGui::Begin("Explorer");
+    ImGui::Begin("Explorer", nullptr, ImGuiWindowFlags_NoScrollbar);
 
-    ImDrawList* dl    = ImGui::GetWindowDrawList();
-    float       width = ImGui::GetWindowWidth();
+    float width = ImGui::GetWindowWidth();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
 
     // ─────────────────────────────────────────────────────────────────────────
-    // HEADER (h=28)
+    // HEADER TABS (h=28)
     // ─────────────────────────────────────────────────────────────────────────
     ImGui::PushStyleColor(ImGuiCol_ChildBg, T.panel);
     ImGui::BeginChild("##ExplHdr", ImVec2(width, 28), false, ImGuiWindowFlags_NoScrollbar);
     {
-        ImVec2 base = ImGui::GetCursorScreenPos();
-        // Bottom border
-        dl->AddLine(ImVec2(base.x, base.y + 27), ImVec2(base.x + width, base.y + 27), COL(T.border));
+        ImVec2 p = ImGui::GetCursorScreenPos();
+        dl->AddLine(ImVec2(p.x, p.y + 27), ImVec2(p.x + width, p.y + 27), COL(T.border));
 
-        // Tabs
-        struct TabDef { const char* label; const char* icon; float w; };
-        static const TabDef tabs[] = {
-            {" Explorer", "▼", 80.0f},
-            {" World", "🌍", 70.0f},
-            {" History", "🕒", 75.0f}
-        };
-
-        ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 0.0f);
-        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0,0));
-        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0,0));
+        struct Tab { const char* label; const char* icon; float w; };
+        Tab tabs[] = { {"Explorer", "▼", 85.0f}, {"World", "🌍", 65.0f}, {"History", "🕒", 75.0f} };
         
-        float cx = 0.0f;
-        for (int i = 0; i < 3; i++) {
-            bool active = (s_activeTab == i);
-            ImGui::SetCursorPos(ImVec2(cx, 0));
-            ImGui::PushStyleColor(ImGuiCol_Button, active ? COL(T.bg) : (ImU32)0);
-            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, COL(T.panelHover));
+        float cx = p.x;
+        
+        ImGuiIO& io = ImGui::GetIO();
+        if (io.Fonts->Fonts.Size > 3) ImGui::PushFont(io.Fonts->Fonts[3]); // Medium Font
+        
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0,0));
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0,0));
+        ImGui::PushStyleVar(ImGuiStyleVar_ButtonTextAlign, ImVec2(0,0));
+
+        for (int i=0; i<3; i++) {
+            bool active = (i == 0);
+            ImVec2 r(cx, p.y);
             
-            char id[32]; snprintf(id, sizeof(id), "##exptab%d", i);
-            if (ImGui::Button(id, ImVec2(tabs[i].w, 28))) s_activeTab = i;
+            ImGui::SetCursorScreenPos(r);
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0,0,0,0));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, T.panelHover);
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive, T.panelHover);
             
-            ImVec2 r = ImGui::GetItemRectMin();
-            ImU32 textCol = active ? COL(T.textPrimary) : COL(T.textMuted);
+            if (active) dl->AddRectFilled(r, ImVec2(r.x + tabs[i].w, r.y + 28), COL(T.bg));
+
+            ImGui::Button(tabs[i].label, ImVec2(tabs[i].w, 28));
+            if (ImGui::IsItemClicked()) { /* Switch tab logic */ }
+
+            ImU32 textCol = active ? IM_COL32_WHITE : COL(T.textMuted);
             char labelBuf[64]; snprintf(labelBuf, sizeof(labelBuf), "%s %s", tabs[i].icon, tabs[i].label);
             dl->AddText(ImVec2(r.x + 8, r.y + 6), textCol, labelBuf);
             
             if (active)
                 dl->AddLine(ImVec2(r.x, r.y+1), ImVec2(r.x+tabs[i].w, r.y+1), COL(T.accent), 2.0f);
             
-            ImGui::PopStyleColor(2);
+            ImGui::PopStyleColor(3);
             cx += tabs[i].w;
             ImGui::SameLine(0,0);
         }
         ImGui::PopStyleVar(3);
 
-        // Action buttons (+ and ...)
+        // Action buttons
         ImGui::SetCursorPos(ImVec2(width - 48, 2));
         ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0,0,0,0));
         ImGui::PushStyleColor(ImGuiCol_Text, T.textMuted);
         
         if (ImGui::Button("+", ImVec2(24, 24))) { ImGui::OpenPopup("ExplorerInsertPopup"); }
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Add");
         ImGui::SameLine(0, 0);
         if (ImGui::Button("•••", ImVec2(24, 24))) { }
         
         ImGui::PopStyleColor(2);
 
+        if (io.Fonts->Fonts.Size > 3) ImGui::PopFont();
+        
         if (ImGui::BeginPopup("ExplorerInsertPopup")) {
             drawInsertObjectMenu(DataModel::instance());
             ImGui::EndPopup();
@@ -126,18 +129,24 @@ void ExplorerPanel::draw() {
     // ─────────────────────────────────────────────────────────────────────────
     ImGui::PushStyleColor(ImGuiCol_ChildBg, T.panel);
     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0, 2));
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(4, 4));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(6, 6)); 
+    
+    ImGuiIO& io = ImGui::GetIO();
+    if (io.Fonts->Fonts.Size > 1) ImGui::PushFont(io.Fonts->Fonts[1]); // Small Font
     
     ImGui::BeginChild("##ExplBody", ImVec2(width, ImGui::GetContentRegionAvail().y), false, 0);
 
     static bool firstFrame = true;
     if (firstFrame) {
-        SelectionManager::instance().select(DataModel::instance());
         firstFrame = false;
     }
-    drawInstanceNode(DataModel::instance());
+    
+    for (auto& child : DataModel::instance()->getChildren()) {
+        drawInstanceNode(child);
+    }
 
     ImGui::EndChild();
+    if (io.Fonts->Fonts.Size > 1) ImGui::PopFont();
     ImGui::PopStyleVar(2);
     ImGui::PopStyleColor();
 
@@ -148,21 +157,19 @@ void ExplorerPanel::draw() {
 void ExplorerPanel::drawInstanceNode(const std::shared_ptr<Instance>& inst) {
     auto& T = NexusTheme::instance();
     bool isSelected   = (inst == SelectionManager::instance().getSelected());
-    bool isDataModel  = (inst == DataModel::instance());
     const auto& cls   = inst->getClassName();
     ClassMeta meta    = getClassMeta(cls);
     bool hasChildren  = !inst->getChildren().empty();
 
     static std::map<void*, bool> s_treeState;
-    if (isDataModel && s_treeState.find(inst.get()) == s_treeState.end()) {
-        s_treeState[inst.get()] = true; // Auto open root
+    if ((cls == "Workspace" || cls == "Model" || cls == "Folder") && s_treeState.find(inst.get()) == s_treeState.end()) {
+        s_treeState[inst.get()] = true; // Auto open main nodes
     }
     bool& open = s_treeState[inst.get()];
 
     ImVec2 pos = ImGui::GetCursorScreenPos();
     float width = ImGui::GetContentRegionAvail().x;
-    float rowHeight = 22.0f; // Taller rows to match HTML
-    float indent = ImGui::GetCursorPosX() - 4.0f; // Track actual indent level
+    float rowHeight = 24.0f; 
 
     // Row interaction
     ImGui::PushID(inst.get());
@@ -171,12 +178,11 @@ void ExplorerPanel::drawInstanceNode(const std::shared_ptr<Instance>& inst) {
     if (ImGui::IsItemClicked()) {
         SelectionManager::instance().select(inst);
     }
-    if (ImGui::IsItemClicked(1)) { // Right click
+    if (ImGui::IsItemClicked(1)) {
         SelectionManager::instance().select(inst);
         ImGui::OpenPopup("Context");
     }
     
-    // Toggle expand on double click or arrow click later
     if (hovered && ImGui::IsMouseDoubleClicked(0) && hasChildren) {
         open = !open;
     }
@@ -187,7 +193,6 @@ void ExplorerPanel::drawInstanceNode(const std::shared_ptr<Instance>& inst) {
 
     if (isSelected) {
         dl->AddRectFilled(rowMin, rowMax, COLA(0x00d2ff, 0.15f), 4.0f);
-        dl->AddRect(rowMin, rowMax, COLA(0x00d2ff, 0.40f), 4.0f);
     } else if (hovered) {
         dl->AddRectFilled(rowMin, rowMax, COL(T.panelHover), 4.0f);
     }
@@ -198,7 +203,6 @@ void ExplorerPanel::drawInstanceNode(const std::shared_ptr<Instance>& inst) {
     if (hasChildren) {
         const char* arrow = open ? "▼" : "▶";
         dl->AddText(ImVec2(cx, rowMin.y + 4.0f), isSelected ? COL(T.accent) : COL(T.textMuted), arrow);
-        // Toggle on arrow click
         if (hovered && ImGui::IsMouseClicked(0)) {
             if (ImGui::GetMousePos().x < cx + 16.0f) {
                 open = !open;
@@ -207,50 +211,50 @@ void ExplorerPanel::drawInstanceNode(const std::shared_ptr<Instance>& inst) {
     }
     cx += 16.0f;
 
-    // The little colored bar (w-1 h-3 rounded-full)
-    if (!isDataModel) {
-        dl->AddRectFilled(ImVec2(cx, rowMin.y + 6.0f), ImVec2(cx + 4.0f, rowMin.y + 16.0f), meta.barColor, 2.0f);
-        cx += 8.0f;
-    }
+    // The little colored bar
+    dl->AddRectFilled(ImVec2(cx, rowMin.y + 6.0f), ImVec2(cx + 4.0f, rowMin.y + 18.0f), meta.barColor, 2.0f);
+    cx += 8.0f;
 
-    DrawInlineIcon(dl, meta.iconKey, meta.emojiFallback, ImVec2(cx, rowMin.y + 5.0f), 14.0f, isSelected ? IM_COL32(255,255,255,220) : COL(T.textMuted));
-    cx += 20.0f;
+    // PNG Icon
+    ImTextureID iconTex = IconRegistry::instance().get(meta.iconKey);
+    if (iconTex) {
+        ImU32 iconCol = isSelected ? IM_COL32_WHITE : COL(T.textPrimary);
+        dl->AddImage(iconTex, ImVec2(cx, rowMin.y + 4.0f), ImVec2(cx + 16.0f, rowMin.y + 20.0f), ImVec2(0,0), ImVec2(1,1), iconCol);
+    }
+    cx += 24.0f;
 
     // Label
-    ImU32 textCol = isSelected ? COL(T.textPrimary) : (isDataModel ? COL(T.textPrimary) : COL(T.textMuted));
+    ImU32 textCol = isSelected ? IM_COL32_WHITE : COL(T.textMuted);
     dl->AddText(ImVec2(cx, rowMin.y + 4.0f), textCol, inst->name.c_str());
 
     // Right side badge if selected
-    if (isSelected && !isDataModel) {
-        ImVec2 size = ImGui::CalcTextSize(cls.c_str());
-        dl->AddRectFilled(ImVec2(rowMax.x - size.x - 16.0f, rowMin.y + 4.0f), 
+    if (isSelected) {
+        const char* clsTag = "PBR"; 
+        ImVec2 size = ImGui::CalcTextSize(clsTag);
+        dl->AddRectFilled(ImVec2(rowMax.x - size.x - 12.0f, rowMin.y + 4.0f), 
                           ImVec2(rowMax.x - 4.0f, rowMax.y - 4.0f), 
                           COLA(0x00d2ff, 0.2f), 4.0f);
-        dl->AddText(ImVec2(rowMax.x - size.x - 10.0f, rowMin.y + 4.0f), COL(T.accent), cls.c_str());
+        dl->AddText(ImVec2(rowMax.x - size.x - 8.0f, rowMin.y + 4.0f), COL(T.accent), clsTag);
     }
 
     if (ImGui::BeginPopup("Context")) {
         drawInsertObjectMenu(inst);
-        if (!isDataModel) {
-            ImGui::Separator();
-            if (ImGui::MenuItem("Rename"))   {}
-            if (ImGui::MenuItem("Duplicate")){}
-            ImGui::Separator();
-            if (ImGui::MenuItem("Delete")) {
-                inst->setParent(nullptr);
-                SelectionManager::instance().clear();
-            }
+        ImGui::Separator();
+        if (ImGui::MenuItem("Rename"))   {}
+        if (ImGui::MenuItem("Duplicate")){}
+        ImGui::Separator();
+        if (ImGui::MenuItem("Delete")) {
+            inst->setParent(nullptr);
+            SelectionManager::instance().clear();
         }
         ImGui::EndPopup();
     }
     ImGui::PopID();
 
     if (open && hasChildren) {
-        ImGui::Indent(14.0f);
+        ImGui::Indent(16.0f); 
         
-        // Draw vertical guide line for children
-        ImVec2 lineP1 = ImVec2(pos.x + 10.0f, pos.y + rowHeight);
-        float childrenHeightStart = ImGui::GetCursorScreenPos().y;
+        ImVec2 lineP1 = ImVec2(pos.x + 8.0f, pos.y + rowHeight);
         
         for (auto& child : inst->getChildren()) {
             drawInstanceNode(child);
