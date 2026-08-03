@@ -32,6 +32,7 @@ void TopBar::draw(bool isSimulating, bool& toggleSim) {
         ImGuiWindowFlags_NoMove     | ImGuiWindowFlags_NoScrollbar |
         ImGuiWindowFlags_NoDocking  | ImGuiWindowFlags_NoSavedSettings |
         ImGuiWindowFlags_NoScrollWithMouse);
+    ImGui::PopStyleColor();
 
     ImDrawList* dl   = ImGui::GetWindowDrawList();
     ImVec2      win  = ImGui::GetWindowPos();
@@ -173,6 +174,5 @@ void TopBar::draw(bool isSimulating, bool& toggleSim) {
     }
 
     ImGui::End();
-    ImGui::PopStyleColor();  // WindowBg
     ImGui::PopStyleVar(3);
 }

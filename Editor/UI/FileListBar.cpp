@@ -20,6 +20,7 @@ void FileListBar::draw() {
     
     ImGui::Begin("FileListBar", nullptr, 
                  ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoCollapse);
+    ImGui::PopStyleColor();
                  
     ImDrawList* dl = ImGui::GetWindowDrawList();
     ImVec2 win = ImGui::GetWindowPos();
@@ -95,6 +96,5 @@ void FileListBar::draw() {
     }
     
     ImGui::End();
-    ImGui::PopStyleColor();
     ImGui::PopStyleVar(2);
 }

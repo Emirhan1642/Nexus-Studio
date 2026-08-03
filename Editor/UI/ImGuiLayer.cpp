@@ -20,36 +20,30 @@ void ImGuiLayer::init(GLFWwindow* window) {
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
 
-    // ImGui 1.92.6: GLFW -> bgfx -> fontlar sirasi zorunlu
     // 1. Platform backend
     ImGui_ImplGlfw_InitForOther(window, true);
-    // 2. Renderer backend (ImGuiBackendFlags_RendererHasTextures set edilir)
-    ImGui_ImplBgfx_Init(VIEW_ID_IMGUI);
 
-    // 3. Fontlari ekle
-    std::string fontPath = "C:/Windows/Fonts/segoeui.ttf"; // Fallback to reliable system font
-    
+    // 2. Fontlari ekle (backend init'TEN ONCE! Backend init sirasinda atlas olusturuluyor)
+    std::string fontPath = "C:/Windows/Fonts/arial.ttf";
+
     if (std::filesystem::exists(fontPath)) {
         ImFontConfig fontCfg;
-        fontCfg.OversampleH = 2;
-        fontCfg.OversampleV = 2;
-        fontCfg.PixelSnapH = true;
-        
-        // Font 0: Default (14px)
+        fontCfg.FontDataOwnedByAtlas = true;
+
         io.Fonts->AddFontFromFileTTF(fontPath.c_str(), 14.0f, &fontCfg);
-        
-        // Font 1: Small (12px)
         io.Fonts->AddFontFromFileTTF(fontPath.c_str(), 12.0f, &fontCfg);
-        
-        // Font 2: Tiny (10px)
         io.Fonts->AddFontFromFileTTF(fontPath.c_str(), 10.0f, &fontCfg);
-        
+
         io.FontDefault = io.Fonts->Fonts[0];
     } else {
         io.Fonts->AddFontDefault();
     }
 
-    // NOT: Build() cagirma - ImGui 1.92.6 RendererHasTextures ile otomatik halleder!
+    // Atlasi tamamen derle (backend init sirasinda hazir olmali)
+    io.Fonts->Build();
+
+    // 3. Renderer backend (font atlas'i RGBA32 olarak GPU'ya yukler)
+    ImGui_ImplBgfx_Init(VIEW_ID_IMGUI);
 
     // 4. Tema uygula
     NexusTheme::instance().apply();

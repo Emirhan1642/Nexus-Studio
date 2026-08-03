@@ -103,9 +103,10 @@ void LeftToolbar::draw() {
     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,   ImVec2(0, 15)); // gap: 15px
     ImGui::PushStyleColor(ImGuiCol_WindowBg, T.bgPanel);
 
-    ImGui::Begin("##LeftToolbar", nullptr,
-        ImGuiWindowFlags_NoTitleBar  | ImGuiWindowFlags_NoScrollbar |
-        ImGuiWindowFlags_NoNav       | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoCollapse);
+    ImGui::Begin("##LeftToolbar", nullptr, 
+        ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
+        ImGuiWindowFlags_NoMove     | ImGuiWindowFlags_NoScrollbar);
+    ImGui::PopStyleColor();
 
     ImDrawList* dl   = ImGui::GetWindowDrawList();
     float       winW = ImGui::GetWindowWidth();
@@ -270,6 +271,5 @@ void LeftToolbar::draw() {
     }
 
     ImGui::End();
-    ImGui::PopStyleColor();
     ImGui::PopStyleVar(2);
 }

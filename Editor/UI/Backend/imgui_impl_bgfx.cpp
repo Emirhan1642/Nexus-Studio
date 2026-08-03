@@ -1,6 +1,6 @@
-// ImGui bgfx backend - ImGui 1.92+ uyumlu
-// ImGui 1.92, ImTextureData tabanli yeni bir texture sistemi kullaniyor.
-// Backend; WantCreate/WantUpdates/WantDestroy durumlarini NewFrame()'de islemeli.
+// ImGui bgfx backend
+// KLASIK YAKLASIM: RendererHasTextures kullanmadan, font atlas'i baslatmada
+// RGBA32 formatinda tek seferde yukluyoruz. Bu Debug ve Release'de ayni sekilde calisir.
 
 #include "imgui_impl_bgfx.h"
 #include <imgui.h>
@@ -22,10 +22,11 @@ static const bgfx::EmbeddedShader s_embeddedShaders[] =
 };
 
 struct ImGui_ImplBgfx_Data {
-    bgfx::VertexLayout  layout;
-    bgfx::ProgramHandle program = BGFX_INVALID_HANDLE;
-    bgfx::UniformHandle uniformTexture = BGFX_INVALID_HANDLE;
-    uint8_t viewId = 0;
+    bgfx::VertexLayout      layout;
+    bgfx::ProgramHandle     program         = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle     uniformTexture  = BGFX_INVALID_HANDLE;
+    bgfx::TextureHandle     fontTexture     = BGFX_INVALID_HANDLE;
+    uint8_t                 viewId          = 0;
 };
 
 static ImGui_ImplBgfx_Data* ImGui_ImplBgfx_GetBackendData() {
@@ -34,104 +35,49 @@ static ImGui_ImplBgfx_Data* ImGui_ImplBgfx_GetBackendData() {
         : nullptr;
 }
 
-// --- ImTextureData'dan bgfx texture handle'i al/ata ---
-static bgfx::TextureHandle GetOrCreateBgfxTexture(ImTextureData* tex) {
-    // BackendUserData'yi bgfx texture index'i olarak kullaniyoruz
-    // BGFX_INVALID_HANDLE.idx = 0xFFFF, bu yuzden NULL ile karismasini engelleyelim
-    if (tex->BackendUserData != nullptr) {
-        bgfx::TextureHandle h;
-        h.idx = (uint16_t)(uintptr_t)tex->BackendUserData;
-        return h;
-    }
-    return BGFX_INVALID_HANDLE;
-}
+// Font atlas'i RGBA32 formatinda GPU'ya yukle
+static bool CreateFontTexture() {
+    ImGui_ImplBgfx_Data* bd = ImGui_ImplBgfx_GetBackendData();
+    ImGuiIO& io = ImGui::GetIO();
 
-// --- Texture olustur / guncelle ---
-static void HandleTextureCreate(ImTextureData* tex) {
-    const bgfx::Memory* mem = bgfx::copy(tex->Pixels, tex->Width * tex->Height * tex->BytesPerPixel);
+    unsigned char* pixels;
+    int width, height;
+    // RGBA32 formatinda atlas al - tum GPU'larda desteklenir, hic harf kaybetmez
+    io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);
 
-    bgfx::TextureFormat::Enum fmt = (tex->Format == ImTextureFormat_Alpha8)
-        ? bgfx::TextureFormat::R8
-        : bgfx::TextureFormat::RGBA8;
+    const bgfx::Memory* mem = bgfx::copy(pixels, width * height * 4);
 
-    bgfx::TextureHandle handle = bgfx::createTexture2D(
-        (uint16_t)tex->Width, (uint16_t)tex->Height, false, 1,
-        fmt,
+    bd->fontTexture = bgfx::createTexture2D(
+        (uint16_t)width, (uint16_t)height, false, 1,
+        bgfx::TextureFormat::RGBA8,
         BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP,
         mem
     );
 
-    if (!bgfx::isValid(handle)) {
-        printf("[BgfxBackend] ERROR: Texture creation failed (UniqueID=%d)!\n", tex->UniqueID);
-        return;
+    if (!bgfx::isValid(bd->fontTexture)) {
+        printf("[BgfxBackend] ERROR: Font texture creation failed!\n");
+        return false;
     }
 
-    printf("[BgfxBackend] Created texture: UniqueID=%d, %dx%d, handle.idx=%d\n",
-        tex->UniqueID, tex->Width, tex->Height, (int)handle.idx);
+    printf("[BgfxBackend] Font texture created: %dx%d, RGBA8, handle.idx=%d\n",
+        width, height, (int)bd->fontTexture.idx);
 
-    // BackendUserData'ye handle.idx'i kaydet
-    tex->BackendUserData = (void*)(uintptr_t)handle.idx;
-    tex->SetTexID((ImTextureID)(uintptr_t)handle.idx);
-    tex->SetStatus(ImTextureStatus_OK);
-}
+    // TexID olarak handle index'i set et
+    io.Fonts->SetTexID((ImTextureID)(uintptr_t)bd->fontTexture.idx);
 
-static void HandleTextureUpdate(ImTextureData* tex) {
-    bgfx::TextureHandle handle = GetOrCreateBgfxTexture(tex);
-    if (!bgfx::isValid(handle)) {
-        // Henuz olustuyurulmamis, olustur
-        HandleTextureCreate(tex);
-        return;
-    }
-
-    // Guncelleme gerekiyor: texture'i yeniden yukle
-    const bgfx::Memory* mem = bgfx::copy(
-        tex->Pixels, tex->Width * tex->Height * tex->BytesPerPixel
-    );
-    bgfx::updateTexture2D(handle, 0, 0, 0, 0, (uint16_t)tex->Width, (uint16_t)tex->Height, mem);
-    tex->SetStatus(ImTextureStatus_OK);
-}
-
-static void HandleTextureDestroy(ImTextureData* tex) {
-    bgfx::TextureHandle handle = GetOrCreateBgfxTexture(tex);
-    if (bgfx::isValid(handle)) {
-        bgfx::destroy(handle);
-        printf("[BgfxBackend] Destroyed texture: UniqueID=%d, handle.idx=%d\n",
-            tex->UniqueID, (int)handle.idx);
-    }
-    tex->BackendUserData = nullptr;
-    tex->SetTexID(ImTextureID_Invalid);
-    tex->SetStatus(ImTextureStatus_Destroyed);
-}
-
-// --- NewFrame: ImGui'nin texture isteklerini isle ---
-static void ProcessTextureUpdates(ImDrawData* drawData) {
-    if (!drawData || !drawData->Textures) return;
-
-    // ImGui'nin texture update listesini tara (Render sirasinda)
-    for (ImTextureData* tex : *drawData->Textures) {
-        if (tex->Status == ImTextureStatus_WantCreate) {
-            HandleTextureCreate(tex);
-        } else if (tex->Status == ImTextureStatus_WantUpdates) {
-            HandleTextureUpdate(tex);
-        } else if (tex->Status == ImTextureStatus_WantDestroy) {
-            HandleTextureDestroy(tex);
-        }
-    }
-}
-
-// --- Render: texture handle'i dogru sekilde al ---
-static bgfx::TextureHandle GetRenderTexture(ImTextureID texID) {
-    bgfx::TextureHandle h;
-    h.idx = (uint16_t)(uintptr_t)texID;
-    return h;
+    return true;
 }
 
 bool ImGui_ImplBgfx_Init(uint8_t viewId) {
     ImGuiIO& io = ImGui::GetIO();
     io.BackendRendererName = "imgui_impl_bgfx";
-    // ImGui 1.92+ icin kritik flag'ler:
+
+    // SADECE VtxOffset destegi - RendererHasTextures YOK (lazy atlas istemiyoruz)
     io.BackendFlags |= ImGuiBackendFlags_RendererHasVtxOffset;
-    io.BackendFlags |= ImGuiBackendFlags_RendererHasTextures; // Yeni texture sistemini aktive eder
+    // NOT: ImGuiBackendFlags_RendererHasTextures kasıtlı olarak eklenmedi.
+    // Bu flag, ImGui'nin glyphleri lazy load etmesine neden olur.
+    // Lazy load + BGFX'in bir frame gecikmeli texture update sistemi,
+    // bazi harflerin (W, F, K, O vb.) kaybolmasina neden oluyordu.
 
     ImGui_ImplBgfx_Data* bd = new ImGui_ImplBgfx_Data();
     io.BackendRendererUserData = (void*)bd;
@@ -157,25 +103,24 @@ bool ImGui_ImplBgfx_Init(uint8_t viewId) {
 
     if (!bgfx::isValid(bd->program)) {
         printf("[BgfxBackend] ERROR: Shader program creation failed!\n");
-    } else {
-        printf("[BgfxBackend] Shader program created OK.\n");
+        return false;
     }
 
-    return bgfx::isValid(bd->program);
+    printf("[BgfxBackend] Shader program created OK.\n");
+
+    // Font atlas'i hemen olustur
+    if (!CreateFontTexture()) {
+        return false;
+    }
+
+    return true;
 }
 
 void ImGui_ImplBgfx_Shutdown() {
     ImGui_ImplBgfx_Data* bd = ImGui_ImplBgfx_GetBackendData();
     if (!bd) return;
 
-    // Tum texture'lari temizle
-    ImGuiPlatformIO& pio = ImGui::GetPlatformIO();
-    for (ImTextureData* tex : pio.Textures) {
-        if (tex->BackendUserData != nullptr) {
-            HandleTextureDestroy(tex);
-        }
-    }
-
+    if (bgfx::isValid(bd->fontTexture))    bgfx::destroy(bd->fontTexture);
     if (bgfx::isValid(bd->uniformTexture)) bgfx::destroy(bd->uniformTexture);
     if (bgfx::isValid(bd->program))        bgfx::destroy(bd->program);
 
@@ -184,16 +129,13 @@ void ImGui_ImplBgfx_Shutdown() {
 }
 
 void ImGui_ImplBgfx_NewFrame() {
-    // Texture guncellemeleri artik RenderDrawData() icinde yapiliyor.
+    // Klasik backend: her frame'de texture guncelleme yok.
+    // Font atlas baslangicta bir kez yuklendi, degismez.
 }
 
 void ImGui_ImplBgfx_RenderDrawData(ImDrawData* drawData) {
     ImGui_ImplBgfx_Data* bd = ImGui_ImplBgfx_GetBackendData();
     if (!bd) return;
-
-    // 1.92+ Texture yuklemelerini isliyoruz. BU ONEMLIDIR! 
-    // Yoksa komut islenirken GetTexID() assertion verir.
-    ProcessTextureUpdates(drawData);
 
     if (drawData->DisplaySize.x <= 0.0f || drawData->DisplaySize.y <= 0.0f)
         return;
@@ -245,12 +187,13 @@ void ImGui_ImplBgfx_RenderDrawData(ImDrawData* drawData) {
                 (uint16_t)(clipMax.x - clipMin.x), (uint16_t)(clipMax.y - clipMin.y)
             );
 
-            bgfx::TextureHandle tex = GetRenderTexture(cmd.GetTexID());
+            // cmd.GetTexID() -> icon texture veya font texture handle'i
+            bgfx::TextureHandle tex;
+            tex.idx = (uint16_t)(uintptr_t)cmd.GetTexID();
             bgfx::setTexture(0, bd->uniformTexture, tex);
             bgfx::setVertexBuffer(0, &tvb, cmd.VtxOffset, numVtx);
             bgfx::setIndexBuffer(&tib, idxOffset, cmd.ElemCount);
 
-            // ImGui icin dogru alpha blending: src_alpha / one_minus_src_alpha
             bgfx::setState(
                 BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A |
                 BGFX_STATE_BLEND_FUNC(BGFX_STATE_BLEND_SRC_ALPHA, BGFX_STATE_BLEND_INV_SRC_ALPHA)

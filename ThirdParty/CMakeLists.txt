@@ -58,6 +58,11 @@ set(ENABLE_SAMPLES OFF CACHE BOOL "" FORCE)
 set(USE_STATIC_MSVC_RUNTIME_LIBRARY OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(JoltPhysics)
 
+# JoltPhysics appends /fp:fast to CMAKE_CXX_FLAGS which leaks into subsequent targets.
+# /fp:fast breaks stb_truetype.h in ImGui on MSVC, causing missing letters (W, F, k, etc).
+# We must remove it here so it doesn't affect ImGui.
+string(REPLACE "/fp:fast" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
+
 # 6. nlohmann_json
 FetchContent_Declare(
     nlohmann_json
@@ -168,3 +173,15 @@ target_include_directories(dear_imgui PUBLIC
     ${imgui_SOURCE_DIR}/backends
 )
 target_link_libraries(dear_imgui PUBLIC glfw)
+
+if(MSVC)
+    # stb_truetype.h (kullanilan imgui_draw.cpp icinde) MSVC /O2 (Release)
+    # optimizasyonuyla bozuluyor: glyph koordinatlari yanlis hesaplaniyor,
+    # W/F/K/O gibi harfler kayboliyor. Debug (/Od) duzgun calisir.
+    # Cozum: Release'de /O2 yerine /O1 kullanmak (guvenli optimizasyon).
+    target_compile_options(dear_imgui PRIVATE
+        /fp:precise
+        $<$<CONFIG:Release>:/O1>
+        $<$<CONFIG:Release>:/Ob1>
+    )
+endif()

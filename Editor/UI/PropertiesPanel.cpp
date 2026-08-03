@@ -178,10 +178,14 @@ void PropertiesPanel::draw() {
     window_class.DockNodeFlagsOverrideSet = ImGuiDockNodeFlags_NoTabBar;
     ImGui::SetNextWindowClass(&window_class);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, T.bgPanel);
     ImGui::Begin("Properties", nullptr, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoTitleBar); 
+    ImGui::PopStyleColor(); // Pop WindowBg right after Begin
 
-    ImDrawList* dl    = ImGui::GetWindowDrawList();
-    float       width = ImGui::GetWindowWidth();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    ImVec2 winPos = ImGui::GetWindowPos();
+    float width = ImGui::GetWindowWidth();
+    float height = ImGui::GetWindowHeight();
     
     auto selected = SelectionManager::instance().getSelected();
 
@@ -192,14 +196,15 @@ void PropertiesPanel::draw() {
     
     ImGui::BeginChild("##PropHdr", ImVec2(width, 30), false, ImGuiWindowFlags_NoScrollbar);
     {
+        ImDrawList* child_dl = ImGui::GetWindowDrawList(); // FIX: Use child's drawlist
         ImVec2 base = ImGui::GetCursorScreenPos();
         
         float cx = base.x + 8.0f;
         ImTextureID iconSettings = IconRegistry::instance().get("icon_properties");
-        if (iconSettings) dl->AddImage(iconSettings, ImVec2(cx, base.y + 7.0f), ImVec2(cx + 16.0f, base.y + 23.0f));
+        if (iconSettings) child_dl->AddImage(iconSettings, ImVec2(cx, base.y + 7.0f), ImVec2(cx + 16.0f, base.y + 23.0f));
         cx += 24.0f;
         
-        dl->AddText(ImVec2(cx, base.y + 8.0f), IM_COL32_WHITE, "Properties");
+        child_dl->AddText(ImVec2(cx, base.y + 8.0f), IM_COL32_WHITE, "Properties");
         
         // Sağ taraftaki obje bilgisi
         float rx = base.x + width - 8.0f;
@@ -210,11 +215,11 @@ void PropertiesPanel::draw() {
             
             ImVec2 nameSize = ImGui::CalcTextSize(name);
             rx -= nameSize.x;
-            dl->AddText(ImVec2(rx, base.y + 8.0f), IM_COL32_WHITE, name);
+            child_dl->AddText(ImVec2(rx, base.y + 8.0f), IM_COL32_WHITE, name);
             
             rx -= 20.0f;
             ImTextureID objIcon = IconRegistry::instance().get("icon_part"); // Örnek
-            if (objIcon) dl->AddImage(objIcon, ImVec2(rx, base.y + 7.0f), ImVec2(rx + 16.0f, base.y + 23.0f));
+            if (objIcon) child_dl->AddImage(objIcon, ImVec2(rx, base.y + 7.0f), ImVec2(rx + 16.0f, base.y + 23.0f));
         }
     }
     ImGui::EndChild();

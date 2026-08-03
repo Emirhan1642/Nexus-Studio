@@ -26,6 +26,7 @@ void BottomBar::draw(float deltaTime) {
     ImGui::PushStyleColor(ImGuiCol_WindowBg, T.bgPanel);
     
     ImGui::Begin("BottomBar", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoDocking);
+    ImGui::PopStyleColor();
     
     ImDrawList* dl = ImGui::GetWindowDrawList();
     ImVec2 p = ImGui::GetWindowPos();
@@ -80,6 +81,5 @@ void BottomBar::draw(float deltaTime) {
     drawItem("icon_info", "Info:", "26", COL(T.accent));
     
     ImGui::End();
-    ImGui::PopStyleColor();
     ImGui::PopStyleVar();
 }
