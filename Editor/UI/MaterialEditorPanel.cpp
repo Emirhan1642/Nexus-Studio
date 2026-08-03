@@ -7,6 +7,8 @@
 #include <iostream>
 #include "IconRegistry.h"
 #include "NexusTheme.h"
+#include "SelectionManager.h"
+#include "../../Engine/Core/DataModel/Part.h"
 
 // ─── Renk kısayolları ───────────────────────────────────────────────────────
 static ImU32 COL(const ImVec4& v) { return ImGui::ColorConvertFloat4ToU32(v); }
@@ -371,7 +373,6 @@ void MaterialEditorPanel::addScalarNode(const char* label, float value) {
     m_graph.nodes.push_back(node);
 }
 
-// ─── Shader derleme ──────────────────────────────────────────────────────────
 void MaterialEditorPanel::compileGraph() {
     std::cout << "[MaterialEditor] Compiling shader graph...\n";
     Engine::Renderer::ShaderGraphCompiler compiler;
@@ -379,7 +380,20 @@ void MaterialEditorPanel::compileGraph() {
     if (compiler.compileGraph(&m_graph, newProgramHandle)) {
         std::cout << "[MaterialEditor] Compiled OK.\n";
         bgfx::ProgramHandle h = {newProgramHandle};
-        Engine::Renderer::RendererSystem::instance().setOverrideMaterial(h);
+
+        // Eğer seçili bir nesne varsa ve bu bir Part ise, sadece ona uygula
+        auto selected = SelectionManager::instance().getSelected();
+        if (selected && selected->getClassName() == "Part") {
+            auto part = std::dynamic_pointer_cast<Part>(selected);
+            if (part) {
+                part->setCustomShader(newProgramHandle);
+                std::cout << "[MaterialEditor] Applied shader to selected Part: " << part->name << "\n";
+            }
+        } else {
+            // Varsayılan olarak tüm sahneyi override et
+            Engine::Renderer::RendererSystem::instance().setOverrideMaterial(h);
+            std::cout << "[MaterialEditor] Applied override shader to entire scene.\n";
+        }
     } else {
         std::cerr << "[MaterialEditor] Compile FAILED.\n";
     }

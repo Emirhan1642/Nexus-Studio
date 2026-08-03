@@ -8,6 +8,7 @@ set(EDITOR_SOURCES
     UI/NexusTheme.cpp
     UI/IconRegistry.cpp
     UI/TopBar.cpp
+    UI/FileListBar.cpp
     UI/LeftToolbar.cpp
     UI/ViewportPanel.cpp
     UI/ExplorerPanel.cpp
@@ -16,6 +17,7 @@ set(EDITOR_SOURCES
     UI/AssetBrowserPanel.cpp
     UI/MaterialEditorPanel.cpp
     UI/AICopilotPanel.cpp
+    UI/BottomBar.cpp
     UI/EditorLayout.cpp
     Undo/UndoStack.cpp
 )
@@ -36,6 +38,7 @@ target_include_directories(NexusStudioEditor PRIVATE
     ${CMAKE_BINARY_DIR}/_deps/imnodes-src
     ${CMAKE_BINARY_DIR}/_deps/bgfx-src/bimg/3rdparty/stb
     ${CMAKE_BINARY_DIR}/_deps/bgfx-src/bgfx/3rdparty/dear-imgui
+    ${CMAKE_CURRENT_SOURCE_DIR}/../ThirdParty/httplib
 )
 
 # Link dependencies
@@ -54,5 +57,9 @@ target_link_libraries(NexusStudioEditor PRIVATE
     bimg
     bx
 )
+
+if (WIN32)
+    target_link_libraries(NexusStudioEditor PRIVATE ws2_32 crypt32)
+endif()
 
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${EDITOR_SOURCES})

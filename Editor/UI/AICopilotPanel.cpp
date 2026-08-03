@@ -11,6 +11,12 @@
 #include <chrono>
 #include <ctime>
 
+#include <thread>
+#include <mutex>
+#include <atomic>
+#include <nlohmann/json.hpp>
+#include <stdio.h>
+
 // ─── Renk kısayolları ───────────────────────────────────────────────────────
 static ImU32 COL(const ImVec4& v) { return ImGui::ColorConvertFloat4ToU32(v); }
 static ImU32 COLA(uint32_t hex, float a) {
@@ -22,19 +28,80 @@ struct ChatMessage {
     bool   isUser;
     std::string text;
     std::string timeLabel;
-    bool   isMcpResponse; // Özel MCP formatı?
+    bool   isMcpResponse; 
 };
 
 static std::vector<ChatMessage> s_messages = {
-    // HTML'deki başlangıç mesajları
-    {true,  "Optimize roughness for realistic brushed gold.", "Emirhan • 12:44", false},
-    {false, "I adjusted Roughness to 0.18 and injected micro-surface Anisotropy "
-            "into the PBR graph.\n\n+ Roughness = 0.18\n+ Metallic  = 0.92",
-            "Nexus AI • Just now", true},
+    {false, "Hi Emirhan! I am Nexus Assistant. How can I help you build your world today?", "Nexus AI • Just now", false},
 };
 
 static char  s_inputBuf[512] = "";
-static float s_mcpPulse = 0.0f; // animasyon için
+static float s_mcpPulse = 0.0f; 
+static std::mutex s_chatMutex;
+static std::atomic<bool> s_isWaitingForAI{false};
+
+// Basit _popen wrapper
+static std::string execCmd(const char* cmd) {
+    std::array<char, 128> buffer;
+    std::string result;
+    std::unique_ptr<FILE, decltype(&_pclose)> pipe(_popen(cmd, "r"), _pclose);
+    if (!pipe) return "Error running curl";
+    while (fgets(buffer.data(), buffer.size(), pipe.get()) != nullptr) {
+        result += buffer.data();
+    }
+    return result;
+}
+
+static void fetchAIResponse(std::string prompt) {
+    s_isWaitingForAI = true;
+    
+    // Basic JSON escape
+    std::string escapedPrompt;
+    for (char c : prompt) {
+        if (c == '"') escapedPrompt += "\\\"";
+        else if (c == '\\') escapedPrompt += "\\\\";
+        else if (c == '\n') escapedPrompt += "\\n";
+        else escapedPrompt += c;
+    }
+
+    std::string apiKey = ""; 
+    if (const char* env_p = std::getenv("OPENROUTER_API_KEY")) {
+        apiKey = env_p;
+    }
+    
+    // Fallback cevap API key yoksa
+    std::string responseText = "I received your message: '" + prompt + "'. (API Key not set for OpenRouter)";
+
+    if (!apiKey.empty()) {
+        std::string cmd = "curl.exe -s -X POST https://openrouter.ai/api/v1/chat/completions ";
+        cmd += "-H \"Authorization: Bearer " + apiKey + "\" ";
+        cmd += "-H \"Content-Type: application/json\" ";
+        cmd += "-d \"{\\\"model\\\": \\\"openai/gpt-3.5-turbo\\\", \\\"messages\\\": [{\\\"role\\\": \\\"user\\\", \\\"content\\\": \\\"" + escapedPrompt + "\\\"}]}\"";
+        
+        std::string rawJson = execCmd(cmd.c_str());
+        try {
+            auto j = nlohmann::json::parse(rawJson);
+            if (j.contains("choices") && j["choices"].size() > 0) {
+                responseText = j["choices"][0]["message"]["content"].get<std::string>();
+            } else {
+                responseText = "API Error: " + rawJson;
+            }
+        } catch(...) {
+            responseText = "Failed to parse API response.";
+        }
+    } else {
+        // Yapay gecikme (Mock)
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+    }
+
+    auto now = std::time(nullptr);
+    char timeBuf[32];
+    std::strftime(timeBuf, sizeof(timeBuf), "Nexus AI • %H:%M", std::localtime(&now));
+
+    std::lock_guard<std::mutex> lock(s_chatMutex);
+    s_messages.push_back({false, responseText, timeBuf, false});
+    s_isWaitingForAI = false;
+}
 
 void AICopilotPanel::draw() {
     if (!EditorLayout::instance().showAICopilot) return;
@@ -129,130 +196,133 @@ void AICopilotPanel::draw() {
     ImGui::BeginChild("##ChatHistory", ImVec2(width, chatH), false, 0);
     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(6, 10));
 
-    for (auto& msg : s_messages) {
-        float contentW = width - 20.0f;
-        float maxBubbleW = contentW * 0.90f;
+    {
+        std::lock_guard<std::mutex> lock(s_chatMutex);
+        for (auto& msg : s_messages) {
+            float contentW = width - 20.0f;
+            float maxBubbleW = contentW * 0.90f;
 
-        if (msg.isUser) {
-            // ── Kullanıcı balonu: sağa hizalı ────────────────────────────────
-            // HTML: bg-studio-panelHover border border-studio-border rounded-lg
-            //       rounded-tr-none, sağda
-            float tw    = ImGui::CalcTextSize(msg.text.c_str(), nullptr, false, maxBubbleW).x;
-            float th    = ImGui::CalcTextSize(msg.text.c_str(), nullptr, false, maxBubbleW).y;
-            float bubW  = std::min(tw + 20.0f, maxBubbleW);
-            float bubH  = th + 14.0f;
+            if (msg.isUser) {
+                // ── Kullanıcı balonu: sağa hizalı ────────────────────────────────
+                // HTML: bg-studio-panelHover border border-studio-border rounded-lg
+                //       rounded-tr-none, sağda
+                float tw    = ImGui::CalcTextSize(msg.text.c_str(), nullptr, false, maxBubbleW).x;
+                float th    = ImGui::CalcTextSize(msg.text.c_str(), nullptr, false, maxBubbleW).y;
+                float bubW  = std::min(tw + 20.0f, maxBubbleW);
+                float bubH  = th + 14.0f;
 
-            float bx = width - bubW - 10.0f;
-            ImVec2 p  = ImGui::GetCursorScreenPos();
-            p.x += bx;
+                float bx = width - bubW - 10.0f;
+                ImVec2 p  = ImGui::GetCursorScreenPos();
+                p.x += bx;
 
-            dl->AddRectFilled(p,{p.x+bubW,p.y+bubH}, COL(T.panelHover), 8.0f);
-            // Sağ üst köşe: rounded-tr-none (köşe düzleştirme)
-            dl->AddRectFilled({p.x+bubW-8,p.y},{p.x+bubW,p.y+8},COL(T.panelHover));
-            dl->AddRect(p,{p.x+bubW,p.y+bubH}, COL(T.border), 8.0f);
+                dl->AddRectFilled(p,{p.x+bubW,p.y+bubH}, COL(T.panelHover), 8.0f);
+                // Sağ üst köşe: rounded-tr-none (köşe düzleştirme)
+                dl->AddRectFilled({p.x+bubW-8,p.y},{p.x+bubW,p.y+8},COL(T.panelHover));
+                dl->AddRect(p,{p.x+bubW,p.y+bubH}, COL(T.border), 8.0f);
 
-            // Metin
-            ImGui::SetCursorScreenPos({p.x+10, p.y+7});
-            ImGui::PushTextWrapPos(p.x + bubW - 10);
-            ImGui::TextColored(T.textPrimary, "%s", msg.text.c_str());
-            ImGui::PopTextWrapPos();
+                // Metin
+                ImGui::SetCursorScreenPos({p.x+10, p.y+7});
+                ImGui::PushTextWrapPos(p.x + bubW - 10);
+                ImGui::TextColored(T.textPrimary, "%s", msg.text.c_str());
+                ImGui::PopTextWrapPos();
 
-            // Zaman damgası
-            ImGui::Dummy(ImVec2(0, bubH - (ImGui::GetCursorScreenPos().y - p.y)));
-            float tw2 = ImGui::CalcTextSize(msg.timeLabel.c_str()).x;
-            ImGui::SetCursorPosX(width - tw2 - 10);
-            ImGui::TextColored(T.textMuted, "%s", msg.timeLabel.c_str());
+                // Zaman damgası
+                ImGui::Dummy(ImVec2(0, bubH - (ImGui::GetCursorScreenPos().y - p.y)));
+                float tw2 = ImGui::CalcTextSize(msg.timeLabel.c_str()).x;
+                ImGui::SetCursorPosX(width - tw2 - 10);
+                ImGui::TextColored(T.textMuted, "%s", msg.timeLabel.c_str());
 
-        } else if (!msg.isMcpResponse) {
-            // ── Normal AI balonu: sola hizalı ────────────────────────────────
-            ImVec2 p = ImGui::GetCursorScreenPos();
-            p.x += 10;
-            float th   = ImGui::CalcTextSize(msg.text.c_str(),nullptr,false,maxBubbleW).y;
-            float bubH = th + 14.0f;
-            float bubW = maxBubbleW;
+            } else if (!msg.isMcpResponse) {
+                // ── Normal AI balonu: sola hizalı ────────────────────────────────
+                ImVec2 p = ImGui::GetCursorScreenPos();
+                p.x += 10;
+                float th   = ImGui::CalcTextSize(msg.text.c_str(),nullptr,false,maxBubbleW).y;
+                float bubH = th + 14.0f;
+                float bubW = maxBubbleW;
 
-            dl->AddRectFilled(p,{p.x+bubW,p.y+bubH}, COL(T.panel), 8.0f);
-            dl->AddRect(p,{p.x+bubW,p.y+bubH}, COLA(0x00d2ff,0.40f), 8.0f);
+                dl->AddRectFilled(p,{p.x+bubW,p.y+bubH}, COL(T.panel), 8.0f);
+                dl->AddRect(p,{p.x+bubW,p.y+bubH}, COLA(0x00d2ff,0.40f), 8.0f);
 
-            ImGui::SetCursorScreenPos({p.x+10,p.y+7});
-            ImGui::PushTextWrapPos(p.x+bubW-10);
-            ImGui::TextColored(T.textPrimary, "%s", msg.text.c_str());
-            ImGui::PopTextWrapPos();
-            ImGui::Dummy(ImVec2(0, bubH - (ImGui::GetCursorScreenPos().y-p.y)));
-            ImGui::TextColored(T.textMuted, "  %s", msg.timeLabel.c_str());
+                ImGui::SetCursorScreenPos({p.x+10,p.y+7});
+                ImGui::PushTextWrapPos(p.x+bubW-10);
+                ImGui::TextColored(T.textPrimary, "%s", msg.text.c_str());
+                ImGui::PopTextWrapPos();
+                ImGui::Dummy(ImVec2(0, bubH - (ImGui::GetCursorScreenPos().y-p.y)));
+                ImGui::TextColored(T.textMuted, "  %s", msg.timeLabel.c_str());
 
-        } else {
-            // ── MCP Response balonu (HTML'deki özel kart) ─────────────────────
-            // HTML: bg-studio-panel border border-studio-accent/40
-            //       shadow-[0_0_15px_rgba(0,210,255,0.1)]
-            //       header: "⚡ MCP MATERIAL SOLVER"
-            //       code block: bg-studio-bg rounded
-            //       Apply butonu
+            } else {
+                // ── MCP Response balonu (HTML'deki özel kart) ─────────────────────
+                // HTML: bg-studio-panel border border-studio-accent/40
+                //       shadow-[0_0_15px_rgba(0,210,255,0.1)]
+                //       header: "⚡ MCP MATERIAL SOLVER"
+                //       code block: bg-studio-bg rounded
+                //       Apply butonu
 
-            ImVec2 p   = ImGui::GetCursorScreenPos();
-            p.x += 8;
-            float bubW = width - 18.0f;
+                ImVec2 p   = ImGui::GetCursorScreenPos();
+                p.x += 8;
+                float bubW = width - 18.0f;
 
-            // Glow arka plan
-            dl->AddRectFilled(
-                {p.x-3,p.y-3},{p.x+bubW+3,p.y+140},
-                COLA(0x00d2ff,0.06f), 10.0f);
+                // Glow arka plan
+                dl->AddRectFilled(
+                    {p.x-3,p.y-3},{p.x+bubW+3,p.y+140},
+                    COLA(0x00d2ff,0.06f), 10.0f);
 
-            // Kart
-            dl->AddRectFilled(p,{p.x+bubW,p.y+138}, COL(T.panel), 8.0f);
-            dl->AddRect(p,{p.x+bubW,p.y+138}, COLA(0x00d2ff,0.40f), 8.0f);
+                // Kart
+                dl->AddRectFilled(p,{p.x+bubW,p.y+138}, COL(T.panel), 8.0f);
+                dl->AddRect(p,{p.x+bubW,p.y+138}, COLA(0x00d2ff,0.40f), 8.0f);
 
-            // Header şerit: "⚡ MCP MATERIAL SOLVER" (accent, bold)
-            dl->AddLine({p.x+1,p.y+24},{p.x+bubW-1,p.y+24}, COLA(0x242424,0.6f));
-            dl->AddText({p.x+8,p.y+6}, COL(T.accent), "\xe2\x9a\xa1 MCP MATERIAL SOLVER");
-            const char* matName = "PBR_Gold.mat";
-            float mw = ImGui::CalcTextSize(matName).x;
-            dl->AddText({p.x+bubW-mw-8,p.y+6}, COL(T.accent), matName);
+                // Header şerit: "⚡ MCP MATERIAL SOLVER" (accent, bold)
+                dl->AddLine({p.x+1,p.y+24},{p.x+bubW-1,p.y+24}, COLA(0x242424,0.6f));
+                dl->AddText({p.x+8,p.y+6}, COL(T.accent), "\xe2\x9a\xa1 MCP MATERIAL SOLVER");
+                const char* matName = "PBR_Gold.mat";
+                float mw = ImGui::CalcTextSize(matName).x;
+                dl->AddText({p.x+bubW-mw-8,p.y+6}, COL(T.accent), matName);
 
-            // Metin paragraf
-            ImGui::SetCursorScreenPos({p.x+10, p.y+30});
-            ImGui::PushTextWrapPos(p.x+bubW-10);
-            // HTML: "I adjusted Roughness to 0.18..."
-            // Roughness kısmı beyaz/bold olacak şekilde
-            ImGui::TextColored(T.textMuted, "I adjusted ");
-            ImGui::SameLine(0,0);
-            ImGui::TextColored(T.textPrimary, "Roughness to 0.18");
-            ImGui::SameLine(0,0);
-            ImGui::TextColored(T.textMuted, " and injected micro-surface");
-            ImGui::SetCursorScreenPos({p.x+10, ImGui::GetCursorScreenPos().y});
-            ImGui::TextColored(T.textMuted, "Anisotropy into the PBR graph.");
-            ImGui::PopTextWrapPos();
+                // Metin paragraf
+                ImGui::SetCursorScreenPos({p.x+10, p.y+30});
+                ImGui::PushTextWrapPos(p.x+bubW-10);
+                // HTML: "I adjusted Roughness to 0.18..."
+                // Roughness kısmı beyaz/bold olacak şekilde
+                ImGui::TextColored(T.textMuted, "I adjusted ");
+                ImGui::SameLine(0,0);
+                ImGui::TextColored(T.textPrimary, "Roughness to 0.18");
+                ImGui::SameLine(0,0);
+                ImGui::TextColored(T.textMuted, " and injected micro-surface");
+                ImGui::SetCursorScreenPos({p.x+10, ImGui::GetCursorScreenPos().y});
+                ImGui::TextColored(T.textMuted, "Anisotropy into the PBR graph.");
+                ImGui::PopTextWrapPos();
 
-            // Code block (HTML: bg-studio-bg rounded font-mono text-green-400)
-            ImVec2 codeP = {p.x+10, ImGui::GetCursorScreenPos().y + 4};
-            float  codeW = bubW - 20.0f, codeH = 30.0f;
-            dl->AddRectFilled(codeP,{codeP.x+codeW,codeP.y+codeH},
-                              COL(T.bg), 4.0f);
-            dl->AddRect(codeP,{codeP.x+codeW,codeP.y+codeH},
-                        COL(T.border), 4.0f);
-            dl->AddText({codeP.x+8,codeP.y+4},  COLA(0x4ADE80,1.0f), "+ Roughness = 0.18");
-            dl->AddText({codeP.x+8,codeP.y+16}, COLA(0x4ADE80,1.0f), "+ Metallic  = 0.92");
+                // Code block (HTML: bg-studio-bg rounded font-mono text-green-400)
+                ImVec2 codeP = {p.x+10, ImGui::GetCursorScreenPos().y + 4};
+                float  codeW = bubW - 20.0f, codeH = 30.0f;
+                dl->AddRectFilled(codeP,{codeP.x+codeW,codeP.y+codeH},
+                                  COL(T.bg), 4.0f);
+                dl->AddRect(codeP,{codeP.x+codeW,codeP.y+codeH},
+                            COL(T.border), 4.0f);
+                dl->AddText({codeP.x+8,codeP.y+4},  COLA(0x4ADE80,1.0f), "+ Roughness = 0.18");
+                dl->AddText({codeP.x+8,codeP.y+16}, COLA(0x4ADE80,1.0f), "+ Metallic  = 0.92");
 
-            // Apply butonu (HTML: w-full bg-studio-accent text-black font-bold)
-            ImVec2 btnP = {p.x+10, codeP.y+codeH+6};
-            float  btnW = bubW-20.0f, btnH = 24.0f;
+                // Apply butonu (HTML: w-full bg-studio-accent text-black font-bold)
+                ImVec2 btnP = {p.x+10, codeP.y+codeH+6};
+                float  btnW = bubW-20.0f, btnH = 24.0f;
 
-            ImGui::SetCursorScreenPos(btnP);
-            ImGui::PushStyleColor(ImGuiCol_Button,        COL(T.accent));
-            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(T.accent.x*0.9f,T.accent.y*0.9f,T.accent.z*0.9f,1));
-            ImGui::PushStyleColor(ImGuiCol_Text,          ImVec4(0,0,0,1));
-            ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 4.0f);
-            if (ImGui::Button("Apply Changes to Node Graph", ImVec2(btnW, btnH))) {
-                // TODO: Shader graph'a değerleri ilet
+                ImGui::SetCursorScreenPos(btnP);
+                ImGui::PushStyleColor(ImGuiCol_Button,        COL(T.accent));
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(T.accent.x*0.9f,T.accent.y*0.9f,T.accent.z*0.9f,1));
+                ImGui::PushStyleColor(ImGuiCol_Text,          ImVec4(0,0,0,1));
+                ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 4.0f);
+                if (ImGui::Button("Apply Changes to Node Graph", ImVec2(btnW, btnH))) {
+                    // TODO: Shader graph'a değerleri ilet
+                }
+                ImGui::PopStyleVar();
+                ImGui::PopStyleColor(3);
+
+                ImGui::Dummy(ImVec2(0, btnP.y + btnH - ImGui::GetCursorScreenPos().y + 4));
+                ImGui::SetCursorPosX(10);
+                ImGui::TextColored(T.textMuted, "  %s", msg.timeLabel.c_str());
             }
-            ImGui::PopStyleVar();
-            ImGui::PopStyleColor(3);
-
-            ImGui::Dummy(ImVec2(0, btnP.y + btnH - ImGui::GetCursorScreenPos().y + 4));
-            ImGui::SetCursorPosX(10);
-            ImGui::TextColored(T.textMuted, "  %s", msg.timeLabel.c_str());
+            ImGui::Dummy(ImVec2(0, 4)); // space-y-3 arası
         }
-        ImGui::Dummy(ImVec2(0, 4)); // space-y-3 arası
     }
 
     // Otomatik scroll to bottom (yeni mesaj gelince)
@@ -310,15 +380,21 @@ void AICopilotPanel::draw() {
         ImGui::PopStyleVar(2);
         ImGui::PopStyleColor(3);
 
-        if ((sendClicked || enterPressed) && s_inputBuf[0] != '\0') {
+        if ((sendClicked || enterPressed) && s_inputBuf[0] != '\0' && !s_isWaitingForAI) {
             // Kullanıcı mesajını ekle
             auto now = std::time(nullptr);
             char timeBuf[32];
             std::strftime(timeBuf, sizeof(timeBuf), "You • %H:%M", std::localtime(&now));
 
-            s_messages.push_back({true, s_inputBuf, timeBuf, false});
+            std::string prompt = s_inputBuf;
+            {
+                std::lock_guard<std::mutex> lock(s_chatMutex);
+                s_messages.push_back({true, prompt, timeBuf, false});
+            }
             s_inputBuf[0] = '\0';
-            // TODO: Gerçek AI çağrısı
+            
+            // AI çağrısını arkaplanda başlat
+            std::thread(fetchAIResponse, prompt).detach();
         }
     }
     ImGui::EndChild();

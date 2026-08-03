@@ -9,6 +9,13 @@ enum class Tool { Select, Move, Rotate, Scale };
 static Tool  s_currentTool = Tool::Move;
 static bool  s_gridSnap    = true;
 
+// ─── Viewport states (extern from ViewportPanel.cpp) ───
+extern bool  s_wireframe;
+extern bool  s_collision;
+extern bool  s_worldSpace;
+extern int   s_viewMode;
+extern int   s_litMode;
+
 static ImU32 COL(const ImVec4& v)            { return ImGui::ColorConvertFloat4ToU32(v); }
 static ImU32 COLA(uint32_t hex, float alpha)  {
     return IM_COL32((hex>>16)&0xFF,(hex>>8)&0xFF,hex&0xFF,(uint8_t)(alpha*255));
@@ -71,12 +78,6 @@ static void DrawIcon_Material(ImDrawList* dl, ImVec2 c, float s, ImU32 col) {
     dl->AddRectFilled({c.x-s*0.05f,c.y-s*0.5f},{c.x+s*0.45f,c.y-s*0.3f},col);
 }
 
-static void DrawIcon_Light(ImDrawList* dl, ImVec2 c, float s, ImU32 col) {
-    dl->AddCircle(c, s*0.33f, col, 16, 1.5f);
-    dl->AddRectFilled({c.x-s*0.15f,c.y+s*0.33f},{c.x+s*0.15f,c.y+s*0.5f},col,1.0f);
-    dl->AddLine({c.x-s*0.15f,c.y+s*0.5f},{c.x+s*0.15f,c.y+s*0.5f},col,1.5f);
-}
-
 static void DrawIcon_Settings(ImDrawList* dl, ImVec2 c, float s, ImU32 col) {
     dl->AddCircle(c, s*0.22f, col, 12, 1.5f);
     int teeth = 6;
@@ -99,25 +100,25 @@ void LeftToolbar::draw() {
     window_class.DockNodeFlagsOverrideSet = ImGuiDockNodeFlags_NoTabBar;
     ImGui::SetNextWindowClass(&window_class);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
-    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,   ImVec2(0, 8)); // gap-2
-    ImGui::PushStyleColor(ImGuiCol_WindowBg, T.panel);
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,   ImVec2(0, 15)); // gap: 15px
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, T.bgPanel);
 
     ImGui::Begin("##LeftToolbar", nullptr,
         ImGuiWindowFlags_NoTitleBar  | ImGuiWindowFlags_NoScrollbar |
-        ImGuiWindowFlags_NoNav       | ImGuiWindowFlags_NoScrollWithMouse);
+        ImGuiWindowFlags_NoNav       | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoCollapse);
 
     ImDrawList* dl   = ImGui::GetWindowDrawList();
     float       winW = ImGui::GetWindowWidth();
     float       winH = ImGui::GetWindowHeight();
-    float       btnS = 32.0f;   // w-8 h-8
+    float       btnS = 24.0f; // Spec'e uygun buton boyutu (20x20 ikon için 24x24 buton)
     float       offX = (winW - btnS) * 0.5f;
 
-    // Right border (border-r border-studio-border)
+    // Right border
     ImVec2 winP = ImGui::GetWindowPos();
     dl->AddLine(ImVec2(winP.x + winW - 1.0f, winP.y), ImVec2(winP.x + winW - 1.0f, winP.y + winH), COL(T.border));
 
-    // initial padding (p-2 y-axis)
-    ImGui::Dummy(ImVec2(winW, 4));
+    // initial padding
+    ImGui::Dummy(ImVec2(winW, 10));
 
     auto drawToolBtn = [&](
         Tool toolType,
@@ -128,8 +129,6 @@ void LeftToolbar::draw() {
         bool isActive = (s_currentTool == toolType);
         ImGui::SetCursorPosX(offX);
 
-        ImU32 bgCol = isActive ? COLA(0x00d2ff, 0.15f) : IM_COL32(0, 0, 0, 0);
-
         ImVec2 bMin = ImGui::GetCursorScreenPos();
         ImVec2 bMax = ImVec2(bMin.x + btnS, bMin.y + btnS);
 
@@ -139,31 +138,27 @@ void LeftToolbar::draw() {
 
         if (clk) s_currentTool = toolType;
 
-        if (hov && !isActive) bgCol = COL(T.panelHover);
-        if (bgCol) dl->AddRectFilled(bMin, bMax, bgCol, 4.0f); // rounded
-
-        // Inset left border for active (shadow-[inset_2px_0_0_0_#00d2ff])
-        if (isActive) {
-            dl->AddRectFilled(ImVec2(bMin.x, bMin.y), ImVec2(bMin.x + 2.0f, bMax.y), COL(T.accent), 4.0f, ImDrawFlags_RoundCornersLeft);
-        }
-
-        ImVec2 center = {(bMin.x + bMax.x)*0.5f, (bMin.y + bMax.y)*0.5f};
-        ImTextureID tex = IconRegistry::instance().get(iconKey);
         ImU32 iconCol = isActive ? COL(T.accent) : (hov ? COL(T.textPrimary) : COL(T.textMuted));
 
+        ImVec2 center = {(bMin.x + bMax.x)*0.5f, (bMin.y + bMax.y)*0.5f};
+        std::string finalIcon = isActive ? std::string(iconKey) + "_bold" : std::string(iconKey);
+        ImTextureID tex = IconRegistry::instance().get(finalIcon.c_str());
+        if (!tex && isActive) tex = IconRegistry::instance().get(iconKey);
+
         if (tex) {
-            float is = btnS * 0.5f;
+            float is = 20.0f; // ikonlar 20x20px
             dl->AddImage(tex,
                 {center.x - is*0.5f, center.y - is*0.5f},
                 {center.x + is*0.5f, center.y + is*0.5f},
                 {0,0},{1,1}, iconCol);
         } else {
-            drawFallback(dl, center, btnS * 0.45f, iconCol);
+            drawFallback(dl, center, 20.0f * 0.45f, iconCol);
         }
 
         if (hov) ImGui::SetTooltip("%s", tooltip);
     };
 
+    // Tool ikonları
     drawToolBtn(Tool::Select, "icon_cursor", DrawIcon_Select, "Select Tool (Q)");
     drawToolBtn(Tool::Move,   "icon_move",   DrawIcon_Move,   "Move Tool (W)");
     drawToolBtn(Tool::Rotate, "icon_rotate", DrawIcon_Rotate, "Rotate Tool (E)");
@@ -180,28 +175,33 @@ void LeftToolbar::draw() {
         if (ImGui::IsItemClicked()) s_gridSnap = !s_gridSnap;
 
         ImU32 snapCol = s_gridSnap ? COL(T.toggleOn) : COL(T.textMuted);
-        if (hov) dl->AddRectFilled(bMin, bMax, COL(T.panelHover), 4.0f);
+        if (hov && !s_gridSnap) snapCol = COL(T.textPrimary);
 
         ImVec2 c = {(bMin.x+bMax.x)*0.5f,(bMin.y+bMax.y)*0.5f};
         ImTextureID tex = IconRegistry::instance().get("icon_snap");
         if (tex) {
-            float is = btnS * 0.5f;
+            float is = 20.0f;
             dl->AddImage(tex,{c.x-is*0.5f,c.y-is*0.5f},{c.x+is*0.5f,c.y+is*0.5f},{0,0},{1,1},snapCol);
         } else {
-            DrawIcon_Snap(dl, c, btnS * 0.45f, snapCol);
+            DrawIcon_Snap(dl, c, 20.0f * 0.45f, snapCol);
         }
         if (hov) ImGui::SetTooltip("Grid Snap • 1m / 15°  [%s]", s_gridSnap ? "Active" : "Off");
     }
 
-    ImGui::Dummy(ImVec2(winW, 4));
-    {
+    // Divider
+    auto drawDivider = [&]() {
         ImVec2 sep = ImGui::GetCursorScreenPos();
-        dl->AddLine(ImVec2(sep.x + 4.0f, sep.y), ImVec2(sep.x + winW - 4.0f, sep.y), COL(T.border)); // mx-1
-    }
-    ImGui::Dummy(ImVec2(winW, 4));
+        // Divider: width: 26px, height: 2px, opacity: 0.20
+        float divW = 26.0f;
+        float divX = winP.x + (winW - divW) * 0.5f;
+        dl->AddRectFilled(ImVec2(divX, sep.y), ImVec2(divX + divW, sep.y + 2.0f), COLA(0xFFFFFF, 0.20f));
+        ImGui::Dummy(ImVec2(winW, 2.0f)); // account for height
+    };
 
-    // Editor shortcuts
-    auto drawShortcut = [&](const char* id, const char* iconKey, void(*fallback)(ImDrawList*,ImVec2,float,ImU32), ImU32 bgNormal, ImU32 bgHover, ImU32 borderNormal, ImU32 iconCol, bool& toggleState, const char* tip) {
+    drawDivider();
+
+    // Editor Panel shortcuts
+    auto drawShortcut = [&](const char* id, const char* iconKey, void(*fallback)(ImDrawList*,ImVec2,float,ImU32), bool& toggleState, const char* tip) {
         ImGui::SetCursorPosX(offX);
         ImVec2 bMin = ImGui::GetCursorScreenPos();
         ImVec2 bMax = ImVec2(bMin.x + btnS, bMin.y + btnS);
@@ -209,36 +209,54 @@ void LeftToolbar::draw() {
         bool hov = ImGui::IsItemHovered();
         if (ImGui::IsItemClicked()) toggleState = !toggleState;
 
-        dl->AddRectFilled(bMin, bMax, hov ? bgHover : bgNormal, 4.0f);
-        if (borderNormal) dl->AddRect(bMin, bMax, borderNormal, 4.0f, 0, 1.0f);
+        ImU32 iconCol = toggleState ? COL(T.accent) : (hov ? COL(T.textPrimary) : COL(T.textMuted));
 
         ImVec2 c = {(bMin.x+bMax.x)*0.5f,(bMin.y+bMax.y)*0.5f};
-        ImTextureID tex = IconRegistry::instance().get(iconKey);
+        std::string finalIcon = toggleState ? std::string(iconKey) + "_bold" : std::string(iconKey);
+        ImTextureID tex = IconRegistry::instance().get(finalIcon.c_str());
+        if (!tex && toggleState) tex = IconRegistry::instance().get(iconKey);
         if (tex) {
-            float is = btnS*0.5f;
+            float is = 20.0f;
             dl->AddImage(tex,{c.x-is*0.5f,c.y-is*0.5f},{c.x+is*0.5f,c.y+is*0.5f},{0,0},{1,1},iconCol);
         } else {
-            fallback(dl,c,btnS*0.45f,iconCol);
+            fallback(dl,c, 20.0f*0.45f, iconCol);
         }
         if (hov) ImGui::SetTooltip("%s", tip);
     };
 
-    drawShortcut("##ast", "icon_folder", DrawIcon_Folder, COLA(0x00d2ff, 0.10f), COLA(0x00d2ff, 0.15f), COLA(0x00d2ff, 0.40f), COL(T.accent), EditorLayout::instance().showAssetBrowser, "Asset Manager");
-    drawShortcut("##mat", "icon_material", DrawIcon_Material, COLA(0x171717, 1.0f), COL(T.panelHover), COL(T.border), COL(T.textPrimary), EditorLayout::instance().showMaterialEditor, "Material Editor");
+    // [Panel ikonları: Folder / Material / AI]
+    drawShortcut("##ast", "icon_folder", DrawIcon_Folder, EditorLayout::instance().showAssetBrowser, "Asset Manager");
+    drawShortcut("##mat", "icon_material", DrawIcon_Material, EditorLayout::instance().showMaterialEditor, "Material Editor");
+    drawShortcut("##ai", "icon_ai", DrawIcon_Folder, EditorLayout::instance().showAICopilot, "AI Copilot");
 
-    {
-        ImGui::SetCursorPosX(offX);
-        ImVec2 bMin = ImGui::GetCursorScreenPos();
-        ImVec2 bMax = ImVec2(bMin.x + btnS, bMin.y + btnS);
-        ImGui::InvisibleButton("##light", ImVec2(btnS, btnS));
-        bool hov = ImGui::IsItemHovered();
-        if (hov) dl->AddRectFilled(bMin, bMax, COL(T.panelHover), 4.0f);
-        ImVec2 c = {(bMin.x+bMax.x)*0.5f,(bMin.y+bMax.y)*0.5f};
-        DrawIcon_Light(dl, c, btnS*0.45f, hov ? COL(T.textPrimary) : COL(T.textMuted));
-    }
+    drawDivider();
 
+    // [Camera View İkonları]
+    // s_viewMode: 0=Perspective, 1=Top, 2=Front, 3=Right
+    bool isIso = (s_viewMode == 0);
+    drawShortcut("##cam_iso", "icon_isometric", DrawIcon_Folder, isIso, "Isometric/Perspective View");
+    if (isIso && s_viewMode != 0) s_viewMode = 0;
+    
+    bool isTop = (s_viewMode == 1);
+    drawShortcut("##cam_90", "icon_90_degree", DrawIcon_Folder, isTop, "Top View");
+    if (isTop && s_viewMode != 1) s_viewMode = 1;
+
+    bool isFree = (s_viewMode == 2);
+    drawShortcut("##cam_free", "icon_free_cam", DrawIcon_Folder, isFree, "Front View");
+    if (isFree && s_viewMode != 2) s_viewMode = 2;
+    
+    drawDivider();
+    
+    // [Render Modes]
+    drawShortcut("##wire", "icon_wireframe", DrawIcon_Folder, s_wireframe, "Wireframe Mode");
+    drawShortcut("##coll", "icon_collision", DrawIcon_Folder, s_collision, "Collision Bounds");
+    
+    // World/Local Toggle (reusing a folder icon fallback since we don't have a specific icon)
+    drawShortcut("##world", "icon_world", DrawIcon_Folder, s_worldSpace, "World Space Toggle");
+
+    // Settings icon at bottom
     {
-        float posY = ImGui::GetWindowHeight() - btnS - 8.0f;
+        float posY = winH - btnS - 10.0f; // settings ikonu en altta
         if (posY > ImGui::GetCursorPosY()) ImGui::SetCursorPosY(posY);
         ImGui::SetCursorPosX(offX);
 
@@ -246,10 +264,9 @@ void LeftToolbar::draw() {
         ImVec2 bMax = ImVec2(bMin.x + btnS, bMin.y + btnS);
         ImGui::InvisibleButton("##settings", ImVec2(btnS, btnS));
         bool hov = ImGui::IsItemHovered();
-        if (hov) dl->AddRectFilled(bMin, bMax, COL(T.panelHover), 4.0f);
-
+        
         ImVec2 c = {(bMin.x+bMax.x)*0.5f,(bMin.y+bMax.y)*0.5f};
-        DrawIcon_Settings(dl, c, btnS*0.45f, hov ? COL(T.textPrimary) : COL(T.textMuted));
+        DrawIcon_Settings(dl, c, 20.0f*0.45f, hov ? COL(T.textPrimary) : COL(T.textMuted));
     }
 
     ImGui::End();

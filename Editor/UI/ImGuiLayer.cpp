@@ -27,18 +27,13 @@ void ImGuiLayer::init(GLFWwindow* window) {
     ImGui_ImplBgfx_Init(VIEW_ID_IMGUI);
 
     // 3. Fontlari ekle
-    std::string projectRoot = Engine::Assets::AssetDatabase::instance().getProjectRoot();
-    std::string fontPath = projectRoot + "/Assets/Fonts/Inter-Regular.ttf";
-    std::string fontBoldPath = projectRoot + "/Assets/Fonts/Roboto-Medium.ttf";
+    std::string fontPath = "C:/Windows/Fonts/segoeui.ttf"; // Fallback to reliable system font
     
-    if (!std::filesystem::exists(fontPath)) fontPath = "Assets/Fonts/Inter-Regular.ttf";
-    if (!std::filesystem::exists(fontBoldPath)) fontBoldPath = "Assets/Fonts/Roboto-Medium.ttf";
-
     if (std::filesystem::exists(fontPath)) {
         ImFontConfig fontCfg;
-        fontCfg.OversampleH = 3;
-        fontCfg.OversampleV = 1;
-        fontCfg.PixelSnapH = false;
+        fontCfg.OversampleH = 2;
+        fontCfg.OversampleV = 2;
+        fontCfg.PixelSnapH = true;
         
         // Font 0: Default (14px)
         io.Fonts->AddFontFromFileTTF(fontPath.c_str(), 14.0f, &fontCfg);
@@ -49,14 +44,9 @@ void ImGuiLayer::init(GLFWwindow* window) {
         // Font 2: Tiny (10px)
         io.Fonts->AddFontFromFileTTF(fontPath.c_str(), 10.0f, &fontCfg);
         
-        // Font 3: Medium/Bold (12px)
-        if (std::filesystem::exists(fontBoldPath)) {
-            io.Fonts->AddFontFromFileTTF(fontBoldPath.c_str(), 12.0f, &fontCfg);
-        } else {
-            io.Fonts->AddFontFromFileTTF(fontPath.c_str(), 12.0f, &fontCfg);
-        }
-        
         io.FontDefault = io.Fonts->Fonts[0];
+    } else {
+        io.Fonts->AddFontDefault();
     }
 
     // NOT: Build() cagirma - ImGui 1.92.6 RendererHasTextures ile otomatik halleder!
@@ -84,11 +74,11 @@ void ImGuiLayer::beginFrame() {
     ImGuiViewport* vp = ImGui::GetMainViewport();
     ImVec2 workPos = vp->WorkPos;
     ImVec2 workSize = vp->WorkSize;
-    float topBarHeight = 40.0f;
-    
-    // Offset dockspace for our custom 40px TopBar
+    float topBarHeight = 30.0f;
+    float bottomBarHeight = 20.0f;
+    // Offset dockspace for our custom 30px TopBar and 20px BottomBar
     workPos.y += topBarHeight;
-    workSize.y -= topBarHeight;
+    workSize.y -= (topBarHeight + bottomBarHeight);
 
     ImGui::SetNextWindowPos(workPos);
     ImGui::SetNextWindowSize(workSize);
@@ -125,34 +115,46 @@ void ImGuiLayer::buildDefaultLayout(ImGuiID dockspaceId, ImVec2 size) {
     ImGui::DockBuilderSetNodeSize(dockspaceId, size);
 
     ImGuiID main = dockspaceId;
-    
-    // Left Dock (Toolbar) - fixed roughly 44px, ratio depends on screen, let's say ~0.03f
-    ImGuiID left = ImGui::DockBuilderSplitNode(main, ImGuiDir_Left, 0.025f, nullptr, &main);
-    
-    // Right Dock (Explorer + Properties + AICopilot)
-    ImGuiID right = ImGui::DockBuilderSplitNode(main, ImGuiDir_Right, 0.35f, nullptr, &main);
-    
-    // Center Bottom (Asset Browser) - 28%
-    ImGuiID bottom = ImGui::DockBuilderSplitNode(main, ImGuiDir_Down, 0.28f, nullptr, &main);
-    
-    // Center Top vs Middle (Viewport vs Material Editor)
-    ImGuiID centerTop = main;
-    ImGuiID centerMid = ImGui::DockBuilderSplitNode(centerTop, ImGuiDir_Down, 0.47f, nullptr, &centerTop);
-    
-    // Right Split: AI Copilot on the far right (w=288px ~ 45% of right panel)
-    ImGuiID ai = ImGui::DockBuilderSplitNode(right, ImGuiDir_Right, 0.45f, nullptr, &right);
-    
-    // Right Split remaining (Explorer 38%, Properties 62%)
-    ImGuiID explorer = right;
-    ImGuiID properties = ImGui::DockBuilderSplitNode(explorer, ImGuiDir_Down, 0.62f, nullptr, &explorer);
 
-    ImGui::DockBuilderDockWindow("##LeftToolbar",   left);
-    ImGui::DockBuilderDockWindow("Viewport",        centerTop);
-    ImGui::DockBuilderDockWindow("Material Editor", centerMid);
-    ImGui::DockBuilderDockWindow("Asset Browser",   bottom);
-    ImGui::DockBuilderDockWindow("Explorer",        explorer);
-    ImGui::DockBuilderDockWindow("Properties",      properties);
-    ImGui::DockBuilderDockWindow("AI Copilot",      ai);
+    // 1. Left toolbar — fixed ~50px
+    //    ratio = 50 / size.x (approx 0.035 at 1440px)
+    float leftRatio = 50.0f / size.x;
+    ImGuiID left = ImGui::DockBuilderSplitNode(main, ImGuiDir_Left, leftRatio, nullptr, &main);
+
+    // 2. Copilot — far right, fixed ~270px
+    float copilotRatio = 270.0f / (size.x - 50.0f);
+    ImGuiID copilot = ImGui::DockBuilderSplitNode(main, ImGuiDir_Right, copilotRatio, nullptr, &main);
+
+    // 3. Explorer + Properties column — right of center, fixed ~270px
+    float rightRatio = 270.0f / (size.x - 50.0f - 270.0f);
+    ImGuiID right = ImGui::DockBuilderSplitNode(main, ImGuiDir_Right, rightRatio, nullptr, &main);
+
+    // 4. Asset Manager — bottom of center, fixed ~244px
+    float assetRatio = 244.0f / size.y;
+    ImGuiID bottom = ImGui::DockBuilderSplitNode(main, ImGuiDir_Down, assetRatio, nullptr, &main);
+
+    // 5. FileListBar — top of center, fixed ~30px
+    float fileListRatio = 30.0f / size.y;
+    ImGuiID fileList = ImGui::DockBuilderSplitNode(main, ImGuiDir_Up, fileListRatio, nullptr, &main);
+
+    // 6. Viewport fills the remaining center
+    ImGuiID centerTop = main;
+
+    // 7. Right column: Explorer top (~38%), Properties bottom (~62%)
+    ImGuiID explorer   = right;
+    ImGuiID properties = ImGui::DockBuilderSplitNode(explorer, ImGuiDir_Down, 0.57f, nullptr, &explorer);
+
+    // ── Dock windows ─────────────────────────────────────────────────
+    ImGui::DockBuilderDockWindow("##LeftToolbar", left);
+    ImGui::DockBuilderDockWindow("FileListBar",   fileList);
+    ImGui::DockBuilderDockWindow("Viewport",      centerTop);
+    ImGui::DockBuilderDockWindow("Asset Browser", bottom);
+    ImGui::DockBuilderDockWindow("Explorer",      explorer);
+    ImGui::DockBuilderDockWindow("Properties",    properties);
+    ImGui::DockBuilderDockWindow("AI Copilot",    copilot);
+    // Material Editor shares the Asset Browser tab group by default
+    ImGui::DockBuilderDockWindow("Material Editor", bottom);
 
     ImGui::DockBuilderFinish(dockspaceId);
 }
+

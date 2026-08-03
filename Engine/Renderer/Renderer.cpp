@@ -719,7 +719,12 @@ void RendererSystem::renderFrame(const Camera& camera, int width, int height, bg
 
             bgfx::setState(BGFX_STATE_DEFAULT);
             
-            bgfx::ProgramHandle activeProgram = bgfx::isValid(m_overrideMaterial) ? m_overrideMaterial : m_program;
+            bgfx::ProgramHandle activeProgram = m_program;
+            if (bgfx::isValid(proxy.material.customShader)) {
+                activeProgram = proxy.material.customShader;
+            } else if (bgfx::isValid(m_overrideMaterial)) {
+                activeProgram = m_overrideMaterial;
+            }
             bgfx::submit(View_MainColor, activeProgram);
         };
 

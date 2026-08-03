@@ -2,6 +2,7 @@
 #include "Instance.h"
 #include "../Math/Vector3.h"
 #include "../../Assets/AssetDatabase.h"
+#include <cstdint>
 
 class Part : public Instance {
 public:
@@ -61,6 +62,10 @@ public:
 
     Engine::Assets::AssetGuid meshAssetGuid;
     void setMeshFromAsset(const Engine::Assets::AssetGuid& guid);
+
+    uint16_t customShaderHandle = 65535; // 65535 == bgfx::kInvalidHandle
+    void setCustomShader(uint16_t handle) { customShaderHandle = handle; markRenderDirty(); }
+    uint16_t getCustomShader() const { return customShaderHandle; }
 
     void setBoneTransforms(const std::vector<Engine::Math::Matrix4>& transforms);
     const std::vector<Engine::Math::Matrix4>& getBoneTransforms() const { return currentBoneTransforms; }

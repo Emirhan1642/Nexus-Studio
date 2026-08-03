@@ -14,6 +14,8 @@ struct MaterialData {
     bgfx::TextureHandle normalTexture = BGFX_INVALID_HANDLE;
     bgfx::TextureHandle metallicTexture = BGFX_INVALID_HANDLE;
     bgfx::TextureHandle roughnessTexture = BGFX_INVALID_HANDLE;
+    
+    bgfx::ProgramHandle customShader = BGFX_INVALID_HANDLE;
 };
 
 } // namespace Engine::Renderer

@@ -71,6 +71,7 @@ void Part::markRenderDirty() {
         proxy.material.metallic = metallic;
         proxy.material.roughness = roughness;
         proxy.material.emissiveStrength = emissiveStrength;
+        proxy.material.customShader = { customShaderHandle };
         proxy.boneTransforms = currentBoneTransforms;
         
         // Textures will be loaded/assigned via strings. We can store paths or pass them.
@@ -100,6 +101,7 @@ void Part::onAddedToWorkspace() {
     proxy.material.metallic = metallic;
     proxy.material.roughness = roughness;
     proxy.material.emissiveStrength = emissiveStrength;
+    proxy.material.customShader = { customShaderHandle };
     proxy.material.albedoTexture = Engine::Renderer::RendererSystem::instance().getTexture(albedoTexturePath);
     proxy.material.normalTexture = Engine::Renderer::RendererSystem::instance().getTexture(normalTexturePath);
     proxy.material.metallicTexture = Engine::Renderer::RendererSystem::instance().getTexture(metallicTexturePath);

@@ -22,12 +22,12 @@ static ImU32 COLA(uint32_t hex, float a)    {
 }
 
 // ─── Viewport durumu ─────────────────────────────────────────────────────────
-static bool  s_wireframe  = false;
-static bool  s_collision  = false;
-static bool  s_worldSpace = true; // World vs Local
-static int   s_camSpeed   = 4;
-static int   s_viewMode   = 0;   // 0=Perspective 1=Top 2=Front 3=Right
-static int   s_litMode    = 0;   // 0=Lit(PBR) 1=Wireframe 2=Unlit
+bool  s_wireframe  = false;
+bool  s_collision  = false;
+bool  s_worldSpace = true; // World vs Local
+int   s_camSpeed   = 4;
+int   s_viewMode   = 0;   // 0=Perspective 1=Top 2=Front 3=Right
+int   s_litMode    = 0;   // 0=Lit(PBR) 1=Wireframe 2=Unlit
 
 static const char* s_viewNames[] = {"Perspective","Top","Front","Right"};
 static const char* s_litNames[]  = {"Lit (PBR)","Wireframe","Unlit"};
@@ -141,172 +141,15 @@ void ViewportPanel::draw(Engine::Renderer::Camera& camera) {
     // HTML: h-7 bg-studio-panel/90 border-b border-studio-border/60
     //       px-3 flex items-center justify-between text-[11px]
     // ═════════════════════════════════════════════════════════════════════════
-    float tbH = 28.0f;
-    // Yarı şeffaf arka plan
-    dl->AddRectFilled(panelMin,
-                      {panelMax.x, panelMin.y+tbH},
-                      COLA(0x0e0e0e, 0.92f));
-    dl->AddLine({panelMin.x, panelMin.y+tbH},
-                {panelMax.x, panelMin.y+tbH},
-                COLA(0x242424, 0.6f));
+    float tbH = 28.0f; // Kept for orientation cube offset
+    // Viewport toolbar will be a transparent floating overlay.
+    // Removed the background bar and border line.
 
     // Kursor'u toolbar başına koy
     ImGui::SetCursorScreenPos({panelMin.x+12, panelMin.y+6});
 
-    // ── Sol: Perspective ▾ | Lit (PBR) ▾ | World/Local toggle ────────────────
-    ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0,0,0,0));
-    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, COLA(0x171717,1.0f));
-
-    // Perspective dropdown (tıklanabilir)
-    ImGui::PushStyleColor(ImGuiCol_Text, COL(T.accent));
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(4,1));
-    if (ImGui::Button(s_viewNames[s_viewMode]))
-        ImGui::OpenPopup("##vpView");
-    ImGui::PopStyleVar();
-    ImGui::PopStyleColor();
-
-    if (ImGui::BeginPopup("##vpView")) {
-        for (int i=0;i<4;i++) {
-            if (ImGui::MenuItem(s_viewNames[i], nullptr, s_viewMode==i))
-                s_viewMode = i;
-        }
-        ImGui::EndPopup();
-    }
-
-    ImGui::SameLine(0,8);
-    ImGui::PushStyleColor(ImGuiCol_Text, COLA(0x242424,1.0f));
-    ImGui::TextColored(T.textMuted, "|");
-    ImGui::PopStyleColor();
-    ImGui::SameLine(0,8);
-
-    // Lit dropdown
-    ImGui::PushStyleColor(ImGuiCol_Text, COL(T.textPrimary));
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(4,1));
-    if (ImGui::Button(s_litNames[s_litMode]))
-        ImGui::OpenPopup("##vpLit");
-    ImGui::PopStyleVar();
-    ImGui::PopStyleColor();
-
-    if (ImGui::BeginPopup("##vpLit")) {
-        for (int i=0;i<3;i++) {
-            if (ImGui::MenuItem(s_litNames[i],nullptr,s_litMode==i))
-                s_litMode = i;
-        }
-        ImGui::EndPopup();
-    }
-
-    ImGui::SameLine(0,8);
-    ImGui::TextColored(T.textMuted, "|");
-    ImGui::SameLine(0,8);
-
-    // World/Local toggle pill
-    // HTML: flex bg-studio-bg border border-studio-border rounded p-0.5
-    {
-        ImVec2 pillP = ImGui::GetCursorScreenPos();
-        float pw = 78, ph = 18;
-        dl->AddRectFilled(pillP,{pillP.x+pw,pillP.y+ph}, COL(T.bg), 4.0f);
-        dl->AddRect(pillP,{pillP.x+pw,pillP.y+ph}, COL(T.border), 4.0f);
-
-        // World
-        if (s_worldSpace) {
-            dl->AddRectFilled({pillP.x+1,pillP.y+1},{pillP.x+39,pillP.y+ph-1},
-                              COL(T.accent), 3.0f);
-            dl->AddText({pillP.x+7,pillP.y+2}, IM_COL32(0,0,0,255), "World");
-        } else {
-            dl->AddText({pillP.x+7,pillP.y+2}, COL(T.textMuted), "World");
-        }
-        // Local
-        if (!s_worldSpace) {
-            dl->AddRectFilled({pillP.x+40,pillP.y+1},{pillP.x+pw-1,pillP.y+ph-1},
-                              COL(T.accent), 3.0f);
-            dl->AddText({pillP.x+46,pillP.y+2}, IM_COL32(0,0,0,255), "Local");
-        } else {
-            dl->AddText({pillP.x+46,pillP.y+2}, COL(T.textMuted), "Local");
-        }
-
-        ImGui::InvisibleButton("##worldPill", ImVec2(pw, ph));
-        if (ImGui::IsItemClicked()) {
-            float mx = ImGui::GetMousePos().x - pillP.x;
-            s_worldSpace = (mx < pw/2);
-        }
-    }
-
-    ImGui::PopStyleColor(2); // Button colors
-
-    // ── Sağ: Cam speed | wireframe | collision | FPS ─────────────────────────
-    float rightX = panelMax.x - 210.0f;
-    ImGui::SetCursorScreenPos({rightX, panelMin.y+6});
-
-    // Cam speed
-    ImGui::TextColored(T.textMuted, "Cam:");
-    ImGui::SameLine(0,4);
-    {
-        ImVec2 p = ImGui::GetCursorScreenPos();
-        char spd[16]; snprintf(spd,sizeof(spd),"%dx  v", s_camSpeed);
-        float sw2 = ImGui::CalcTextSize(spd).x + 12;
-        dl->AddRectFilled(p,{p.x+sw2,p.y+16}, COL(T.bg), 4.0f);
-        dl->AddRect(p,{p.x+sw2,p.y+16}, COL(T.border), 4.0f);
-        dl->AddText({p.x+5,p.y+1}, COL(T.textPrimary), spd);
-        ImGui::InvisibleButton("##camSpd", ImVec2(sw2,16));
-    }
-
-    ImGui::SameLine(0,8);
-    ImGui::TextColored(T.textMuted, "|");
-    ImGui::SameLine(0,8);
-
-    // Wireframe toggle
-    {
-        ImU32 wcol = s_wireframe ? COL(T.textPrimary) : COL(T.textMuted);
-        ImTextureID wireTex = IconRegistry::instance().get("icon_wireframe");
-        ImVec2 bp = ImGui::GetCursorScreenPos();
-        if (wireTex) {
-            dl->AddImage(wireTex,bp,{bp.x+16,bp.y+16},{0,0},{1,1},wcol);
-            ImGui::InvisibleButton("##wire",ImVec2(16,16));
-        } else {
-            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0,0,0,0));
-            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(wcol>>16&0xFF,wcol>>8&0xFF,wcol&0xFF,1)/255.0f);
-            if (ImGui::Button("W##wire",ImVec2(18,18))) s_wireframe=!s_wireframe;
-            ImGui::PopStyleColor(2);
-        }
-        if (ImGui::IsItemClicked()) s_wireframe=!s_wireframe;
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Wireframe Mode");
-    }
-
-    ImGui::SameLine(0,4);
-
-    // Collision toggle
-    {
-        ImU32 ccol = s_collision ? COL(T.textPrimary) : COL(T.textMuted);
-        ImTextureID colTex = IconRegistry::instance().get("icon_collision");
-        ImVec2 bp = ImGui::GetCursorScreenPos();
-        if (colTex) {
-            dl->AddImage(colTex,bp,{bp.x+16,bp.y+16},{0,0},{1,1},ccol);
-            ImGui::InvisibleButton("##coll",ImVec2(16,16));
-        } else {
-            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0,0,0,0));
-            if (ImGui::Button("B##coll",ImVec2(18,18))) s_collision=!s_collision;
-            ImGui::PopStyleColor();
-        }
-        if (ImGui::IsItemClicked()) s_collision=!s_collision;
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Collision Bounds");
-    }
-
-    ImGui::SameLine(0,8);
-    ImGui::TextColored(T.textMuted, "|");
-    ImGui::SameLine(0,8);
-
-    // FPS dot + sayaç
-    {
-        ImVec2 dotP = ImGui::GetCursorScreenPos();
-        dl->AddCircleFilled({dotP.x+4, dotP.y+8}, 3.5f, COLA(0x22c55e,1.0f));
-        ImGui::Dummy(ImVec2(10, 16));
-        ImGui::SameLine(0,4);
-    }
-    ImGui::TextColored(T.textMuted, "FPS:");
-    ImGui::SameLine(0,4);
-    float fps = ImGui::GetIO().Framerate;
-    char fpsBuf[16]; snprintf(fpsBuf,sizeof(fpsBuf),"%.1f",fps);
-    ImGui::TextColored(T.textPrimary, "%s", fpsBuf);
+    // TOOLBAR COMPLETELY REMOVED AS PER USER REQUEST.
+    // ALL BUTTONS AND OVERLAYS ARE DELETED.
 
     // ═════════════════════════════════════════════════════════════════════════
     // ORIENTATION CUBE (sağ üst köşe, top-right offset: tbH+12)
@@ -337,34 +180,7 @@ void ViewportPanel::draw(Engine::Renderer::Camera& camera) {
         dl->AddText({cMin.x+6,  cMin.y+29}, COL(T.accent),     "RIGHT");
     }
 
-    // ═════════════════════════════════════════════════════════════════════════
-    // BOTTOM STATUS STRIP (h=20)
-    // HTML footer: "Console: Shader compiled." | "Grid: 32x32 | UDP: OK"
-    // ═════════════════════════════════════════════════════════════════════════
-    {
-        float sh = 20.0f;
-        ImVec2 sMin = {panelMin.x, panelMax.y - sh};
-        ImVec2 sMax = panelMax;
 
-        dl->AddRectFilled(sMin, sMax, COL(T.panel));
-        dl->AddLine(sMin, {sMax.x, sMin.y}, COL(T.border));
-
-        // Seçili nesne adı
-        auto sel = SelectionManager::instance().getSelected();
-        char leftBuf[128];
-        if (sel)
-            snprintf(leftBuf,sizeof(leftBuf),
-                     "Selected: %s [%s]", sel->name.c_str(), sel->getClassName().c_str());
-        else
-            snprintf(leftBuf,sizeof(leftBuf),"No selection");
-
-        dl->AddText({sMin.x+8, sMin.y+3}, COL(T.textMuted), leftBuf);
-
-        // Sağ: grid + network
-        const char* rightInfo = "Grid: 32x32  |  UDP Replication: OK";
-        float rw = ImGui::CalcTextSize(rightInfo).x;
-        dl->AddText({sMax.x - rw - 8, sMin.y+3}, COL(T.textMuted), rightInfo);
-    }
 
     ImGui::End();
     ImGui::PopStyleVar();
