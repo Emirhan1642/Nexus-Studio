@@ -23,6 +23,7 @@
 #include "Engine/Core/DataModel/DataModel.h"
 #include "Engine/Core/DataModel/Part.h"
 #include "Engine/Core/DataModel/DataModelSerializer.h"
+#include "UI/EditorLayout.h"
 
 
 #include "Engine/Renderer/Renderer.h"
@@ -320,8 +321,7 @@ int main(int argc, char** argv) {
         properties.draw();
         assetBrowser.draw();
         
-        static bool showMaterialEditor = true;
-        materialEditor.draw(&showMaterialEditor);
+        materialEditor.draw(&EditorLayout::instance().showMaterialEditor);
         
         bottomBar.draw(deltaTime);
         

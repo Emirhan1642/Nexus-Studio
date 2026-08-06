@@ -23,7 +23,7 @@ static void applyImNodesStyle() {
     s.Colors[ImNodesCol_NodeBackground]         = COLA(0x0e0e0e, 1.0f);
     s.Colors[ImNodesCol_NodeBackgroundHovered]  = COLA(0x171717, 1.0f);
     s.Colors[ImNodesCol_NodeBackgroundSelected] = COLA(0x171717, 1.0f);
-    s.Colors[ImNodesCol_NodeOutline]            = COLA(0x242424, 1.0f);
+    s.Colors[ImNodesCol_NodeOutline]            = COLA(0x171717, 1.0f);
     s.Colors[ImNodesCol_TitleBar]               = COLA(0x171717, 1.0f);
     s.Colors[ImNodesCol_TitleBarHovered]        = COLA(0x242424, 1.0f);
     s.Colors[ImNodesCol_TitleBarSelected]       = COLA(0x242424, 1.0f);
@@ -35,10 +35,12 @@ static void applyImNodesStyle() {
     s.Colors[ImNodesCol_BoxSelector]            = COLA(0x00d2ff, 0.15f);
     s.Colors[ImNodesCol_BoxSelectorOutline]     = COLA(0x00d2ff, 0.5f);
     s.Colors[ImNodesCol_GridBackground]         = COLA(0x080808, 1.0f);
-    s.Colors[ImNodesCol_GridLine]               = COLA(0x262626, 1.0f);
-    s.NodeCornerRounding = 8.0f;
+    s.Colors[ImNodesCol_GridLine]               = COLA(0x171717, 1.0f);
+    s.NodeCornerRounding = 10.0f;
     s.NodePadding = ImVec2(8.0f, 6.0f);
-    s.NodeBorderThickness   = 1.0f;
+    s.NodeBorderThickness   = 2.0f;
+    
+    s.Flags &= ~ImNodesStyleFlags_GridLines;
 }
 
 namespace Editor::UI {
@@ -144,7 +146,6 @@ void MaterialEditorPanel::draw(bool* p_open) {
     auto& T = NexusTheme::instance();
 
     ImGuiWindowClass window_class;
-    window_class.DockNodeFlagsOverrideSet = ImGuiDockNodeFlags_NoTabBar;
     ImGui::SetNextWindowClass(&window_class);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
     if (!ImGui::Begin("Material Editor", p_open)) {
@@ -233,17 +234,106 @@ void MaterialEditorPanel::draw(bool* p_open) {
     // ─────────────────────────────────────────────────────────────────────────
     ImNodes::SetCurrentContext(m_editorContext);
 
-    // Grid arkaplanı (ImNodes zaten çiziyor, ama renk ayarı yukarıda yapıldı)
     ImNodes::BeginNodeEditor();
+
+    // ── Özel Dot Grid Çizimi ──────────────────────────────────────────────────
+    ImDrawList* dl_grid = ImGui::GetWindowDrawList();
+    ImVec2 panning = ImNodes::EditorContextGetPanning();
+    ImVec2 winPos = ImGui::GetWindowPos();
+    ImVec2 winSize = ImGui::GetWindowSize();
+    float spacing = 24.0f; // GridSpacing from ImNodes
+    ImU32 dotColor = COLA(0x242424, 1.0f); // Aynı koyulukta nokta rengi
+
+    float offsetX = fmodf(panning.x, spacing);
+    if (offsetX < 0) offsetX += spacing;
+    float offsetY = fmodf(panning.y, spacing);
+    if (offsetY < 0) offsetY += spacing;
+
+    for (float x = offsetX; x < winSize.x; x += spacing) {
+        for (float y = offsetY; y < winSize.y; y += spacing) {
+            dl_grid->AddRectFilled(ImVec2(winPos.x + x, winPos.y + y), ImVec2(winPos.x + x + 2.0f, winPos.y + y + 2.0f), dotColor);
+        }
+    }
+    // ─────────────────────────────────────────────────────────────────────────
 
     handleContextMenu();
 
     for (auto& node : m_graph.nodes)
         drawNode(node);
 
+    ImNodes::PushColorStyle(ImNodesCol_Link, COLA(0x000000, 0.0f));
+    ImNodes::PushColorStyle(ImNodesCol_LinkHovered, COLA(0x000000, 0.0f));
+    ImNodes::PushColorStyle(ImNodesCol_LinkSelected, COLA(0x000000, 0.0f));
+
     for (auto& link : m_graph.links)
         ImNodes::Link(link.id, link.startPinId, link.endPinId);
 
+    ImNodes::PopColorStyle();
+    ImNodes::PopColorStyle();
+    ImNodes::PopColorStyle();
+
+    // ── Özel Gradient Curve Çizimi ───────────────────────────────────────────
+    ImDrawList* dl_links = ImGui::GetWindowDrawList();
+    for (auto& link : m_graph.links) {
+        if (m_pinInfo.count(link.startPinId) && m_pinInfo.count(link.endPinId)) {
+            PinInfo p0 = m_pinInfo[link.startPinId];
+            PinInfo p1 = m_pinInfo[link.endPinId];
+
+            if (p0.isInput && !p1.isInput) std::swap(p0, p1);
+
+            ImVec2 startPos = p0.pos;
+            ImVec2 endPos = p1.pos;
+            ImU32 startCol = p0.color;
+            ImU32 endCol = p1.color;
+
+            float dist = std::abs(endPos.x - startPos.x) * 0.5f;
+            if (dist < 50.0f) dist = 50.0f;
+            ImVec2 cp0 = ImVec2(startPos.x + dist, startPos.y);
+            ImVec2 cp1 = ImVec2(endPos.x - dist, endPos.y);
+
+            int segments = 60;
+            float thickness = 8.0f; // Pin çapı
+            
+            int r0 = (startCol >> 0) & 0xFF;
+            int g0 = (startCol >> 8) & 0xFF;
+            int b0 = (startCol >> 16) & 0xFF;
+            int r1 = (endCol >> 0) & 0xFF;
+            int g1 = (endCol >> 8) & 0xFF;
+            int b1 = (endCol >> 16) & 0xFF;
+
+            ImVec2 prev_p = startPos;
+            
+            // Başlangıç noktasına kapak
+            dl_links->AddCircleFilled(startPos, thickness * 0.4f, startCol);
+
+            for (int i = 1; i <= segments; ++i) {
+                float t = (float)i / segments;
+                float u = 1.0f - t;
+                
+                float w0 = u * u * u;
+                float w1 = 3 * u * u * t;
+                float w2 = 3 * u * t * t;
+                float w3 = t * t * t;
+                
+                ImVec2 p(
+                    w0 * startPos.x + w1 * cp0.x + w2 * cp1.x + w3 * endPos.x,
+                    w0 * startPos.y + w1 * cp0.y + w2 * cp1.y + w3 * endPos.y
+                );
+                
+                int r = r0 + (r1 - r0) * t;
+                int g = g0 + (g1 - g0) * t;
+                int b = b0 + (b1 - b0) * t;
+                ImU32 col = IM_COL32(r, g, b, 255);
+                
+                dl_links->AddLine(prev_p, p, col, thickness);
+                dl_links->AddCircleFilled(p, thickness * 0.4f, col); // Eklem yerindeki boşlukları kapat (taşmaması için 0.4)
+                prev_p = p;
+            }
+        }
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+
+    ImNodes::MiniMap(0.2f, ImNodesMiniMapLocation_BottomRight);
     ImNodes::EndNodeEditor();
 
     // ── Bağlantı oluşturma ────────────────────────────────────────────────────
@@ -265,69 +355,83 @@ void MaterialEditorPanel::draw(bool* p_open) {
 }
 
 // ─── Node çizimi ─────────────────────────────────────────────────────────────
-// HTML'deki node renkleri:
-//   - TextureSample: panelHover header, accent output dot
-//   - Scalar: panelHover header, green / amber dots
-//   - Master: gradient blue→cyan header, border-2 border-accent
 void MaterialEditorPanel::drawNode(Engine::Renderer::ShaderNode& node) {
     auto& T = NexusTheme::instance();
 
-    // Master Node için özel stil
-    bool isMaster = (node.type == Engine::Renderer::NodeType::Output);
-    if (isMaster) {
-        ImNodes::PushColorStyle(ImNodesCol_NodeOutline,    COLA(0x00d2ff, 1.0f));
-        ImNodes::PushColorStyle(ImNodesCol_TitleBar,       COLA(0x2563EB, 1.0f));
-        ImNodes::PushColorStyle(ImNodesCol_TitleBarHovered,COLA(0x1D4ED8, 1.0f));
-    }
-
     ImNodes::BeginNode(node.id);
+
+    // Node genişliğini 160px'e sabitle
+    ImGui::Dummy(ImVec2(160, 0));
 
     // Başlık
     ImNodes::BeginNodeTitleBar();
     ImGui::TextUnformatted(node.name.c_str());
-    if (isMaster) ImGui::SameLine(0,8); // ⚙️ ikonunu sağa koy
+    
+    // Sağ köşedeki indikatör karesini çiz
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    ImVec2 minPos = ImGui::GetItemRectMin();
+    ImVec2 maxPos = ImGui::GetItemRectMax();
+    
+    ImU32 indicatorCol = COLA(0x88FF51, 1.0f);
+    if (node.name == "PBR Master Node") indicatorCol = COLA(0x5174FF, 1.0f);
+    else if (node.name == "Scalar (Roughness)") indicatorCol = COLA(0x0033FF, 1.0f);
+    else if (node.name == "Scalar (Metalness)") indicatorCol = COLA(0xD351FF, 1.0f);
+    
+    float sqSize = 9.0f;
+    float rightX = minPos.x - 8.0f + 160.0f;
+    float topY = minPos.y + (maxPos.y - minPos.y) * 0.5f - sqSize * 0.5f;
+    dl->AddRectFilled(ImVec2(rightX - 10.0f - sqSize, topY), ImVec2(rightX - 10.0f, topY + sqSize), indicatorCol, 3.0f);
+    
     ImNodes::EndNodeTitleBar();
+
+    ImVec2 nodePos = ImNodes::GetNodeScreenSpacePos(node.id);
+    ImVec2 nodeDim = ImNodes::GetNodeDimensions(node.id);
 
     // Input pinleri
     for (auto& pin : node.inputs) {
-        // Pin rengi tipine göre
-        ImU32 pinCol = COLA(0x00d2ff, 1.0f); // default cyan
-        if (pin.name == "Normal Map")   pinCol = COLA(0x60A5FA, 0.4f);
-        if (pin.name == "Roughness")    pinCol = COLA(0x22c55e, 1.0f);
-        if (pin.name == "Metallic")     pinCol = COLA(0xF59E0B, 1.0f);
-        if (pin.name == "Emissive Color") pinCol = COLA(0xA78BFA, 0.4f);
-
+        ImU32 pinCol = COLA(0x82D9FF, 1.0f); // default input
+        if (pin.name == "Normal Map")   pinCol = COLA(0xD351FF, 1.0f);
+        
         ImNodes::PushColorStyle(ImNodesCol_Pin, pinCol);
         ImNodes::BeginInputAttribute(pin.id);
-        // Baskı rengine göre metin rengi
-        bool dimmed = (pin.name == "Normal Map" || pin.name == "Emissive Color");
-        ImGui::TextColored(dimmed ? T.textMuted : T.textPrimary,
-                           "%s", pin.name.c_str());
+        ImVec2 cursorPos = ImGui::GetCursorScreenPos();
+        ImGui::TextColored(ImVec4(1,1,1,1), "%s", pin.name.c_str());
         ImNodes::EndInputAttribute();
         ImNodes::PopColorStyle();
+
+        PinInfo pInfo;
+        pInfo.pos = ImVec2(nodePos.x, cursorPos.y + ImGui::GetTextLineHeight() * 0.5f);
+        pInfo.color = pinCol;
+        pInfo.isInput = true;
+        m_pinInfo[pin.id] = pInfo;
     }
 
     // Output pinleri
     for (auto& pin : node.outputs) {
-        // Scalar node'larda değer göster
         bool isScalarOut = (node.type != Engine::Renderer::NodeType::Output &&
                             pin.type == Engine::Renderer::PinType::Float);
 
+        ImU32 pinCol = COLA(0xFFE47B, 1.0f); // default output yellow
+        if (isScalarOut) pinCol = COLA(0x82D9FF, 1.0f);
+        
+        ImNodes::PushColorStyle(ImNodesCol_Pin, pinCol);
         ImNodes::BeginOutputAttribute(pin.id);
+        ImVec2 cursorPos = ImGui::GetCursorScreenPos();
         if (isScalarOut)
             ImGui::Text("Value: %.2f", std::stof(pin.name.empty() ? "0" : pin.name));
         else
             ImGui::Text("%s", pin.name.c_str());
         ImNodes::EndOutputAttribute();
+        ImNodes::PopColorStyle();
+
+        PinInfo pInfo;
+        pInfo.pos = ImVec2(nodePos.x + nodeDim.x, cursorPos.y + ImGui::GetTextLineHeight() * 0.5f);
+        pInfo.color = pinCol;
+        pInfo.isInput = false;
+        m_pinInfo[pin.id] = pInfo;
     }
 
     ImNodes::EndNode();
-
-    if (isMaster) {
-        ImNodes::PopColorStyle();
-        ImNodes::PopColorStyle();
-        ImNodes::PopColorStyle();
-    }
 }
 
 // ─── Context menu ─────────────────────────────────────────────────────────────

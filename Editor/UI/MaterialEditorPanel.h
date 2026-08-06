@@ -1,8 +1,15 @@
 #pragma once
 #include "../../Engine/Renderer/Materials/ShaderGraph.h"
 #include <imnodes.h>
+#include <unordered_map>
 
 namespace Editor::UI {
+
+struct PinInfo {
+    ImVec2 pos;
+    ImU32 color;
+    bool isInput;
+};
 
 class MaterialEditorPanel {
 public:
@@ -14,6 +21,7 @@ public:
 private:
     Engine::Renderer::ShaderGraph m_graph;
     ImNodesContext* m_editorContext = nullptr;
+    std::unordered_map<int, PinInfo> m_pinInfo;
 
     void drawNode(Engine::Renderer::ShaderNode& node);
     void handleContextMenu();

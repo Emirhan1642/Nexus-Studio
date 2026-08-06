@@ -226,9 +226,9 @@ void LeftToolbar::draw() {
     };
 
     // [Panel ikonları: Folder / Material / AI]
-    drawShortcut("##ast", "icon_folder", DrawIcon_Folder, EditorLayout::instance().showAssetBrowser, "Asset Manager");
-    drawShortcut("##mat", "icon_material", DrawIcon_Material, EditorLayout::instance().showMaterialEditor, "Material Editor");
-    drawShortcut("##ai", "icon_ai", DrawIcon_Folder, EditorLayout::instance().showAICopilot, "AI Copilot");
+    drawShortcut("##ast", "icon_folder_bold", DrawIcon_Folder, EditorLayout::instance().showAssetBrowser, "Asset Manager");
+    drawShortcut("##mat", "icon_node_editor_bold", DrawIcon_Material, EditorLayout::instance().showMaterialEditor, "Material Editor");
+    drawShortcut("##ai", "icon_ai_bold", DrawIcon_Folder, EditorLayout::instance().showAICopilot, "AI Copilot");
 
     drawDivider();
 
@@ -239,21 +239,21 @@ void LeftToolbar::draw() {
     if (isIso && s_viewMode != 0) s_viewMode = 0;
     
     bool isTop = (s_viewMode == 1);
-    drawShortcut("##cam_90", "icon_90_degree", DrawIcon_Folder, isTop, "Top View");
+    drawShortcut("##cam_90", "icon_90_degree_bold", DrawIcon_Folder, isTop, "Top View");
     if (isTop && s_viewMode != 1) s_viewMode = 1;
 
     bool isFree = (s_viewMode == 2);
-    drawShortcut("##cam_free", "icon_free_cam", DrawIcon_Folder, isFree, "Front View");
+    drawShortcut("##cam_free", "icon_free_cam_bold", DrawIcon_Folder, isFree, "Front View");
     if (isFree && s_viewMode != 2) s_viewMode = 2;
     
     drawDivider();
     
     // [Render Modes]
-    drawShortcut("##wire", "icon_wireframe", DrawIcon_Folder, s_wireframe, "Wireframe Mode");
-    drawShortcut("##coll", "icon_collision", DrawIcon_Folder, s_collision, "Collision Bounds");
+    drawShortcut("##wire", "icon_wireframe_bold", DrawIcon_Folder, s_wireframe, "Wireframe Mode");
+    drawShortcut("##coll", "icon_collision_bold", DrawIcon_Folder, s_collision, "Collision Bounds");
     
     // World/Local Toggle (reusing a folder icon fallback since we don't have a specific icon)
-    drawShortcut("##world", "icon_world", DrawIcon_Folder, s_worldSpace, "World Space Toggle");
+    drawShortcut("##world", "icon_world_bold", DrawIcon_Folder, s_worldSpace, "World Space Toggle");
 
     // Settings icon at bottom
     {

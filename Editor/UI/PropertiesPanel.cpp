@@ -65,10 +65,15 @@ static bool SectionHeader(const char* label, const char* iconKey = nullptr, cons
     dl->AddLine(ImVec2(p.x, p.y + 19), ImVec2(p.x + width, p.y + 19), COLA(0xFFFFFF, 0.20f));
 
     // Arrow + Icon + Label
-    const char* arrow = open ? "▼" : "▶";
-    dl->AddText(ImVec2(p.x, p.y + 3), IM_COL32_WHITE, arrow);
+    ImTextureID chevron = IconRegistry::instance().get(open ? "icon_chevron_down_bold" : "icon_chevron_right_bold");
+    if (chevron) {
+        dl->AddImage(chevron, ImVec2(p.x, p.y + 2.0f), ImVec2(p.x + 16.0f, p.y + 18.0f), ImVec2(0,0), ImVec2(1,1), IM_COL32_WHITE);
+    } else {
+        const char* arrow = open ? "v" : ">";
+        dl->AddText(ImVec2(p.x, p.y + 3), IM_COL32_WHITE, arrow);
+    }
 
-    float cx = p.x + 16.0f;
+    float cx = p.x + 18.0f;
     if (iconKey) {
         ImTextureID iconTex = IconRegistry::instance().get(iconKey);
         if (iconTex) {
@@ -175,7 +180,7 @@ void PropertiesPanel::draw() {
     auto& T = NexusTheme::instance();
 
     ImGuiWindowClass window_class;
-    window_class.DockNodeFlagsOverrideSet = ImGuiDockNodeFlags_NoTabBar;
+    window_class.DockNodeFlagsOverrideSet = ImGuiDockNodeFlags_NoTabBar | ImGuiDockNodeFlags_HiddenTabBar;
     ImGui::SetNextWindowClass(&window_class);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
     ImGui::PushStyleColor(ImGuiCol_WindowBg, T.bgPanel);
@@ -200,7 +205,7 @@ void PropertiesPanel::draw() {
         ImVec2 base = ImGui::GetCursorScreenPos();
         
         float cx = base.x + 8.0f;
-        ImTextureID iconSettings = IconRegistry::instance().get("icon_properties");
+        ImTextureID iconSettings = IconRegistry::instance().get("icon_properties_bold");
         if (iconSettings) child_dl->AddImage(iconSettings, ImVec2(cx, base.y + 7.0f), ImVec2(cx + 16.0f, base.y + 23.0f));
         cx += 24.0f;
         
@@ -218,7 +223,7 @@ void PropertiesPanel::draw() {
             child_dl->AddText(ImVec2(rx, base.y + 8.0f), IM_COL32_WHITE, name);
             
             rx -= 20.0f;
-            ImTextureID objIcon = IconRegistry::instance().get("icon_part"); // Örnek
+            ImTextureID objIcon = IconRegistry::instance().get("icon_mesh_bold"); // Örnek
             if (objIcon) child_dl->AddImage(objIcon, ImVec2(rx, base.y + 7.0f), ImVec2(rx + 16.0f, base.y + 23.0f));
         }
     }
@@ -253,7 +258,7 @@ void PropertiesPanel::draw() {
     ImGui::BeginChild("##PropScroll", ImVec2(0,0), false, 0);
 
     // ─── 1. TRANSFORM ────────────────────────────────────────────────────────
-    if (SectionHeader("Transform", "icon_transform", nullptr)) {
+    if (SectionHeader("Transform", "icon_transform_bold", nullptr)) {
         auto* cls = Engine::Reflection::TypeRegistry::instance().find(selected->getClassName());
         bool hasPos = false, hasSz = false;
         if (cls) {
@@ -282,7 +287,7 @@ void PropertiesPanel::draw() {
     }
 
     // ─── 2. TAGS & LAYERS ────────────────────────────────────────────────────
-    if (SectionHeader("Tags & Layers", "icon_tags", nullptr)) {
+    if (SectionHeader("Tags & Layers", "icon_tags_bold", nullptr)) {
         ImGui::Dummy(ImVec2(0, 24));
         ImVec2 pR = ImGui::GetItemRectMin();
         ImDrawList* l = ImGui::GetWindowDrawList();
@@ -299,14 +304,14 @@ void PropertiesPanel::draw() {
             cx += bw + 5.0f; // gap 5px
         }
 
-        PropRow("Collision Layer", "Layer 3 (Props) ⌄", IM_COL32_WHITE);
+        PropRow("Collision Layer", "Layer 3 (Props) v", IM_COL32_WHITE);
         PropRow("Collision Mask", "Player, Ground, Raycast", COL(T.accent));
     }
 
     // ─── 3. MESH & GEOMETRY ──────────────────────────────────────────────────
-    if (SectionHeader("Mesh & Geometry", "icon_mesh2", nullptr)) {
-        PropRow("Mesh Asset", "Gold_Box.mesh ⌄", IM_COL32_WHITE);
-        PropRow("Collision Fidelity", "Precise Convex ⌄", IM_COL32_WHITE);
+    if (SectionHeader("Mesh & Geometry", "icon_mesh2_bold", nullptr)) {
+        PropRow("Mesh Asset", "Gold_Box.mesh v", IM_COL32_WHITE);
+        PropRow("Collision Fidelity", "Precise Convex v", IM_COL32_WHITE);
         
         static bool castShadow = true, recvShadow = true;
         ImGui::Dummy(ImVec2(0, 20));
@@ -323,7 +328,7 @@ void PropertiesPanel::draw() {
     }
 
     // ─── 4. SHADER ────────────────────────────────────────────────────────────
-    if (SectionHeader("Shader", "icon_shader", nullptr)) {
+    if (SectionHeader("Shader", "icon_shader_bold", nullptr)) {
         
         PropRow("Albedo Tint", "      ");
         ImVec2 rowMin = ImGui::GetItemRectMin();

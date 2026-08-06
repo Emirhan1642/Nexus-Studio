@@ -21,30 +21,31 @@ static ImU32 COLA(uint32_t hex, float a) {
 struct ClassMeta { const char* iconKey; const char* emojiFallback; ImU32 barColor; };
 
 static ClassMeta getClassMeta(const std::string& cls) {
-    if (cls == "Workspace") return {"icon_world",    "[W]", COLA(0x9CA3AF, 1.0f)};
-    if (cls == "Part")      return {"icon_part",     "[P]", COLA(0x00d2ff, 1.0f)}; // Cyan
-    if (cls == "MeshPart")  return {"icon_mesh",     "[M]", COLA(0xf59e0b, 1.0f)}; // Orange
-    if (cls == "Script")    return {"icon_script",   "[S]", COLA(0x2dd4bf, 1.0f)}; // Teal
-    if (cls == "Camera")    return {"icon_camera",   "[C]", COLA(0xf97316, 1.0f)}; // Orange
-    if (cls == "DirectionalLight") return {"icon_light","[L]", COLA(0xBBFF00, 1.0f)}; // LimeYellow
-    if (cls == "Skybox")    return {"icon_sky",      "[S]", COLA(0x22d3ee, 1.0f)}; // Cyan 400
-    if (cls == "Model")     return {"icon_model",    "[M]", COLA(0xA7FF71, 1.0f)}; // LimeGreen
-    if (cls == "Bone")      return {"icon_bone",     "[B]", COLA(0x9ca3af, 1.0f)}; // Gray
-    if (cls == "Folder")    return {"icon_folder",   "[F]", COLA(0xA7FF71, 1.0f)}; // LimeGreen
-    if (cls == "ParticleSystem") return {"icon_fx",  "[P]", COLA(0xFFDD6C, 1.0f)}; // ParticleYellow
-    if (cls == "Lighting")  return {"icon_light2",   "[L]", COLA(0x9ca3af, 1.0f)}; // Gray
-    if (cls == "ServerScriptService") return {"icon_svr","[S]", COLA(0xFFE47B, 1.0f)}; // Yellow
-    if (cls == "SoundService") return {"icon_snd",   "[S]", COLA(0x9ca3af, 1.0f)};
-    if (cls == "Manager")   return {"icon_mgr",      "[M]", COLA(0x3b82f6, 1.0f)}; // Blue 500
-    if (cls == "Item")      return {"icon_item",     "[I]", COLA(0xa855f7, 1.0f)}; // Purple 500
-    return {"icon_generic", "[?]", COLA(0x6b7280, 1.0f)}; // Gray
+    if (cls == "Workspace") return {"icon_world_bold",    "[W]", COLA(0x9CA3AF, 1.0f)};
+    if (cls == "Part")      return {"icon_mesh",      "[P]", COLA(0x00d2ff, 1.0f)}; // Cyan
+    if (cls == "MeshPart")  return {"icon_mesh_bold",     "[M]", COLA(0xf59e0b, 1.0f)}; // Orange
+    if (cls == "Script")    return {"icon_script_bold",   "[S]", COLA(0x2dd4bf, 1.0f)}; // Teal
+    if (cls == "Camera")    return {"icon_camera_bold",   "[C]", COLA(0xf97316, 1.0f)}; // Orange
+    if (cls == "DirectionalLight") return {"icon_light_bold","[L]", COLA(0xBBFF00, 1.0f)}; // LimeYellow
+    if (cls == "Skybox")    return {"icon_sky_bold",      "[S]", COLA(0x22d3ee, 1.0f)}; // Cyan 400
+    if (cls == "Model")     return {"icon_model_bold",    "[M]", COLA(0xA7FF71, 1.0f)}; // LimeGreen
+    if (cls == "Bone")      return {"icon_transform","[B]", COLA(0x9ca3af, 1.0f)}; // Gray
+    if (cls == "Folder")    return {"icon_folder_bold",   "[F]", COLA(0xA7FF71, 1.0f)}; // LimeGreen
+    if (cls == "ParticleSystem") return {"icon_fx_bold",  "[P]", COLA(0xFFDD6C, 1.0f)}; // ParticleYellow
+    if (cls == "Lighting")  return {"icon_light2_bold",   "[L]", COLA(0x9ca3af, 1.0f)}; // Gray
+    if (cls == "ServerScriptService") return {"icon_svr_bold","[S]", COLA(0xFFE47B, 1.0f)}; // Yellow
+    if (cls == "SoundService") return {"icon_snd_bold",   "[S]", COLA(0x9ca3af, 1.0f)};
+    if (cls == "ReplicatedStorage") return {"icon_box", "[R]", COLA(0x9ca3af, 1.0f)};
+    if (cls == "Manager")   return {"icon_setting_bold",  "[M]", COLA(0x3b82f6, 1.0f)}; // Blue 500
+    if (cls == "Item")      return {"icon_box",      "[I]", COLA(0xa855f7, 1.0f)}; // Purple 500
+    return {"icon_box", "[?]", COLA(0x6b7280, 1.0f)}; // Fallback to box if generic is missing
 }
 
 void ExplorerPanel::draw() {
     auto& T = NexusTheme::instance();
     
     ImGuiWindowClass window_class;
-    window_class.DockNodeFlagsOverrideSet = ImGuiDockNodeFlags_NoTabBar;
+    window_class.DockNodeFlagsOverrideSet = ImGuiDockNodeFlags_NoTabBar | ImGuiDockNodeFlags_HiddenTabBar;
     ImGui::SetNextWindowClass(&window_class);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
     ImGui::PushStyleColor(ImGuiCol_WindowBg, T.bgPanel);
@@ -84,7 +85,7 @@ void ExplorerPanel::draw() {
             ImU32 textCol = active ? COL(T.textPrimary) : COL(T.textMuted);
             
             if (i == 0) {
-                ImTextureID titleIcon = IconRegistry::instance().get("icon_world");
+                ImTextureID titleIcon = IconRegistry::instance().get("icon_explorer");
                 if (titleIcon) child_dl->AddImage(titleIcon, ImVec2(r.x + 10, r.y + 7), ImVec2(r.x + 26, r.y + 23), ImVec2(0,0), ImVec2(1,1), COL(T.accent));
                 child_dl->AddText(ImVec2(r.x + 34, r.y + 8), textCol, tabs[i]);
             } else {
@@ -153,9 +154,19 @@ void ExplorerPanel::draw() {
 void ExplorerPanel::drawInstanceNode(const std::shared_ptr<Instance>& inst) {
     auto& T = NexusTheme::instance();
     bool isSelected   = (inst == SelectionManager::instance().getSelected());
-    const auto& cls   = inst->getClassName();
+    std::string cls   = inst->getClassName();
+    
+    // Temel servisler (Workspace, Lighting vb.) icin ozel sinif henuz yok, 
+    // sadece "Instance" donduruyorlar. Eger oyleyse isimlerini sinif gibi kullanalim.
+    if (cls == "Instance" && (inst->name == "Workspace" || inst->name == "Lighting" || 
+                              inst->name == "ServerScriptService" || inst->name == "ReplicatedStorage" ||
+                              inst->name == "SoundService")) {
+        cls = inst->name;
+    }
+    
     ClassMeta meta    = getClassMeta(cls);
     bool hasChildren  = !inst->getChildren().empty();
+
 
     static std::map<void*, bool> s_treeState;
     if ((cls == "Workspace" || cls == "Model" || cls == "Folder") && s_treeState.find(inst.get()) == s_treeState.end()) {
@@ -205,7 +216,7 @@ void ExplorerPanel::drawInstanceNode(const std::shared_ptr<Instance>& inst) {
 
     // Arrow
     if (hasChildren) {
-        ImTextureID chevron = IconRegistry::instance().get(open ? "icon_chevron_down" : "icon_chevron_right");
+        ImTextureID chevron = IconRegistry::instance().get(open ? "icon_chevron_down_bold" : "icon_chevron_right_bold");
         if (chevron) {
             dl->AddImage(chevron, ImVec2(cx, pos.y + 4.0f), ImVec2(cx + 12.0f, pos.y + 16.0f), ImVec2(0,0), ImVec2(1,1), isSelected ? COL(T.accent) : COL(T.textMuted));
         } else {
