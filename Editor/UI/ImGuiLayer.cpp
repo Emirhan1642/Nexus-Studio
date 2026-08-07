@@ -142,7 +142,8 @@ void ImGuiLayer::buildDefaultLayout(ImGuiID dockspaceId, ImVec2 size) {
     ImGui::DockBuilderDockWindow("##LeftToolbar", left);
     ImGui::DockBuilderDockWindow("FileListBar",   fileList);
     ImGui::DockBuilderDockWindow("Viewport",      centerTop);
-    ImGui::DockBuilderDockWindow("Bottom Panel",  bottom);
+    ImGui::DockBuilderDockWindow("Asset Browser",  bottom);
+    ImGui::DockBuilderDockWindow("Material Editor",  bottom);
     ImGui::DockBuilderDockWindow("Explorer",      explorer);
     ImGui::DockBuilderDockWindow("Properties",    properties);
     ImGui::DockBuilderDockWindow("AI Copilot",    copilot);

@@ -9,146 +9,6 @@
 
 namespace Editor::UI {
 
-inline void DrawBottomTabBar(const char* activeTab) {
-    auto& T = NexusTheme::instance();
-    ImDrawList* dl = ImGui::GetWindowDrawList();
-    ImVec2 basePos = ImGui::GetCursorScreenPos(); 
-    
-    float H = 34.0f; // Tab bar height
-    float W = ImGui::GetWindowWidth();
-    
-    // Draw background for the tab bar area
-    dl->AddRectFilled(basePos, ImVec2(basePos.x + W, basePos.y + H), ImGui::ColorConvertFloat4ToU32(T.bgPanel));
-    
-    // Draw bottom divider
-    dl->AddLine(ImVec2(basePos.x, basePos.y + H - 1.0f), ImVec2(basePos.x + W, basePos.y + H - 1.0f), ImGui::ColorConvertFloat4ToU32(T.border));
-
-    struct Tab { const char* label; const char* icon; float width; ImU32 indicatorCol; };
-    std::vector<Tab> tabs;
-    if (!EditorLayout::instance().isAssetBrowserTornOff)
-        tabs.push_back({"Asset Browser", "icon_folder_bold", 150.0f, ImGui::ColorConvertFloat4ToU32(T.accent)});
-    if (!EditorLayout::instance().isMaterialEditorTornOff)
-        tabs.push_back({"Material Editor", "icon_node_editor_bold", 160.0f, ImGui::ColorConvertFloat4ToU32(T.accentGreen)});
-    if (!EditorLayout::instance().isConsoleTornOff)
-        tabs.push_back({"Console", "icon_script_bold", 110.0f, ImGui::ColorConvertFloat4ToU32(T.textMuted)});
-    
-    ImVec2 btnPos = basePos;
-    for (size_t i = 0; i < tabs.size(); i++) {
-        auto& t = tabs[i];
-        bool active = (strcmp(t.label, activeTab) == 0);
-        
-        // This registers the clickable area properly with ImGui's layout system
-        ImGui::InvisibleButton(t.label, ImVec2(t.width, H));
-        
-        // Accept drag and drop to restore torn off panels
-        if (ImGui::BeginDragDropTarget()) {
-            if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("_IMWINDOW")) {
-                ImGuiWindow* droppedWindow = *(ImGuiWindow**)payload->Data;
-                if (strcmp(droppedWindow->Name, "Asset Browser") == 0) {
-                    EditorLayout::instance().isAssetBrowserTornOff = false;
-                    EditorLayout::instance().activeBottomTab = "Asset Browser";
-                } else if (strcmp(droppedWindow->Name, "Material Editor") == 0) {
-                    EditorLayout::instance().isMaterialEditorTornOff = false;
-                    EditorLayout::instance().activeBottomTab = "Material Editor";
-                }
-            }
-            ImGui::EndDragDropTarget();
-        }
-
-        if (ImGui::IsItemClicked()) {
-            EditorLayout::instance().activeBottomTab = t.label;
-        }
-        
-        if (ImGui::IsItemActive() && ImGui::IsMouseDragging(0, 2.0f)) {
-            if (strcmp(t.label, "Material Editor") == 0) {
-                EditorLayout::instance().isMaterialEditorTornOff = true;
-                EditorLayout::instance().justTornOffMaterialEditor = true;
-                EditorLayout::instance().tearOffPos = ImGui::GetMousePos();
-                EditorLayout::instance().wantStartMovingMaterialEditorFromTab = true;
-                if (EditorLayout::instance().activeBottomTab == "Material Editor") EditorLayout::instance().activeBottomTab = "Asset Browser";
-                ImGui::ClearActiveID(); // Release the button drag state
-            } else if (strcmp(t.label, "Asset Browser") == 0) {
-                EditorLayout::instance().isAssetBrowserTornOff = true;
-                EditorLayout::instance().justTornOffAssetBrowser = true;
-                EditorLayout::instance().tearOffPos = ImGui::GetMousePos();
-                EditorLayout::instance().wantStartMovingAssetBrowserFromTab = true;
-                if (EditorLayout::instance().activeBottomTab == "Asset Browser") EditorLayout::instance().activeBottomTab = "Material Editor";
-                ImGui::ClearActiveID(); // Release the button drag state
-            }
-        }
-        
-        bool hov = ImGui::IsItemHovered();
-        bool held = ImGui::IsItemActive();
-        
-        ImVec2 tMin = btnPos;
-        ImVec2 tMax = ImVec2(btnPos.x + t.width, btnPos.y + H);
-        
-        // Background
-        if (active) {
-            dl->AddRectFilled(tMin, tMax, ImGui::ColorConvertFloat4ToU32(T.bgDeepest));
-            dl->AddRectFilled(tMin, ImVec2(tMax.x, tMin.y + 2.0f), t.indicatorCol);
-        } else if (held) {
-            dl->AddRectFilled(tMin, tMax, ImGui::ColorConvertFloat4ToU32(T.border)); // Clear visual feedback on click
-        } else if (hov) {
-            dl->AddRectFilled(tMin, tMax, ImGui::ColorConvertFloat4ToU32(T.bgCard));
-        }
-        
-        // Right border (vertical divider)
-        dl->AddLine(ImVec2(tMax.x, tMin.y + 6.0f), ImVec2(tMax.x, tMax.y - 6.0f), ImGui::ColorConvertFloat4ToU32(T.border));
-        
-        // Icon (14x14)
-        ImTextureID icon = IconRegistry::instance().get(t.icon);
-        float ix = tMin.x + 8.0f;
-        float iy = tMin.y + (H - 14.0f) * 0.5f;
-        
-        if (icon) {
-            ImU32 iconCol = active ? ImGui::ColorConvertFloat4ToU32(T.accent) : ImGui::ColorConvertFloat4ToU32(T.textMuted);
-            dl->AddImage(icon, ImVec2(ix, iy), ImVec2(ix + 14.0f, iy + 14.0f), ImVec2(0,0), ImVec2(1,1), iconCol);
-        }
-        
-        // Text
-        ImGuiIO& io = ImGui::GetIO();
-        bool pushedFont = false;
-        if (io.Fonts->Fonts.Size > 2) {
-            ImGui::PushFont(io.Fonts->Fonts[2]); 
-            pushedFont = true;
-        }
-        
-        ImVec2 ts = ImGui::CalcTextSize(t.label);
-        ImU32 textCol = active ? ImGui::ColorConvertFloat4ToU32(T.textPrimary) : ImGui::ColorConvertFloat4ToU32(T.textSecondary);
-        dl->AddText(ImVec2(tMin.x + 28.0f, tMin.y + (H - ts.y)*0.5f), textCol, t.label);
-        
-        if (pushedFont) ImGui::PopFont();
-        
-        btnPos.x += t.width;
-        if (i < tabs.size() - 1) {
-            ImGui::SameLine(0.0f, 0.0f);
-        }
-    }
-    
-    // Fill remaining space with a drop target to restore torn off panels
-    float remainingWidth = W - (btnPos.x - basePos.x);
-    if (remainingWidth > 0.0f) {
-        ImGui::SameLine(0.0f, 0.0f);
-        ImGui::InvisibleButton("##BottomPanelEmptySpace", ImVec2(remainingWidth, H));
-        if (ImGui::BeginDragDropTarget()) {
-            if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("_IMWINDOW")) {
-                ImGuiWindow* droppedWindow = *(ImGuiWindow**)payload->Data;
-                if (strcmp(droppedWindow->Name, "Asset Browser") == 0) {
-                    EditorLayout::instance().isAssetBrowserTornOff = false;
-                    EditorLayout::instance().activeBottomTab = "Asset Browser";
-                } else if (strcmp(droppedWindow->Name, "Material Editor") == 0) {
-                    EditorLayout::instance().isMaterialEditorTornOff = false;
-                    EditorLayout::instance().activeBottomTab = "Material Editor";
-                }
-            }
-            ImGui::EndDragDropTarget();
-        }
-    }
-    
-    // Move cursor below the tab bar for the actual window content
-    ImGui::SetCursorScreenPos(ImVec2(basePos.x, basePos.y + H));
-}
 
 inline void DrawSingleTabHeader(const char* label, const char* icon, float width, ImU32 indicatorCol) {
     ImGuiContext& g = *GImGui;
@@ -170,14 +30,11 @@ inline void DrawSingleTabHeader(const char* label, const char* icon, float width
     if (!node || node->Windows.Size <= 1) {
         ImGui::InvisibleButton(label, ImVec2(W, H));
         
-        // Start moving the window when this custom header is dragged (deferred to Main.cpp)
+        // Start moving the window natively when this custom header is dragged
         if (ImGui::IsItemActive() && ImGui::IsMouseDragging(0)) {
-            if (strcmp(label, "Asset Browser") == 0) {
-                EditorLayout::instance().wantStartMovingAssetBrowser = true;
-            } else if (strcmp(label, "Material Editor") == 0) {
-                EditorLayout::instance().wantStartMovingMaterialEditor = true;
-            }
-            ImGui::ClearActiveID();
+            ImGui::FocusWindow(window);
+            ImGui::DockContextProcessUndockWindow(GImGui, window, false);
+            ImGui::StartMouseMovingWindow(window);
         }
         
         ImVec2 tMin = basePos;
@@ -242,15 +99,19 @@ inline void DrawSingleTabHeader(const char* label, const char* icon, float width
             ImGui::InvisibleButton(sLabel, ImVec2(sWidth, H));
             if (ImGui::IsItemClicked()) {
                 ImGui::FocusWindow(sibling);
+                // When HiddenTabBar is used, ImGui forces VisibleWindow to Windows[0].
+                // We must swap this clicked window to index 0 so it actually becomes visible!
+                if (i > 0) {
+                    ImGuiWindow* temp = node->Windows[0];
+                    node->Windows[0] = node->Windows[i];
+                    node->Windows[i] = temp;
+                }
             }
             
             if (ImGui::IsItemActive() && ImGui::IsMouseDragging(0)) {
-                if (strcmp(sLabel, "Asset Browser") == 0) {
-                    EditorLayout::instance().wantStartMovingAssetBrowser = true;
-                } else if (strcmp(sLabel, "Material Editor") == 0) {
-                    EditorLayout::instance().wantStartMovingMaterialEditor = true;
-                }
-                ImGui::ClearActiveID();
+                ImGui::FocusWindow(sibling);
+                ImGui::DockContextProcessUndockWindow(GImGui, sibling, false);
+                ImGui::StartMouseMovingWindow(sibling);
             }
 
             bool hov = ImGui::IsItemHovered();
