@@ -7,7 +7,7 @@ namespace Editor::UI {
 class AssetBrowserPanel {
 public:
     void initialize();
-    void draw();
+    void drawContents();
 
 private:
     void drawAssetGrid();

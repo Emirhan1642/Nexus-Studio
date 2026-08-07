@@ -142,12 +142,10 @@ void ImGuiLayer::buildDefaultLayout(ImGuiID dockspaceId, ImVec2 size) {
     ImGui::DockBuilderDockWindow("##LeftToolbar", left);
     ImGui::DockBuilderDockWindow("FileListBar",   fileList);
     ImGui::DockBuilderDockWindow("Viewport",      centerTop);
-    ImGui::DockBuilderDockWindow("Asset Browser", bottom);
+    ImGui::DockBuilderDockWindow("Bottom Panel",  bottom);
     ImGui::DockBuilderDockWindow("Explorer",      explorer);
     ImGui::DockBuilderDockWindow("Properties",    properties);
     ImGui::DockBuilderDockWindow("AI Copilot",    copilot);
-    // Material Editor shares the Asset Browser tab group by default
-    ImGui::DockBuilderDockWindow("Material Editor", bottom);
 
     ImGui::DockBuilderFinish(dockspaceId);
 }

@@ -8,6 +8,7 @@
 #include <nlohmann/json.hpp>
 #include "IconRegistry.h"
 #include "NexusTheme.h"
+#include "SharedTabBar.h"
 
 namespace fs = std::filesystem;
 namespace Editor::UI {
@@ -21,64 +22,11 @@ void AssetBrowserPanel::initialize() {
     m_currentFolder = Engine::Assets::AssetDatabase::instance().getProjectRoot() + "/Assets";
 }
 
-void AssetBrowserPanel::draw() {
+void AssetBrowserPanel::drawContents() {
     auto& T = NexusTheme::instance();
-
-    ImGuiWindowClass window_class;
-    ImGui::SetNextWindowClass(&window_class);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
-    ImGui::Begin("Asset Browser", nullptr, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoTitleBar);
-
+    
     ImDrawList* dl = ImGui::GetWindowDrawList();
     float width = ImGui::GetWindowWidth();
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // TOPBAR (h=30)
-    // Spec: "Asset Manager" (aktif, white) | divider | "Console" (pasif, #8E8E8E)
-    // ─────────────────────────────────────────────────────────────────────────
-    ImGui::PushStyleColor(ImGuiCol_ChildBg, T.bgPanel);
-    ImGui::BeginChild("##ABHeader", ImVec2(width, 30), false, ImGuiWindowFlags_NoScrollbar);
-    {
-        ImVec2 base = ImGui::GetCursorScreenPos();
-        
-        // Bottom border of Topbar
-        dl->AddLine(ImVec2(base.x, base.y + 29), ImVec2(base.x + width, base.y + 29), COL(T.border));
-
-        const char* tabs[] = {"Asset Manager", "Console"};
-        float cx = base.x;
-
-        for (int i = 0; i < 2; i++) {
-            bool active = (s_activeTab == i);
-            ImVec2 ts = ImGui::CalcTextSize(tabs[i]);
-            float tabW = ts.x + 20.0f; // 10px padding L/R
-            
-            ImVec2 r(cx, base.y);
-            ImGui::SetCursorScreenPos(r);
-            ImGui::InvisibleButton(tabs[i], ImVec2(tabW, 30));
-            if (ImGui::IsItemClicked()) s_activeTab = i;
-            
-            ImU32 textCol = active ? COL(T.textPrimary) : COL(T.textMuted);
-            dl->AddText(ImVec2(r.x + 10, r.y + 8), textCol, tabs[i]);
-            
-            if (active) {
-                dl->AddLine(ImVec2(r.x, r.y+1), ImVec2(r.x+tabW, r.y+1), COL(T.accent), 2.0f);
-            }
-            cx += tabW;
-            
-            if (i == 0) {
-                // divider
-                dl->AddLine(ImVec2(cx, base.y + 7), ImVec2(cx, base.y + 23), COLA(0xFFFFFF, 0.2f));
-                cx += 1.0f;
-            }
-        }
-
-        // Right side: Project Name
-        std::string pName = "Nexus Studio Project"; // Fallback or dynamic
-        float tw = ImGui::CalcTextSize(pName.c_str()).x;
-        dl->AddText(ImVec2(base.x + width - tw - 10, base.y + 8), COL(T.textMuted), pName.c_str());
-    }
-    ImGui::EndChild();
-    ImGui::PopStyleColor();
 
     Engine::Assets::AssetImportPipeline::instance().update();
     Engine::Assets::ThumbnailCache::instance().processPendingRenders(2);
@@ -88,8 +36,6 @@ void AssetBrowserPanel::draw() {
         ImGui::SetCursorPos(ImVec2(12, 12));
         ImGui::TextDisabled("Output log will appear here.");
         ImGui::EndChild();
-        ImGui::End();
-        ImGui::PopStyleVar();
         return;
     }
 
@@ -206,9 +152,6 @@ void AssetBrowserPanel::draw() {
     ImVec2 winP = ImGui::GetWindowPos();
     float winH = ImGui::GetWindowHeight();
     dl->AddLine(ImVec2(winP.x, winP.y + winH - 1.0f), ImVec2(winP.x + width, winP.y + winH - 1.0f), COL(T.border));
-
-    ImGui::End();
-    ImGui::PopStyleVar();
 }
 
 void AssetBrowserPanel::drawAssetGrid() {

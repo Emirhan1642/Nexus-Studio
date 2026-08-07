@@ -16,12 +16,13 @@ public:
     MaterialEditorPanel();
     ~MaterialEditorPanel();
 
-    void draw(bool* p_open = nullptr);
+    void drawContents();
 
 private:
     Engine::Renderer::ShaderGraph m_graph;
     ImNodesContext* m_editorContext = nullptr;
     std::unordered_map<int, PinInfo> m_pinInfo;
+    float m_zoomScale = 1.0f;
 
     void drawNode(Engine::Renderer::ShaderNode& node);
     void handleContextMenu();

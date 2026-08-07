@@ -27,11 +27,14 @@ void TopBar::draw(bool isSimulating, bool& toggleSim) {
     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,    ImVec2(0, 0));
     ImGui::PushStyleColor(ImGuiCol_WindowBg, T.bgPanel);
 
+    ImGuiWindowClass window_class_top;
+    window_class_top.DockNodeFlagsOverrideSet = ImGuiDockNodeFlags_NoDockingOverMe | ImGuiDockNodeFlags_NoDockingSplit;
+    ImGui::SetNextWindowClass(&window_class_top);
+
     ImGui::Begin("##TopBarReal", nullptr,
         ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
         ImGuiWindowFlags_NoMove     | ImGuiWindowFlags_NoScrollbar |
-        ImGuiWindowFlags_NoDocking  | ImGuiWindowFlags_NoSavedSettings |
-        ImGuiWindowFlags_NoScrollWithMouse);
+        ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoScrollWithMouse);
     ImGui::PopStyleColor();
 
     ImDrawList* dl   = ImGui::GetWindowDrawList();

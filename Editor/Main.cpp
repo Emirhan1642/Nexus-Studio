@@ -17,6 +17,7 @@
 #include <GLFW/glfw3native.h>
 
 #include <imgui.h>
+#include <imgui_internal.h>
 #include <map>
 
 #include "Engine/Core/Reflection/TypeRegistry.h"
@@ -47,6 +48,7 @@
 #include "UI/LeftToolbar.h"
 #include "UI/AICopilotPanel.h"
 #include "UI/BottomBar.h"
+#include "UI/SharedTabBar.h"
 #include "Undo/UndoStack.h"
 
 #include "Engine/Assets/AssetDatabase.h"
@@ -319,12 +321,116 @@ int main(int argc, char** argv) {
         viewport.draw(camera);
         explorer.draw();
         properties.draw();
-        assetBrowser.draw();
+        // Unified Bottom Panel
+        ImGuiWindowClass window_class_bottom;
+        window_class_bottom.DockNodeFlagsOverrideSet = ImGuiDockNodeFlags_HiddenTabBar | ImGuiDockNodeFlags_NoDockingOverMe | ImGuiDockNodeFlags_NoDockingSplit;
+        ImGui::SetNextWindowClass(&window_class_bottom);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
         
-        materialEditor.draw(&EditorLayout::instance().showMaterialEditor);
+        if (ImGui::Begin("Bottom Panel", nullptr, ImGuiWindowFlags_NoScrollbar)) {
+            Editor::UI::DrawBottomTabBar(EditorLayout::instance().activeBottomTab.c_str());
+            
+            if (EditorLayout::instance().activeBottomTab == "Asset Browser" && !EditorLayout::instance().isAssetBrowserTornOff) {
+                assetBrowser.drawContents();
+            } else if (EditorLayout::instance().activeBottomTab == "Material Editor" && !EditorLayout::instance().isMaterialEditorTornOff) {
+                materialEditor.drawContents();
+            }
+            // Console drawing would go here
+        }
+        ImGui::End();
+        ImGui::PopStyleVar();
+        
+        // Handle torn off Asset Browser
+        if (EditorLayout::instance().isAssetBrowserTornOff) {
+            bool open = true;
+            ImGuiWindowClass window_class_panels;
+            window_class_panels.DockNodeFlagsOverrideSet = ImGuiDockNodeFlags_HiddenTabBar;
+            ImGui::SetNextWindowClass(&window_class_panels);
+            if (EditorLayout::instance().justTornOffAssetBrowser) {
+                ImGui::SetNextWindowPos(ImVec2(EditorLayout::instance().tearOffPos.x - 20, EditorLayout::instance().tearOffPos.y - 10), ImGuiCond_Always);
+                EditorLayout::instance().justTornOffAssetBrowser = false;
+            }
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+            ImGuiWindowFlags panelFlags = ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoTitleBar;
+            if (ImGui::Begin("Asset Browser", &open, panelFlags)) {
+                Editor::UI::DrawSingleTabHeader("Asset Browser", "icon_folder_bold", 150.0f, ImGui::ColorConvertFloat4ToU32(NexusTheme::instance().accent));
+                assetBrowser.drawContents();
+            }
+            ImGui::End();
+            ImGui::PopStyleVar();
+            
+            if (!open) {
+                EditorLayout::instance().isAssetBrowserTornOff = false;
+                EditorLayout::instance().activeBottomTab = "Asset Browser";
+            }
+        }
+        
+        // Handle torn off Material Editor
+        if (EditorLayout::instance().isMaterialEditorTornOff) {
+            bool open = true;
+            ImGuiWindowClass window_class_panels;
+            window_class_panels.DockNodeFlagsOverrideSet = ImGuiDockNodeFlags_HiddenTabBar;
+            ImGui::SetNextWindowClass(&window_class_panels);
+            if (EditorLayout::instance().justTornOffMaterialEditor) {
+                ImGui::SetNextWindowPos(ImVec2(EditorLayout::instance().tearOffPos.x - 20, EditorLayout::instance().tearOffPos.y - 10), ImGuiCond_Always);
+                EditorLayout::instance().justTornOffMaterialEditor = false;
+            }
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+            ImGuiWindowFlags panelFlags = ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoTitleBar;
+            if (ImGui::Begin("Material Editor", &open, panelFlags)) {
+                Editor::UI::DrawSingleTabHeader("Material Editor", "icon_node_editor_bold", 160.0f, ImGui::ColorConvertFloat4ToU32(NexusTheme::instance().accentGreen));
+                materialEditor.drawContents();
+            }
+            ImGui::End();
+            ImGui::PopStyleVar();
+            
+            if (!open) {
+                EditorLayout::instance().isMaterialEditorTornOff = false;
+                EditorLayout::instance().activeBottomTab = "Material Editor";
+            }
+        }
+        
+        // Initial tear-off grabbing logic (triggered from BottomPanel tabs)
+        if (EditorLayout::instance().wantStartMovingAssetBrowserFromTab) {
+            ImGuiWindow* window = ImGui::FindWindowByName("Asset Browser");
+            if (window) {
+                ImGui::FocusWindow(window);
+                ImGui::StartMouseMovingWindow(window);
+                EditorLayout::instance().wantStartMovingAssetBrowserFromTab = false;
+            }
+        }
+        
+        if (EditorLayout::instance().wantStartMovingMaterialEditorFromTab) {
+            ImGuiWindow* window = ImGui::FindWindowByName("Material Editor");
+            if (window) {
+                ImGui::FocusWindow(window);
+                ImGui::StartMouseMovingWindow(window);
+                EditorLayout::instance().wantStartMovingMaterialEditorFromTab = false;
+            }
+        }
+
+        // Secondary dragging logic (triggered from custom floating panel headers)
+        if (EditorLayout::instance().wantStartMovingAssetBrowser) {
+            ImGuiWindow* window = ImGui::FindWindowByName("Asset Browser");
+            if (window) {
+                ImGui::FocusWindow(window);
+                ImGui::StartMouseMovingWindowOrNode(window, window->DockNode, true);
+                EditorLayout::instance().wantStartMovingAssetBrowser = false;
+            }
+        }
+        
+        if (EditorLayout::instance().wantStartMovingMaterialEditor) {
+            ImGuiWindow* window = ImGui::FindWindowByName("Material Editor");
+            if (window) {
+                ImGui::FocusWindow(window);
+                ImGui::StartMouseMovingWindowOrNode(window, window->DockNode, true);
+                EditorLayout::instance().wantStartMovingMaterialEditor = false;
+            }
+        }
+        
+        // Removed RETURN_TAB Checking (handled by native docking now)
         
         bottomBar.draw(deltaTime);
-        
 
         if (frameCount < 5) std::cout << "[DEBUG] Frame " << frameCount << ": End ImGui" << std::endl;
         

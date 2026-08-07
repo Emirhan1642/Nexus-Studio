@@ -8,6 +8,7 @@
 #include "IconRegistry.h"
 #include "NexusTheme.h"
 #include "SelectionManager.h"
+#include "SharedTabBar.h"
 #include "../../Engine/Core/DataModel/Part.h"
 
 // ─── Renk kısayolları ───────────────────────────────────────────────────────
@@ -142,17 +143,8 @@ MaterialEditorPanel::~MaterialEditorPanel() {
     ImNodes::DestroyContext(m_editorContext);
 }
 
-void MaterialEditorPanel::draw(bool* p_open) {
+void MaterialEditorPanel::drawContents() {
     auto& T = NexusTheme::instance();
-
-    ImGuiWindowClass window_class;
-    ImGui::SetNextWindowClass(&window_class);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
-    if (!ImGui::Begin("Material Editor", p_open)) {
-        ImGui::End();
-        ImGui::PopStyleVar();
-        return;
-    }
 
     ImDrawList* dl    = ImGui::GetWindowDrawList();
     float       width = ImGui::GetWindowWidth();
@@ -236,12 +228,50 @@ void MaterialEditorPanel::draw(bool* p_open) {
 
     ImNodes::BeginNodeEditor();
 
+    // ── Zoom Logic ────────────────────────────────────────────────────────────
+    float wheel = ImGui::GetIO().MouseWheel;
+    if (wheel != 0.0f && ImNodes::IsEditorHovered()) {
+        float oldZoom = m_zoomScale;
+        m_zoomScale += wheel * 0.1f;
+        m_zoomScale = std::clamp(m_zoomScale, 0.3f, 3.0f);
+        
+        if (m_zoomScale != oldZoom) {
+            float r = m_zoomScale / oldZoom;
+            
+            ImVec2 canvas_min = ImGui::GetWindowPos(); 
+            ImVec2 panning = ImNodes::EditorContextGetPanning();
+            ImVec2 mouse_pos = ImGui::GetMousePos();
+            ImVec2 mouse_grid = ImVec2(mouse_pos.x - canvas_min.x - panning.x, mouse_pos.y - canvas_min.y - panning.y);
+            
+            // Update node positions
+            for (auto& node : m_graph.nodes) {
+                ImVec2 pos = ImNodes::GetNodeGridSpacePos(node.id);
+                ImNodes::SetNodeGridSpacePos(node.id, ImVec2(pos.x * r, pos.y * r));
+            }
+            
+            // Update panning
+            ImVec2 new_panning = ImVec2(panning.x - mouse_grid.x * (r - 1.0f), panning.y - mouse_grid.y * (r - 1.0f));
+            ImNodes::EditorContextResetPanning(new_panning);
+        }
+    }
+    
+    ImGui::SetWindowFontScale(m_zoomScale);
+    
+    ImNodesStyle& style = ImNodes::GetStyle();
+    style.GridSpacing = 32.0f * m_zoomScale;
+    style.NodePadding = ImVec2(8.0f * m_zoomScale, 6.0f * m_zoomScale);
+    style.NodeCornerRounding = 4.0f * m_zoomScale;
+    style.PinCircleRadius = 4.0f * m_zoomScale;
+    style.PinHoverRadius = 10.0f * m_zoomScale;
+    style.LinkThickness = 3.0f * m_zoomScale;
+    // ─────────────────────────────────────────────────────────────────────────
+
     // ── Özel Dot Grid Çizimi ──────────────────────────────────────────────────
     ImDrawList* dl_grid = ImGui::GetWindowDrawList();
     ImVec2 panning = ImNodes::EditorContextGetPanning();
     ImVec2 winPos = ImGui::GetWindowPos();
     ImVec2 winSize = ImGui::GetWindowSize();
-    float spacing = 24.0f; // GridSpacing from ImNodes
+    float spacing = 24.0f * m_zoomScale;
     ImU32 dotColor = COLA(0x242424, 1.0f); // Aynı koyulukta nokta rengi
 
     float offsetX = fmodf(panning.x, spacing);
@@ -292,7 +322,7 @@ void MaterialEditorPanel::draw(bool* p_open) {
             ImVec2 cp1 = ImVec2(endPos.x - dist, endPos.y);
 
             int segments = 60;
-            float thickness = 8.0f; // Pin çapı
+            float thickness = 8.0f * m_zoomScale; // Ölçeklenmiş pin çapı
             
             int r0 = (startCol >> 0) & 0xFF;
             int g0 = (startCol >> 8) & 0xFF;
@@ -335,6 +365,9 @@ void MaterialEditorPanel::draw(bool* p_open) {
 
     ImNodes::MiniMap(0.2f, ImNodesMiniMapLocation_BottomRight);
     ImNodes::EndNodeEditor();
+    
+    // Font scale'i geri al ki arayüzün kalanı bozulmasın
+    ImGui::SetWindowFontScale(1.0f);
 
     // ── Bağlantı oluşturma ────────────────────────────────────────────────────
     int startPinId, endPinId;
@@ -349,9 +382,6 @@ void MaterialEditorPanel::draw(bool* p_open) {
     int destroyedId;
     if (ImNodes::IsLinkDestroyed(&destroyedId))
         m_graph.removeLink(destroyedId);
-
-    ImGui::End();
-    ImGui::PopStyleVar();
 }
 
 // ─── Node çizimi ─────────────────────────────────────────────────────────────
@@ -361,13 +391,13 @@ void MaterialEditorPanel::drawNode(Engine::Renderer::ShaderNode& node) {
     ImNodes::BeginNode(node.id);
 
     // Node genişliğini 160px'e sabitle
-    ImGui::Dummy(ImVec2(160, 0));
+    ImGui::Dummy(ImVec2(160.0f * m_zoomScale, 0));
 
-    // Başlık
+    // Özel title bar (Indicator square)
     ImNodes::BeginNodeTitleBar();
-    ImGui::TextUnformatted(node.name.c_str());
+    ImGui::Text("%s", node.name.c_str());
     
-    // Sağ köşedeki indikatör karesini çiz
+    // Sağ üst renk göstergesi
     ImDrawList* dl = ImGui::GetWindowDrawList();
     ImVec2 minPos = ImGui::GetItemRectMin();
     ImVec2 maxPos = ImGui::GetItemRectMax();
@@ -377,10 +407,11 @@ void MaterialEditorPanel::drawNode(Engine::Renderer::ShaderNode& node) {
     else if (node.name == "Scalar (Roughness)") indicatorCol = COLA(0x0033FF, 1.0f);
     else if (node.name == "Scalar (Metalness)") indicatorCol = COLA(0xD351FF, 1.0f);
     
-    float sqSize = 9.0f;
-    float rightX = minPos.x - 8.0f + 160.0f;
+    float sqSize = 9.0f * m_zoomScale;
+    float paddingX = 8.0f * m_zoomScale;
+    float rightX = minPos.x - paddingX + (160.0f * m_zoomScale);
     float topY = minPos.y + (maxPos.y - minPos.y) * 0.5f - sqSize * 0.5f;
-    dl->AddRectFilled(ImVec2(rightX - 10.0f - sqSize, topY), ImVec2(rightX - 10.0f, topY + sqSize), indicatorCol, 3.0f);
+    dl->AddRectFilled(ImVec2(rightX - (10.0f * m_zoomScale) - sqSize, topY), ImVec2(rightX - (10.0f * m_zoomScale), topY + sqSize), indicatorCol, 3.0f * m_zoomScale);
     
     ImNodes::EndNodeTitleBar();
 
