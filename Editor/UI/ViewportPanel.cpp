@@ -54,6 +54,8 @@ void ViewportPanel::resize(uint16_t width, uint16_t height) {
     currentHeight = height;
 }
 
+#include "SharedTabBar.h"
+
 void ViewportPanel::draw(Engine::Renderer::Camera& camera) {
     auto& T = NexusTheme::instance();
 
@@ -62,6 +64,10 @@ void ViewportPanel::draw(Engine::Renderer::Camera& camera) {
     ImGui::SetNextWindowClass(&window_class);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
     ImGui::Begin("Viewport");
+    
+    // Draw tab bar if there are multiple windows in this dock node
+    Editor::UI::DrawSingleTabHeader("Viewport", "icon_3d_cube", 150.0f, ImGui::ColorConvertFloat4ToU32(T.accent), false);
+
 
     ImVec2 avail = ImGui::GetContentRegionAvail();
     if (avail.x <= 0 || avail.y <= 0) {

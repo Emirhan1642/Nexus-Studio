@@ -60,6 +60,7 @@ void AssetBrowserPanel::drawContents() {
     ImGui::PushStyleColor(ImGuiCol_ChildBg, NexusTheme::HexColorAlpha(0x050505, 0.0f)); // Transparent to use frame bg
     ImGui::BeginChild("##AssetList", ImVec2(listW, frameH - pad*2), false, 0);
     {
+        ImDrawList* dl = ImGui::GetWindowDrawList();
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(4, 2));
 
         // Project Root
