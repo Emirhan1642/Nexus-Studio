@@ -13,8 +13,8 @@ ImVec4 NexusTheme::HexColor(uint32_t hex) {
 ImVec4 NexusTheme::HexColorAlpha(uint32_t hex, float alpha) {
     return ImVec4(
         ((hex >> 16) & 0xFF) / 255.0f,
-        ((hex >> 8) & 0xFF) / 255.0f,
-        ((hex) & 0xFF) / 255.0f,
+        ((hex >>  8) & 0xFF) / 255.0f,
+        ((hex      ) & 0xFF) / 255.0f,
         alpha
     );
 }

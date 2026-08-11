@@ -18,7 +18,7 @@ void FileListBar::draw() {
 
     ImGuiWindowClass window_class;
     window_class.ClassId = ImGui::GetID("FileListBarClass");
-    window_class.DockNodeFlagsOverrideSet = ImGuiDockNodeFlags_NoTabBar;
+    window_class.DockNodeFlagsOverrideSet = ImGuiDockNodeFlags_NoTabBar | ImGuiDockNodeFlags_NoDockingOverMe | ImGuiDockNodeFlags_NoDockingSplit | ImGuiDockNodeFlags_NoResize;
     ImGui::SetNextWindowClass(&window_class);
     
     ImGui::Begin("FileListBar", nullptr, 
@@ -135,7 +135,9 @@ void FileListBar::draw() {
 
         
         if (ImGui::IsItemActive() && ImGui::IsMouseDragging(0)) {
-            if (t.targetWindow && t.targetWindow->DockNode) {
+            // Viewport sekmesi FileListBar'dan drag edilemesin
+            bool isViewport = t.targetWindow && (std::string(t.targetWindow->Name) == "Viewport");
+            if (t.targetWindow && t.targetWindow->DockNode && !isViewport) {
                 ImGuiWindow* sibling = t.targetWindow;
 
                 // Queue undock for next frame

@@ -10,6 +10,9 @@ public:
     bool showMaterialEditor  = true;
     bool showAssetBrowser    = true;
     bool showAICopilot       = true;
+    bool showExplorer        = true;
+    bool showProperties      = true;
+
     
     bool wantStartMovingAssetBrowser = false;
     bool wantStartMovingMaterialEditor = false;

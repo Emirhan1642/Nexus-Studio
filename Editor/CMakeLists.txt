@@ -5,6 +5,7 @@ set(EDITOR_SOURCES
     UI/Backend/imgui_impl_bgfx.cpp
     UI/Backend/gizmo.cpp
     UI/ImGuiLayer.cpp
+    UI/RedrawScheduler.cpp
     UI/NexusTheme.cpp
     UI/IconRegistry.cpp
     UI/TopBar.cpp

@@ -104,7 +104,7 @@ void LeftToolbar::draw() {
     ImGui::PushStyleColor(ImGuiCol_WindowBg, T.bgPanel);
 
     ImGuiWindowClass window_class_left;
-    window_class_left.DockNodeFlagsOverrideSet = ImGuiDockNodeFlags_NoDockingOverMe | ImGuiDockNodeFlags_NoDockingSplit;
+    window_class_left.DockNodeFlagsOverrideSet = ImGuiDockNodeFlags_NoDockingOverMe | ImGuiDockNodeFlags_NoDockingSplit | ImGuiDockNodeFlags_NoResize;
     ImGui::SetNextWindowClass(&window_class_left);
 
     ImGui::Begin("##LeftToolbar", nullptr, 
@@ -229,9 +229,11 @@ void LeftToolbar::draw() {
         if (hov) ImGui::SetTooltip("%s", tip);
     };
 
-    // [Panel ikonları: Folder / Material / AI]
+    // [Panel ikonları: Folder / Material / AI / Explorer / Properties]
     drawShortcut("##ast", "icon_folder_bold", DrawIcon_Folder, EditorLayout::instance().showAssetBrowser, "Asset Manager");
     drawShortcut("##mat", "icon_node_editor_bold", DrawIcon_Material, EditorLayout::instance().showMaterialEditor, "Material Editor");
+    drawShortcut("##exp", "icon_explorer_bold", DrawIcon_Folder, EditorLayout::instance().showExplorer, "Explorer");
+    drawShortcut("##prop", "icon_properties_bold", DrawIcon_Folder, EditorLayout::instance().showProperties, "Properties");
     drawShortcut("##ai", "icon_ai_bold", DrawIcon_Folder, EditorLayout::instance().showAICopilot, "AI Copilot");
 
     drawDivider();

@@ -9,6 +9,8 @@
 #include "Engine/Scripting/Script.h"
 #include "IconRegistry.h"
 #include "NexusTheme.h"
+#include "EditorLayout.h"
+#include "SharedTabBar.h"
 #include <map>
 
 // ─── Renk kısayolları ───────────────────────────────────────────────────────
@@ -44,13 +46,17 @@ static ClassMeta getClassMeta(const std::string& cls) {
 void ExplorerPanel::draw() {
     auto& T = NexusTheme::instance();
     
+    if (!EditorLayout::instance().showExplorer) return;
+
     ImGuiWindowClass window_class;
-    window_class.DockNodeFlagsOverrideSet = ImGuiDockNodeFlags_NoTabBar | ImGuiDockNodeFlags_HiddenTabBar;
+    window_class.DockNodeFlagsOverrideSet = ImGuiDockNodeFlags_HiddenTabBar;
     ImGui::SetNextWindowClass(&window_class);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
     ImGui::PushStyleColor(ImGuiCol_WindowBg, T.bgPanel);
-    ImGui::Begin("Explorer", nullptr, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoTitleBar);
+    ImGui::Begin("Explorer", &EditorLayout::instance().showExplorer, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoTitleBar);
     ImGui::PopStyleColor(); // Pop WindowBg right after Begin
+
+    Editor::UI::DrawSingleTabHeader("Explorer", "icon_explorer_bold", 150.0f, ImGui::ColorConvertFloat4ToU32(T.accent));
 
     ImDrawList* dl = ImGui::GetWindowDrawList();
     ImVec2 p = ImGui::GetWindowPos();
@@ -59,69 +65,7 @@ void ExplorerPanel::draw() {
     // Arama Çubuğu (Search Bar)
     ImGui::PushStyleColor(ImGuiCol_FrameBg, T.bg);
     
-    // ─────────────────────────────────────────────────────────────────────────
-    // HEADER TABS (h=30)
-    // ─────────────────────────────────────────────────────────────────────────
-    ImGui::PushStyleColor(ImGuiCol_ChildBg, T.bgPanel);
-    ImGui::BeginChild("##ExplHdr", ImVec2(w, 30), false, ImGuiWindowFlags_NoScrollbar);
-    {
-        ImDrawList* child_dl = ImGui::GetWindowDrawList(); // FIX: Use child's drawlist
-        ImVec2 cur = ImGui::GetCursorScreenPos();
-        
-        const char* tabs[] = {"Explorer", "History"};
-        float cx = cur.x;
-        
-        for (int i=0; i<2; i++) {
-            bool active = (i == 0);
-            
-            float iconSpace = (i == 0) ? 24.0f : 0.0f; // Sadece Explorer için ikon boşluğu
-            ImVec2 ts = ImGui::CalcTextSize(tabs[i]);
-            float tabW = ts.x + 20.0f + iconSpace;
-            
-            ImVec2 r(cx, cur.y); // FIX: cur.y instead of p.y
-            ImGui::SetCursorScreenPos(r);
-            ImGui::InvisibleButton(tabs[i], ImVec2(tabW, 30));
-            
-            ImU32 textCol = active ? COL(T.textPrimary) : COL(T.textMuted);
-            
-            if (i == 0) {
-                ImTextureID titleIcon = IconRegistry::instance().get("icon_explorer");
-                if (titleIcon) child_dl->AddImage(titleIcon, ImVec2(r.x + 10, r.y + 7), ImVec2(r.x + 26, r.y + 23), ImVec2(0,0), ImVec2(1,1), COL(T.accent));
-                child_dl->AddText(ImVec2(r.x + 34, r.y + 8), textCol, tabs[i]);
-            } else {
-                child_dl->AddText(ImVec2(r.x + 10, r.y + 8), textCol, tabs[i]);
-            }
-            
-            cx += tabW;
-        }
 
-        // Action buttons
-        float btnW = 24.0f;
-        float rx = p.x + w - btnW*2 - 10.0f;
-        
-        ImGui::SetCursorScreenPos(ImVec2(rx, p.y+3));
-        ImGui::InvisibleButton("##add", ImVec2(btnW, 24));
-        if (ImGui::IsItemHovered()) child_dl->AddRectFilled(ImVec2(rx, p.y+3), ImVec2(rx+btnW, p.y+27), COL(T.panelHover), 4.0f);
-        child_dl->AddText(ImVec2(rx + 8, p.y + 5), COL(T.textMuted), "+");
-        if (ImGui::IsItemClicked()) { ImGui::OpenPopup("ExplorerInsertPopup"); }
-        
-        rx += btnW;
-        ImGui::SetCursorScreenPos(ImVec2(rx, p.y+3));
-        ImGui::InvisibleButton("##more", ImVec2(btnW, 24));
-        if (ImGui::IsItemHovered()) child_dl->AddRectFilled(ImVec2(rx, p.y+3), ImVec2(rx+btnW, p.y+27), COL(T.panelHover), 4.0f);
-        child_dl->AddText(ImVec2(rx + 6, p.y + 3), COL(T.textMuted), "...");
-        
-        if (ImGui::BeginPopup("ExplorerInsertPopup")) {
-            drawInsertObjectMenu(DataModel::instance());
-            ImGui::EndPopup();
-        }
-    }
-    ImGui::EndChild();
-    ImGui::PopStyleColor();
-
-    // TopBar bottom border (drawn on top of header)
-    ImVec2 p2 = ImGui::GetCursorScreenPos();
-    dl->AddLine(ImVec2(p2.x, p2.y - 1), ImVec2(p2.x + w, p2.y - 1), COL(T.border));
 
     // ─────────────────────────────────────────────────────────────────────────
     // TREE BODY

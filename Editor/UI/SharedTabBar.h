@@ -123,7 +123,13 @@ inline void DrawSingleTabHeader(const char* label, const char* icon, float width
             } else if (strstr(sLabel, "Console")) {
                 sIcon = "icon_script_bold";
             } else if (strstr(sLabel, "Viewport")) {
-                sIcon = "icon_3d_cube"; // Assuming this icon exists, if not it will just be text.
+                sIcon = "icon_3d_cube";
+            } else if (strstr(sLabel, "Explorer")) {
+                sIcon = "icon_explorer_bold";
+            } else if (strstr(sLabel, "Properties")) {
+                sIcon = "icon_properties_bold";
+            } else if (strstr(sLabel, "AI Copilot")) {
+                sIcon = "icon_ai_bold";
             }
 
             ImGuiIO& io = ImGui::GetIO();

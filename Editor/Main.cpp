@@ -38,6 +38,7 @@
 
 // UI Headers
 #include "UI/ImGuiLayer.h"
+#include "UI/RedrawScheduler.h"
 #include "UI/ViewportPanel.h"
 #include "UI/ExplorerPanel.h"
 #include "UI/PropertiesPanel.h"
@@ -94,6 +95,15 @@ int main(int argc, char** argv) {
         return -1;
     }
 
+    // 1.2 Reflection sisteminde bir property degistiginde RedrawScheduler'i
+    // haberdar et. Idle modda bekleyen editor, bir property degisince
+    // (Undo/Redo, network replication, script mutasyonu ...) bir sonraki
+    // frame'de Active moda gecer. Detay: 18_RedrawScheduler_Idle_Throttle_Frame_Pacing.md
+    Engine::Reflection::TypeRegistry::instance().onPropertyDirty =
+        [](void* /*instance*/, const std::string& /*propertyName*/) {
+            RedrawScheduler::instance().requestRedraw();
+        };
+
     // 1.5 Initialize Luau
     Engine::Scripting::LuauVM::instance().init();
 
@@ -126,10 +136,13 @@ int main(int argc, char** argv) {
 
     bgfx::Init init;
     init.platformData = pd;
-    init.type = bgfx::RendererType::Count; // Auto-select best API
+    init.type = bgfx::RendererType::Count; // Auto-select (DX11 on Windows)
     init.resolution.width = 1280;
     init.resolution.height = 720;
-    init.resolution.reset = BGFX_RESET_VSYNC;
+    // VSYNC      : frame sunumunu VBlank ile hizalar, tearing onler
+    // FLUSH_AFTER_RENDER: GPU command buffer'i zorla flush eder, frame N->N+1 sizintisini onler
+    // FLIP_AFTER_RENDER : GPU flip (present) tamamlanmadan sonraki frame'e gecilmesini engeller
+    init.resolution.reset = BGFX_RESET_VSYNC | BGFX_RESET_FLUSH_AFTER_RENDER | BGFX_RESET_FLIP_AFTER_RENDER;
     
     if (!bgfx::init(init)) {
         std::cerr << "Failed to initialize bgfx\n";
@@ -204,25 +217,23 @@ int main(int argc, char** argv) {
     camera.forward = {0.0f, -0.2f, 1.0f};
 
     double lastTime = glfwGetTime();
-    double lastInputTime = glfwGetTime();
-    double cursorX = 0.0, cursorY = 0.0;
+
 
     // 4. Main Loop
     nlohmann::json snapshotJson;
     bool isSimulating = false;
 
     while (!glfwWindowShouldClose(window)) {
-        // --- Power Saving / Idle Throttling ---
-        double timeNow = glfwGetTime();
-        bool isIdle = !isSimulating && (timeNow - lastInputTime > 1.0);
-        
-        if (isIdle) {
-            // Tamamen 0 FPS'e dusur. Olay (Event) gelene kadar döngüyü tamamen dondur.
-            // (10 FPS limit, G-Sync/FreeSync (VRR) olan monitorlerde parlaklik dalgalanmasina sebep oluyordu).
-            glfwWaitEvents(); 
-        } else {
-            glfwPollEvents();
-        }
+        // RedrawScheduler: Play modundaysa (isSimulating) throttle tamamen
+        // devre disi, her zaman tam hiz. Edit modunda aktif girdi/dirty-flag
+        // yoksa (ve/veya pencere odaksizsa) dusuk+SABIT bir FPS'e (Idle) geser.
+        // VSync (BGFX_RESET_VSYNC) ile birlikte bu, frame pacing'i tutarli
+        // tutarak VRR flicker/ghosting riskini azaltir.
+        // isSimulating bir onceki turun degeri; F5 toggle'i zaten kendi
+        // basina bir input aktivitesi oldugu icin bir frame'lik gecikme
+        // gorsel olarak fark edilmez. Detay: 18_RedrawScheduler_Idle_Throttle_Frame_Pacing.md
+        RedrawScheduler::instance().setPlaying(isSimulating);
+        RedrawScheduler::instance().pumpEvents(window);
 
         double currentTime = glfwGetTime();
         float deltaTime = static_cast<float>(currentTime - lastTime);
@@ -249,7 +260,7 @@ int main(int argc, char** argv) {
         int width, height;
         glfwGetFramebufferSize(window, &width, &height);
         if (width > 0 && height > 0) {
-            bgfx::reset(width, height, BGFX_RESET_VSYNC);
+            bgfx::reset(width, height, BGFX_RESET_VSYNC | BGFX_RESET_FLUSH_AFTER_RENDER | BGFX_RESET_FLIP_AFTER_RENDER);
         }
 
         // Clear default backbuffer View 255 for ImGui
@@ -322,28 +333,35 @@ int main(int argc, char** argv) {
         explorer.draw();
         properties.draw();
         // Render Asset Browser with native docking
-        ImGuiWindowClass window_class_panels;
-        window_class_panels.DockNodeFlagsOverrideSet = ImGuiDockNodeFlags_HiddenTabBar;
-        ImGui::SetNextWindowClass(&window_class_panels);
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
-        ImGuiWindowFlags panelFlags = ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoTitleBar;
-        
-        if (ImGui::Begin("Asset Browser", nullptr, panelFlags)) {
-            Editor::UI::DrawSingleTabHeader("Asset Browser", "icon_folder_bold", 150.0f, ImGui::ColorConvertFloat4ToU32(NexusTheme::instance().accent));
-            assetBrowser.drawContents();
+        if (EditorLayout::instance().showAssetBrowser) {
+            ImGuiWindowClass window_class_panels;
+            window_class_panels.DockNodeFlagsOverrideSet = ImGuiDockNodeFlags_NoTabBar;
+            ImGui::SetNextWindowClass(&window_class_panels);
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+            ImGuiWindowFlags panelFlags = ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoTitleBar;
+            
+            if (ImGui::Begin("Asset Browser", &EditorLayout::instance().showAssetBrowser, panelFlags)) {
+                Editor::UI::DrawSingleTabHeader("Asset Browser", "icon_folder_bold", 150.0f, ImGui::ColorConvertFloat4ToU32(NexusTheme::instance().accent));
+                assetBrowser.drawContents();
+            }
+            ImGui::End();
+            ImGui::PopStyleVar();
         }
-        ImGui::End();
-        ImGui::PopStyleVar();
 
         // Render Material Editor with native docking
-        ImGui::SetNextWindowClass(&window_class_panels);
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
-        if (ImGui::Begin("Material Editor", nullptr, panelFlags)) {
-            Editor::UI::DrawSingleTabHeader("Material Editor", "icon_node_editor_bold", 160.0f, ImGui::ColorConvertFloat4ToU32(NexusTheme::instance().accentGreen));
-            materialEditor.drawContents();
+        if (EditorLayout::instance().showMaterialEditor) {
+            ImGuiWindowClass window_class_mat;
+            window_class_mat.DockNodeFlagsOverrideSet = ImGuiDockNodeFlags_NoTabBar;
+            ImGui::SetNextWindowClass(&window_class_mat);
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+            ImGuiWindowFlags matFlags = ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoTitleBar;
+            if (ImGui::Begin("Material Editor", &EditorLayout::instance().showMaterialEditor, matFlags)) {
+                Editor::UI::DrawSingleTabHeader("Material Editor", "icon_node_editor_bold", 160.0f, ImGui::ColorConvertFloat4ToU32(NexusTheme::instance().accentGreen));
+                materialEditor.drawContents();
+            }
+            ImGui::End();
+            ImGui::PopStyleVar();
         }
-        ImGui::End();
-        ImGui::PopStyleVar();
 
         // Removed deferred dragging logic (now handled immediately in SharedTabBar.h)
         
@@ -353,29 +371,7 @@ int main(int argc, char** argv) {
 
         if (frameCount < 5) std::cout << "[DEBUG] Frame " << frameCount << ": End ImGui" << std::endl;
         
-        // Input Activity Tracking
-        bool hasInput = false;
-        double newCursorX, newCursorY;
-        glfwGetCursorPos(window, &newCursorX, &newCursorY);
-        if (newCursorX != cursorX || newCursorY != cursorY) {
-            hasInput = true;
-            cursorX = newCursorX;
-            cursorY = newCursorY;
-        }
-        if (!hasInput) {
-            for (int i = 32; i < 348; i++) {
-                if (glfwGetKey(window, i) == GLFW_PRESS) { hasInput = true; break; }
-            }
-        }
-        if (!hasInput) {
-            for (int i = 0; i < 8; i++) {
-                if (glfwGetMouseButton(window, i) == GLFW_PRESS) { hasInput = true; break; }
-            }
-        }
-        
-        if (hasInput) {
-            lastInputTime = currentTime;
-        }
+
 
         ImGuiLayer::instance().endFrame();
 

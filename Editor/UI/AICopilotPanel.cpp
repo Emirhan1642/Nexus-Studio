@@ -2,8 +2,10 @@
 #include <imgui.h>
 #include <imgui_internal.h>
 #include "EditorLayout.h"
+#include <fstream>
 #include "NexusTheme.h"
 #include "IconRegistry.h"
+#include "SharedTabBar.h"
 #include "SelectionManager.h"
 #include "Engine/Core/DataModel/Instance.h"
 #include <string>
@@ -110,10 +112,12 @@ void AICopilotPanel::draw() {
     s_mcpPulse += ImGui::GetIO().DeltaTime * 2.0f;
 
     ImGuiWindowClass window_class;
-    window_class.DockNodeFlagsOverrideSet = ImGuiDockNodeFlags_NoTabBar;
+    window_class.DockNodeFlagsOverrideSet = ImGuiDockNodeFlags_HiddenTabBar;
     ImGui::SetNextWindowClass(&window_class);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
-    ImGui::Begin("AI Copilot", &EditorLayout::instance().showAICopilot);
+    ImGui::Begin("AI Copilot", &EditorLayout::instance().showAICopilot, ImGuiWindowFlags_NoTitleBar);
+
+    Editor::UI::DrawSingleTabHeader("AI Copilot", "icon_ai_bold", 150.0f, ImGui::ColorConvertFloat4ToU32(T.accent));
 
     ImDrawList* dl    = ImGui::GetWindowDrawList();
     float       width = ImGui::GetWindowWidth();

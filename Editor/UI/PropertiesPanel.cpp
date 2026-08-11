@@ -12,6 +12,8 @@
 #include "Engine/Assets/AssetDependencyTracker.h"
 #include "IconRegistry.h"
 #include "NexusTheme.h"
+#include "EditorLayout.h"
+#include "SharedTabBar.h"
 #include <string>
 #include <any>
 #include <map>
@@ -179,13 +181,17 @@ static void SliderRow(const char* lbl, const char* valStr, float* val, float mn,
 void PropertiesPanel::draw() {
     auto& T = NexusTheme::instance();
 
+    if (!EditorLayout::instance().showProperties) return;
+
     ImGuiWindowClass window_class;
-    window_class.DockNodeFlagsOverrideSet = ImGuiDockNodeFlags_NoTabBar | ImGuiDockNodeFlags_HiddenTabBar;
+    window_class.DockNodeFlagsOverrideSet = ImGuiDockNodeFlags_HiddenTabBar;
     ImGui::SetNextWindowClass(&window_class);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
     ImGui::PushStyleColor(ImGuiCol_WindowBg, T.bgPanel);
-    ImGui::Begin("Properties", nullptr, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoTitleBar); 
+    ImGui::Begin("Properties", &EditorLayout::instance().showProperties, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoTitleBar); 
     ImGui::PopStyleColor(); // Pop WindowBg right after Begin
+
+    Editor::UI::DrawSingleTabHeader("Properties", "icon_properties_bold", 150.0f, ImGui::ColorConvertFloat4ToU32(T.accent));
 
     ImDrawList* dl = ImGui::GetWindowDrawList();
     ImVec2 winPos = ImGui::GetWindowPos();
@@ -194,44 +200,7 @@ void PropertiesPanel::draw() {
     
     auto selected = SelectionManager::instance().getSelected();
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // UNIFIED HEADER (TopBar 30px)
-    // ─────────────────────────────────────────────────────────────────────────
-    ImGui::PushStyleColor(ImGuiCol_ChildBg, T.bgPanel);
-    
-    ImGui::BeginChild("##PropHdr", ImVec2(width, 30), false, ImGuiWindowFlags_NoScrollbar);
-    {
-        ImDrawList* child_dl = ImGui::GetWindowDrawList(); // FIX: Use child's drawlist
-        ImVec2 base = ImGui::GetCursorScreenPos();
-        
-        float cx = base.x + 8.0f;
-        ImTextureID iconSettings = IconRegistry::instance().get("icon_properties_bold");
-        if (iconSettings) child_dl->AddImage(iconSettings, ImVec2(cx, base.y + 7.0f), ImVec2(cx + 16.0f, base.y + 23.0f));
-        cx += 24.0f;
-        
-        child_dl->AddText(ImVec2(cx, base.y + 8.0f), IM_COL32_WHITE, "Properties");
-        
-        // Sağ taraftaki obje bilgisi
-        float rx = base.x + width - 8.0f;
 
-        if (selected) {
-            const char* cls = selected->getClassName().c_str();
-            const char* name = selected->name.c_str();
-            
-            ImVec2 nameSize = ImGui::CalcTextSize(name);
-            rx -= nameSize.x;
-            child_dl->AddText(ImVec2(rx, base.y + 8.0f), IM_COL32_WHITE, name);
-            
-            rx -= 20.0f;
-            ImTextureID objIcon = IconRegistry::instance().get("icon_mesh_bold"); // Örnek
-            if (objIcon) child_dl->AddImage(objIcon, ImVec2(rx, base.y + 7.0f), ImVec2(rx + 16.0f, base.y + 23.0f));
-        }
-    }
-    ImGui::EndChild();
-    ImGui::PopStyleColor();
-
-    ImVec2 p = ImGui::GetCursorScreenPos();
-    dl->AddLine(ImVec2(p.x, p.y - 1), ImVec2(p.x + width, p.y - 1), COL(T.border));
 
     if (!selected) {
         ImGui::SetCursorPos(ImVec2(12, 40));
