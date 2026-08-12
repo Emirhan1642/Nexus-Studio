@@ -1,6 +1,0 @@
-- [x] Create `HumanoidState` enum and `Humanoid` class in `Engine/Core/DataModel/Humanoid.h` and `.cpp`
-- [x] Add Reflection setup for `Humanoid` properties and methods
-- [x] Implement `CharacterVirtual` initialization logic in `Humanoid` when `RootPart` is set
-- [x] Update `PhysicsWorld` to register and update active Humanoid instances
-- [x] Implement `Humanoid::update` to step `CharacterVirtual` and synchronize position with `RootPart`
-- [ ] Write Unit Tests for Humanoid movement and state transitions

@@ -1,6 +1,0 @@
-- `[x]` Update DataModelSerializer
-  - `[x]` Add Array serialization
-  - `[x]` Add ObjectRef serialization & resolution
-- `[x]` Update HingeConstraint limits and pivot
-- `[x]` Update SpringConstraint limits
-- `[x]` Update Part::setSize to handle dynamic shape resizing

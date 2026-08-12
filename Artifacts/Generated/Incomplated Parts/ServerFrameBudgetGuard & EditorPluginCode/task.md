@@ -1,4 +1,0 @@
-- `[x]` Implement `ServerFrameBudgetGuard` in `ScriptScheduler.h` and `.cpp`
-- `[x]` Update `ScriptScheduler::update` to use the budget guard and defer scripts to next frame if budget is exceeded
-- `[x]` Implement `EditorPluginCode` warning logic in `ScriptWatchdog.cpp`
-- `[x]` Build and verify the changes

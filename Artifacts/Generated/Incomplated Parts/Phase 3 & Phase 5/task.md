@@ -1,6 +1,0 @@
-- `[x]` Add SignalDescriptor to `TypeRegistry.h`
-- `[x]` Add `signal` method to `ClassBuilder.h`
-- `[x]` Add `Touched` signal to `Part.h` and register it
-- `[x]` Update `PhysicsWorld::step()` to call `drainAll()` and fire `Touched` signals
-- `[x]` Update `InstanceBinding.cpp` to expose `Connect` on Signals in Luau
-- `[ ]` Test with Luau script

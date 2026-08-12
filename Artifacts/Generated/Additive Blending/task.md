@@ -1,9 +1,0 @@
-- `[x]` **Core Math Update**
-  - `[x]` Modify `Engine/Core/Math/Quaternion` to add `.inverse()` and `operator*`
-  - `[x]` Modify `Engine/Core/Math/Vector3` to add component-wise multiplication and division.
-- `[x]` **Animation Core Update**
-  - `[x]` Add `isAdditive` flag to `Engine/Animation/AnimationClip`.
-  - `[x]` Update `Engine/Animation/AnimationPlayer` to perform additive delta logic (`Delta = Additive - Ref`).
-- `[x]` **DataModel Integration**
-  - `[x]` Expose `IsAdditive` property in `Engine/Core/DataModel/AnimationTrack`.
-- `[x]` Build & Verify
