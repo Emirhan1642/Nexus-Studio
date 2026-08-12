@@ -1,6 +1,4 @@
 /build
-/Assets
+/Artifacts
 /Inter
 imgui.ini
-diff.txt
-fix_tabbar.py
