@@ -46,9 +46,12 @@ void ThumbnailCache::shutdown() {
 }
 
 bgfx::TextureHandle ThumbnailCache::get(AssetGuid guid) {
-    auto it = m_cache.find(guid.toString());
+    std::string guidStr = guid.toString();
+    auto it = m_cache.find(guidStr);
     if (it != m_cache.end()) return it->second;
 
+    // Cache placeholder immediately to avoid duplicate queuing on every frame
+    m_cache[guidStr] = m_placeholder;
     m_pendingRenders.push_back(guid);
     return m_placeholder;
 }

@@ -43,6 +43,7 @@
 #include "UI/ExplorerPanel.h"
 #include "UI/PropertiesPanel.h"
 #include "UI/AssetBrowserPanel.h"
+#include "UI/ConsolePanel.h"
 #include "UI/MaterialEditorPanel.h"
 #include "UI/TopBar.h"
 #include "UI/FileListBar.h"
@@ -345,12 +346,14 @@ int main(int argc, char** argv) {
             ImGuiWindowFlags panelFlags = ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoTitleBar;
             
             if (ImGui::Begin("Asset Browser", &EditorLayout::instance().showAssetBrowser, panelFlags)) {
-                Editor::UI::DrawSingleTabHeader("Asset Browser", "icon_folder_bold", 150.0f, ImGui::ColorConvertFloat4ToU32(NexusTheme::instance().accent));
                 assetBrowser.drawContents();
             }
             ImGui::End();
             ImGui::PopStyleVar();
         }
+
+        // Render Console with native docking
+        Editor::UI::ConsolePanel::instance().draw();
 
         // Render Material Editor with native docking
         if (EditorLayout::instance().showMaterialEditor) {

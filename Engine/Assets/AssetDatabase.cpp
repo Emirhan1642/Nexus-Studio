@@ -100,15 +100,20 @@ AssetMetadata* AssetDatabase::findMutable(AssetGuid guid) {
 }
 
 std::string AssetDatabase::getRelativePath(const std::string& absolutePath) const {
+    std::error_code ec;
     fs::path root(m_projectRoot);
     fs::path absPath(absolutePath);
-    return fs::relative(absPath, root).string();
+    try {
+        fs::path rel = fs::relative(absPath, root, ec);
+        if (!ec && !rel.empty()) return rel.generic_string();
+    } catch (...) {}
+    return fs::path(absolutePath).generic_string();
 }
 
 std::string AssetDatabase::getAbsolutePath(const std::string& relativePath) const {
     fs::path root(m_projectRoot);
     fs::path rel(relativePath);
-    return (root / rel).string();
+    return (root / rel).generic_string();
 }
 
 void AssetDatabase::updateMetadata(AssetGuid guid, const AssetMetadata& meta) {

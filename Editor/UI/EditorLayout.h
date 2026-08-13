@@ -9,6 +9,7 @@ public:
     bool showLeftToolbar     = true;
     bool showMaterialEditor  = true;
     bool showAssetBrowser    = true;
+    bool showConsole         = true;
     bool showAICopilot       = true;
     bool showExplorer        = true;
     bool showProperties      = true;

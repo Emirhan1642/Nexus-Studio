@@ -16,6 +16,7 @@ set(EDITOR_SOURCES
     UI/PropertiesPanel.cpp
     UI/SelectionManager.cpp
     UI/AssetBrowserPanel.cpp
+    UI/ConsolePanel.cpp
     UI/MaterialEditorPanel.cpp
     UI/AICopilotPanel.cpp
     UI/BottomBar.cpp

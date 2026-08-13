@@ -65,13 +65,11 @@ void ViewportPanel::draw(Engine::Renderer::Camera& camera) {
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
     ImGui::Begin("Viewport", nullptr, ImGuiWindowFlags_NoMove);
 
-    
     // Draw tab bar if there are multiple windows in this dock node
     Editor::UI::DrawSingleTabHeader("Viewport", "icon_3d_cube", 150.0f, ImGui::ColorConvertFloat4ToU32(T.accent), false);
 
-
     ImVec2 avail = ImGui::GetContentRegionAvail();
-    if (avail.x <= 0 || avail.y <= 0) {
+    if (avail.x < 16.0f || avail.y < 16.0f) {
         ImGui::End();
         ImGui::PopStyleVar();
         return;
@@ -82,7 +80,9 @@ void ViewportPanel::draw(Engine::Renderer::Camera& camera) {
         .renderFrame(camera, currentWidth, currentHeight, frameBuffer);
 
     ImVec2 screenPos = ImGui::GetCursorScreenPos();
-    ImGui::Image((ImTextureID)(uintptr_t)colorTexture.idx, avail);
+    if (bgfx::isValid(colorTexture)) {
+        ImGui::Image((ImTextureID)(uintptr_t)colorTexture.idx, avail);
+    }
 
     // ── Drag-drop asset ───────────────────────────────────────────────────────
     if (ImGui::BeginDragDropTarget()) {
