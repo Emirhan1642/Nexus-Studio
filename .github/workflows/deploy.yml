@@ -1,0 +1,13 @@
+name: Trigger CV Website Vercel Build
+
+on:
+  push:
+    branches:
+      - main # Veya hangi dalda çalışıyorsanız (ör: master)
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Vercel Deploy Hook
+        run: curl -X POST "${{ secrets.VERCEL_WEBHOOK_URL }}"
