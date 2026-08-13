@@ -256,10 +256,14 @@ int main(int argc, char** argv) {
             } else { yPressed = false; }
         }
 
-        // Handle window resize
+        // Handle window resize (only reset when dimensions actually change)
+        static int lastWidth = 1280;
+        static int lastHeight = 720;
         int width, height;
         glfwGetFramebufferSize(window, &width, &height);
-        if (width > 0 && height > 0) {
+        if (width > 0 && height > 0 && (width != lastWidth || height != lastHeight)) {
+            lastWidth = width;
+            lastHeight = height;
             bgfx::reset(width, height, BGFX_RESET_VSYNC | BGFX_RESET_FLUSH_AFTER_RENDER | BGFX_RESET_FLIP_AFTER_RENDER);
         }
 

@@ -25,16 +25,10 @@ void RedrawScheduler::pumpEvents(GLFWwindow* window) {
     bool focused = glfwGetWindowAttrib(window, GLFW_FOCUSED) != 0;
     m_currentMode = resolveMode(now, focused);
 
-    if (m_currentMode != RedrawMode::Idle) {
-        // Active / Playing: throttle'siz poll. VSync (BGFX_RESET_VSYNC) zaten
-        // frame hizini monitor Hz'ine kilitliyor, ek Sleep gereksiz.
-        glfwPollEvents();
-    } else {
-        // Idle: event gelene kadar bekle, ama en fazla 1/idleTargetFps saniye.
-        // Godot'nun "Low Processor Mode Sleep" parametresinin GLFW karsiligi:
-        // VRR monitor SABIT bir dusuk-FPS sinyali gorur, degisken degil.
-        glfwWaitEventsTimeout(1.0 / (double)m_idleTargetFps);
-    }
+    // Active / Playing / Idle fark etmeksizin her zaman throttle'siz poll.
+    // VSync (BGFX_RESET_VSYNC) zaten frame hizini monitor Hz'ine kilitliyor,
+    // ek Sleep veya WaitEvents monitorun VRR dengesini bozup flicker yapar.
+    glfwPollEvents();
 
     // ImGui'nin bu frame'de girdi algilayip algilamadigini kontrol et. Ayri
     // GLFW callback kurmaya gerek yok; ImGui_ImplGlfw (install_callbacks=true

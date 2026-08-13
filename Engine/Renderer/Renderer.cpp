@@ -623,16 +623,11 @@ void RendererSystem::renderFrame(const Camera& camera, int width, int height, bg
     bgfx::setViewClear(View_MainColor, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, 0x303030ff, 1.0f, 0);
 
     m_frameCount++;
-    float jitterX = (getHaltonSequence(m_frameCount % 16 + 1, 2) - 0.5f) * 2.0f / float(width);
-    float jitterY = (getHaltonSequence(m_frameCount % 16 + 1, 3) - 0.5f) * 2.0f / float(height);
 
     Engine::Math::Matrix4 view = camera.getViewMatrix();
     Engine::Math::Matrix4 unjitteredProj = camera.getProjectionMatrix(float(width) / float(height));
     Engine::Math::Matrix4 proj = unjitteredProj;
-    
-    // Apply jitter to projection matrix for anti-aliasing
-    proj.m[8] += jitterX;
-    proj.m[9] += jitterY;
+    // Note: TAA projection jitter is skipped while TAA resolve pass is inactive to prevent subpixel flicker.
 
     bgfx::setViewTransform(View_MainColor, view.m.data(), proj.m.data());
 
@@ -782,8 +777,6 @@ void RendererSystem::renderFrame(const Camera& camera, int width, int height, bg
     // Save current frame's View-Projection matrix for next frame (motion blur - currently disabled)
     Engine::Math::Matrix4 viewProj = camera.getProjectionMatrix((float)width/(float)height) * camera.getViewMatrix();
     m_prevViewProj = viewProj;
-
-    bgfx::frame();
 }
 
 MeshHandle RendererSystem::getMeshHandle(const Engine::Assets::AssetGuid& guid) {
