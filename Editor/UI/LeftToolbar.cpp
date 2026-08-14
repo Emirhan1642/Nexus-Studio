@@ -239,26 +239,47 @@ void LeftToolbar::draw() {
     drawDivider();
 
     // [Camera View İkonları]
-    // s_viewMode: 0=Perspective, 1=Top, 2=Front, 3=Right
-    bool isIso = (s_viewMode == 0);
-    bool clickedIso = isIso;
-    drawShortcut("##cam_iso", "icon_isometric", DrawIcon_Folder, clickedIso, "Isometric/Perspective View");
-    if (clickedIso != isIso) s_viewMode = 0;
-    
-    bool isTop = (s_viewMode == 1);
-    bool clickedTop = isTop;
-    drawShortcut("##cam_90", "icon_90_degree", DrawIcon_Folder, clickedTop, "Top View");
-    if (clickedTop != isTop) s_viewMode = 1;
-
-    bool isFree = (s_viewMode == 2);
+    // 1. Free View (Kamera serbestçe gezer)
+    bool isFree = (EditorLayout::instance().cameraMode == CameraViewMode::Free && !EditorLayout::instance().isOrthographic);
     bool clickedFree = isFree;
-    drawShortcut("##cam_free", "icon_free_cam", DrawIcon_Folder, clickedFree, "Front View");
-    if (clickedFree != isFree) s_viewMode = 2;
+    drawShortcut("##cam_free", "icon_free_cam", DrawIcon_Folder, clickedFree, "Free View (Free Fly & Look)");
+    if (clickedFree && !isFree) {
+        EditorLayout::instance().cameraMode = CameraViewMode::Free;
+        EditorLayout::instance().isOrthographic = false;
+    }
+
+    // 2. Perspective / Orthographic Projection Toggle
+    bool isOrtho = EditorLayout::instance().isOrthographic;
+    bool clickedOrtho = isOrtho;
+    drawShortcut("##cam_ortho", "icon_camera", DrawIcon_Folder, clickedOrtho, isOrtho ? "Orthographic View (Active)" : "Perspective View (Click for Orthographic)");
+    if (clickedOrtho != isOrtho) EditorLayout::instance().isOrthographic = clickedOrtho;
+
+    // 3. 90 Degree View (Seçili objeye veya odak noktasına 90 derecelik açılarla bakar)
+    bool is90 = (EditorLayout::instance().cameraMode == CameraViewMode::Degree90);
+    bool clicked90 = is90;
+    drawShortcut("##cam_90", "icon_90_degree", DrawIcon_Folder, clicked90, "90 Degree View (Snap 90° Axis)");
+    if (clicked90 && !is90) {
+        EditorLayout::instance().cameraMode = CameraViewMode::Degree90;
+    }
     
     drawDivider();
     
-    // [Render Modes]
-    drawShortcut("##wire", "icon_wireframe", DrawIcon_Folder, s_wireframe, "Wireframe Mode");
+    // [Render / Shading Modes: Face, Wireframe, Vertex]
+    bool isFace = (EditorLayout::instance().shadingMode == EditorShadingMode::Face);
+    bool clickedFace = isFace;
+    drawShortcut("##shading_face", "icon_mesh", DrawIcon_Folder, clickedFace, "Face / Solid Shaded Mode");
+    if (clickedFace && !isFace) EditorLayout::instance().shadingMode = EditorShadingMode::Face;
+
+    bool isWire = (EditorLayout::instance().shadingMode == EditorShadingMode::Wireframe);
+    bool clickedWire = isWire;
+    drawShortcut("##shading_wire", "icon_wireframe", DrawIcon_Folder, clickedWire, "Wireframe Mode");
+    if (clickedWire && !isWire) EditorLayout::instance().shadingMode = EditorShadingMode::Wireframe;
+
+    bool isVert = (EditorLayout::instance().shadingMode == EditorShadingMode::Vertex);
+    bool clickedVert = isVert;
+    drawShortcut("##shading_vert", "icon_node_editor", DrawIcon_Folder, clickedVert, "Vertex / Points Mode");
+    if (clickedVert && !isVert) EditorLayout::instance().shadingMode = EditorShadingMode::Vertex;
+
     drawShortcut("##coll", "icon_collision", DrawIcon_Folder, s_collision, "Collision Bounds");
     drawShortcut("##world", "icon_world", DrawIcon_Folder, s_worldSpace, "World Space Toggle");
 

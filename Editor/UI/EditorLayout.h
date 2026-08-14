@@ -3,6 +3,8 @@
 #include <string>
 
 enum class EditorTool { Select, Move, Rotate, Scale };
+enum class CameraViewMode { Free, Isometric, Degree90 };
+enum class EditorShadingMode { Face, Wireframe, Vertex };
 
 class EditorLayout {
 public:
@@ -19,6 +21,12 @@ public:
     // Active transform tool and grid snapping
     EditorTool currentTool   = EditorTool::Move;
     bool gridSnap            = true;
+
+    // Active camera view mode and shading mode
+    CameraViewMode cameraMode = CameraViewMode::Free;
+    int degree90Index         = 0; // 0=Front, 1=Right, 2=Back, 3=Left, 4=Top, 5=Bottom
+    bool isOrthographic       = false;
+    EditorShadingMode shadingMode = EditorShadingMode::Face;
 
     bool wantStartMovingAssetBrowser = false;
     bool wantStartMovingMaterialEditor = false;

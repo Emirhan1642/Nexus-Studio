@@ -9,6 +9,7 @@ public:
     void draw(Engine::Renderer::Camera& camera);
 
 private:
+    void handleCameraControls(Engine::Renderer::Camera& camera, bool isHovered);
     void handleGizmoInput(Engine::Renderer::Camera& camera);
 
     bgfx::TextureHandle colorTexture = BGFX_INVALID_HANDLE;

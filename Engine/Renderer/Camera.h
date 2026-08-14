@@ -13,12 +13,20 @@ public:
     float nearPlane = 0.1f;
     float farPlane = 1000.0f;
 
+    bool isOrthographic = false;
+    float orthoSize = 15.0f;
+
     Engine::Math::Matrix4 getViewMatrix() const {
         Engine::Math::Vector3 target = { position.x + forward.x, position.y + forward.y, position.z + forward.z };
         return Engine::Math::Matrix4::lookAt(position, target, up);
     }
 
     Engine::Math::Matrix4 getProjectionMatrix(float aspectRatio) const {
+        if (isOrthographic) {
+            float halfH = orthoSize;
+            float halfW = halfH * aspectRatio;
+            return Engine::Math::Matrix4::orthographic(-halfW, halfW, -halfH, halfH, -1000.0f, 1000.0f);
+        }
         return Engine::Math::Matrix4::perspective(fovDegrees, aspectRatio, nearPlane, farPlane);
     }
 };

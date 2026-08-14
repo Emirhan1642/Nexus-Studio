@@ -13,7 +13,9 @@ namespace Engine::Renderer {
 struct MeshData {
     bgfx::VertexBufferHandle vbh = BGFX_INVALID_HANDLE;
     bgfx::IndexBufferHandle ibhLods[3] = { BGFX_INVALID_HANDLE, BGFX_INVALID_HANDLE, BGFX_INVALID_HANDLE };
+    bgfx::IndexBufferHandle ibhLines = BGFX_INVALID_HANDLE;
     uint32_t numIndicesLods[3] = { 0, 0, 0 };
+    uint32_t numLineIndices = 0;
     int numLods = 0;
 };
 
@@ -32,6 +34,12 @@ enum RenderView : bgfx::ViewId {
     View_TAA = 35,
 };
 
+enum class ShadingMode {
+    Face,       // Standard full shaded (Lit / PBR)
+    Wireframe,  // Full wireframe lines
+    Vertex      // Points / Vertices
+};
+
 class RendererSystem {
 public:
     static RendererSystem& instance() {
@@ -45,6 +53,10 @@ public:
     bgfx::TextureHandle getTexture(const std::string& path);
     MeshHandle getMeshHandle(const Engine::Assets::AssetGuid& guid);
 
+    // Shading Mode (Face, Wireframe, Vertex)
+    void setShadingMode(ShadingMode mode) { m_shadingMode = mode; }
+    ShadingMode getShadingMode() const { return m_shadingMode; }
+
     // Bone Uniforms access
     bgfx::UniformHandle getBoneUniform() const { return u_boneTransforms; }
     
@@ -54,9 +66,12 @@ public:
 private:
     RendererSystem() = default;
 
+    ShadingMode m_shadingMode = ShadingMode::Face;
+
     // Hardcoded küp nesnesi için VBO/IBO
     bgfx::VertexBufferHandle m_vbh = BGFX_INVALID_HANDLE;
     bgfx::IndexBufferHandle m_ibh = BGFX_INVALID_HANDLE;
+    bgfx::IndexBufferHandle m_cubeLineIbh = BGFX_INVALID_HANDLE;
 
     // Fullscreen quad için VBO/IBO (post-processing geçişleri)
     bgfx::VertexBufferHandle m_fsqVbh = BGFX_INVALID_HANDLE;

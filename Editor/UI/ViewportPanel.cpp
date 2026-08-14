@@ -15,6 +15,8 @@
 #include "Engine/Assets/AssetDatabase.h"
 #include <functional>
 #include <cstdio>
+#include <cmath>
+#include <algorithm>
 
 // ─── Renk kısayolları ───────────────────────────────────────────────────────
 static ImU32 COL(const ImVec4& v)           { return ImGui::ColorConvertFloat4ToU32(v); }
@@ -77,6 +79,8 @@ void ViewportPanel::draw(Engine::Renderer::Camera& camera) {
     }
 
     resize((uint16_t)avail.x, (uint16_t)avail.y);
+    Engine::Renderer::RendererSystem::instance()
+        .setShadingMode((Engine::Renderer::ShadingMode)EditorLayout::instance().shadingMode);
     Engine::Renderer::RendererSystem::instance()
         .renderFrame(camera, currentWidth, currentHeight, frameBuffer);
 
@@ -141,54 +145,156 @@ void ViewportPanel::draw(Engine::Renderer::Camera& camera) {
         drawConstraints(DataModel::instance());
     }
 
+    // ── Vertex Mode Noktalarını render et ─────────────────────────────────────
+    if (EditorLayout::instance().shadingMode == EditorShadingMode::Vertex) {
+        Engine::Math::Matrix4 view     = camera.getViewMatrix();
+        Engine::Math::Matrix4 proj     = camera.getProjectionMatrix((float)currentWidth/(float)currentHeight);
+        Engine::Math::Matrix4 viewProj = proj * view;
+
+        auto project = [&](const Engine::Math::Vector3& pos, ImVec2& out) -> bool {
+            float x = pos.x*viewProj.m[0]+pos.y*viewProj.m[4]+pos.z*viewProj.m[8] +viewProj.m[12];
+            float y = pos.x*viewProj.m[1]+pos.y*viewProj.m[5]+pos.z*viewProj.m[9] +viewProj.m[13];
+            float w = pos.x*viewProj.m[3]+pos.y*viewProj.m[7]+pos.z*viewProj.m[11]+viewProj.m[15];
+            if (w < 0.001f && !camera.isOrthographic) return false;
+            if (camera.isOrthographic) w = 1.0f;
+            x/=w; y/=w;
+            out.x = screenPos.x + (x*0.5f+0.5f)*avail.x;
+            out.y = screenPos.y + (1.0f-(y*0.5f+0.5f))*avail.y;
+            return true;
+        };
+
+        auto sel = SelectionManager::instance().getSelected();
+        auto selList = SelectionManager::instance().getSelectionList();
+
+        std::function<void(const std::shared_ptr<Instance>&)> drawVertices = [&](const std::shared_ptr<Instance>& inst) {
+            if (auto part = std::dynamic_pointer_cast<Part>(inst)) {
+                Engine::Math::Vector3 pos = part->getPosition();
+                Engine::Math::Vector3 size = part->getSize();
+
+                bool isSelected = (part == sel);
+                if (!isSelected) {
+                    for (auto& s : selList) { if (s == part) { isSelected = true; break; } }
+                }
+
+                float hx = size.x;
+                float hy = size.y;
+                float hz = size.z;
+
+                Engine::Math::Vector3 corners[8] = {
+                    {pos.x - hx, pos.y - hy, pos.z - hz},
+                    {pos.x + hx, pos.y - hy, pos.z - hz},
+                    {pos.x + hx, pos.y + hy, pos.z - hz},
+                    {pos.x - hx, pos.y + hy, pos.z - hz},
+                    {pos.x - hx, pos.y - hy, pos.z + hz},
+                    {pos.x + hx, pos.y - hy, pos.z + hz},
+                    {pos.x + hx, pos.y + hy, pos.z + hz},
+                    {pos.x - hx, pos.y + hy, pos.z + hz}
+                };
+
+                ImVec2 sPts[8];
+                bool visible[8];
+                for (int i = 0; i < 8; ++i) {
+                    visible[i] = project(corners[i], sPts[i]);
+                }
+
+                // 12 edges connecting the 8 vertices (Blender stick cage style)
+                static const int edges[12][2] = {
+                    {0, 1}, {1, 2}, {2, 3}, {3, 0}, // Front quad
+                    {4, 5}, {5, 6}, {6, 7}, {7, 4}, // Back quad
+                    {0, 4}, {1, 5}, {2, 6}, {3, 7}  // Connecting edges
+                };
+                ImU32 lineCol = isSelected ? IM_COL32(130, 217, 255, 230) : IM_COL32(180, 180, 180, 180);
+                for (int e = 0; e < 12; ++e) {
+                    int i0 = edges[e][0], i1 = edges[e][1];
+                    if (visible[i0] && visible[i1]) {
+                        dl->AddLine(sPts[i0], sPts[i1], lineCol, isSelected ? 2.5f : 1.8f);
+                    }
+                }
+
+                // Vertex Corner dots (Blender style)
+                ImU32 vCol = isSelected ? IM_COL32(255, 255, 255, 255) : IM_COL32(255, 210, 40, 255);
+                ImU32 borderCol = isSelected ? IM_COL32(0, 120, 215, 255) : IM_COL32(20, 20, 20, 240);
+                float radius = isSelected ? 4.5f : 3.5f;
+
+                for (int i = 0; i < 8; ++i) {
+                    if (visible[i]) {
+                        dl->AddCircleFilled(sPts[i], radius, vCol);
+                        dl->AddCircle(sPts[i], radius + 0.5f, borderCol, 0, 1.2f);
+                    }
+                }
+            }
+            for (auto& child : inst->getChildren()) drawVertices(child);
+        };
+        drawVertices(DataModel::instance());
+    }
+
+    bool isHovered = ImGui::IsWindowHovered(ImGuiHoveredFlags_RootAndChildWindows);
+    handleCameraControls(camera, isHovered);
+
     // ── Gizmo ─────────────────────────────────────────────────────────────────
     handleGizmoInput(camera);
 
     // ═════════════════════════════════════════════════════════════════════════
-    // VIEWPORT TOOLBAR STRIP (h=28, üst overlay)
-    // HTML: h-7 bg-studio-panel/90 border-b border-studio-border/60
-    //       px-3 flex items-center justify-between text-[11px]
-    // ═════════════════════════════════════════════════════════════════════════
-    float tbH = 28.0f; // Kept for orientation cube offset
-    // Viewport toolbar will be a transparent floating overlay.
-    // Removed the background bar and border line.
-
-    // Kursor'u toolbar başına koy
-    ImGui::SetCursorScreenPos({panelMin.x+12, panelMin.y+6});
-
-    // TOOLBAR COMPLETELY REMOVED AS PER USER REQUEST.
-    // ALL BUTTONS AND OVERLAYS ARE DELETED.
-
-    // ═════════════════════════════════════════════════════════════════════════
-    // ORIENTATION CUBE (sağ üst köşe, top-right offset: tbH+12)
-    // HTML: w-10 h-10 bg-studio-panel/90 border-studio-border rounded-lg
-    //       TOP / FRONT / RIGHT etiketleri
+    // ORIENTATION CUBE (sağ üst köşe)
     // ═════════════════════════════════════════════════════════════════════════
     {
-        float cs = 44.0f;
-        ImVec2 cMin = {panelMax.x - cs - 10, panelMin.y + tbH + 10};
+        float cs = 52.0f;
+        float tbH = 28.0f;
+        ImVec2 cMin = {panelMax.x - cs - 12, panelMin.y + tbH + 10};
         ImVec2 cMax = {cMin.x + cs, cMin.y + cs};
 
         dl->AddRectFilled(cMin, cMax, COLA(0x0e0e0e, 0.92f), 8.0f);
         dl->AddRect(cMin, cMax, COL(T.border), 8.0f);
 
-        // Hover → accent border
-        ImGui::SetCursorScreenPos(cMin);
-        ImGui::InvisibleButton("##oriCube", ImVec2(cs, cs));
-        if (ImGui::IsItemHovered())
-            dl->AddRect(cMin, cMax, COL(T.accent), 8.0f);
+        // Clickable regions on Orientation Cube
+        ImVec2 topMin = ImVec2(cMin.x, cMin.y);
+        ImVec2 topMax = ImVec2(cMax.x, cMin.y + 17.0f);
+        
+        ImVec2 frontMin = ImVec2(cMin.x, cMin.y + 17.0f);
+        ImVec2 frontMax = ImVec2(cMax.x, cMin.y + 34.0f);
+        
+        ImVec2 rightMin = ImVec2(cMin.x, cMin.y + 34.0f);
+        ImVec2 rightMax = ImVec2(cMax.x, cMax.y);
+
+        ImGui::SetCursorScreenPos(topMin);
+        ImGui::InvisibleButton("##oriTop", ImVec2(cs, 17.0f));
         if (ImGui::IsItemClicked()) {
-            // Sırasıyla view modunu döndür
-            s_viewMode = (s_viewMode + 1) % 4;
+            EditorLayout::instance().cameraMode = CameraViewMode::Degree90;
+            EditorLayout::instance().degree90Index = 4; // Top
         }
+        bool hovTop = ImGui::IsItemHovered();
 
-        // Etiketler (HTML: TOP muted, FRONT white, RIGHT accent)
-        dl->AddText({cMin.x+12, cMin.y+5},  COL(T.textMuted),  "TOP");
-        dl->AddText({cMin.x+6,  cMin.y+17}, COL(T.textPrimary),"FRONT");
-        dl->AddText({cMin.x+6,  cMin.y+29}, COL(T.accent),     "RIGHT");
+        ImGui::SetCursorScreenPos(frontMin);
+        ImGui::InvisibleButton("##oriFront", ImVec2(cs, 17.0f));
+        if (ImGui::IsItemClicked()) {
+            EditorLayout::instance().cameraMode = CameraViewMode::Degree90;
+            EditorLayout::instance().degree90Index = 0; // Front
+        }
+        bool hovFront = ImGui::IsItemHovered();
+
+        ImGui::SetCursorScreenPos(rightMin);
+        ImGui::InvisibleButton("##oriRight", ImVec2(cs, 17.0f));
+        if (ImGui::IsItemClicked()) {
+            EditorLayout::instance().cameraMode = CameraViewMode::Degree90;
+            EditorLayout::instance().degree90Index = 1; // Right
+        }
+        bool hovRight = ImGui::IsItemHovered();
+
+        if (hovTop) dl->AddRectFilled(topMin, topMax, COLA(0x82D9FF, 0.20f), 4.0f);
+        if (hovFront) dl->AddRectFilled(frontMin, frontMax, COLA(0x82D9FF, 0.20f), 4.0f);
+        if (hovRight) dl->AddRectFilled(rightMin, rightMax, COLA(0x82D9FF, 0.20f), 4.0f);
+
+        // Active indicator / labels
+        bool isDegree90 = (EditorLayout::instance().cameraMode == CameraViewMode::Degree90);
+        int degIdx = EditorLayout::instance().degree90Index;
+        ImU32 topCol = (isDegree90 && degIdx == 4) ? COL(T.accent) : (hovTop ? COL(T.textPrimary) : COL(T.textMuted));
+        ImU32 frontCol = (isDegree90 && degIdx == 0) ? COL(T.accent) : (hovFront ? COL(T.textPrimary) : COL(T.textSecondary));
+        ImU32 rightCol = (isDegree90 && degIdx == 1) ? COL(T.accent) : (hovRight ? COL(T.textPrimary) : COL(T.textSecondary));
+
+        dl->AddText({cMin.x + 14.0f, cMin.y + 3.0f}, topCol, "TOP");
+        dl->AddText({cMin.x + 8.0f, cMin.y + 19.0f}, frontCol, "FRONT");
+        dl->AddText({cMin.x + 8.0f, cMin.y + 35.0f}, rightCol, "RIGHT");
     }
-
-
 
     ImGui::End();
     ImGui::PopStyleVar();
@@ -323,6 +429,269 @@ void ViewportPanel::handleGizmoInput(Engine::Renderer::Camera& camera) {
             isDraggingGizmo = false;
             s_dragStartPositions.clear();
             s_dragStartSizes.clear();
+        }
+    }
+}
+
+void ViewportPanel::handleCameraControls(Engine::Renderer::Camera& camera, bool isHovered) {
+    static CameraViewMode s_prevCameraMode = (CameraViewMode)-1;
+    static int s_prevDegree90Index = -1;
+    static Engine::Math::Vector3 s_cameraPivot(0.0f, 0.0f, 0.0f);
+    static float s_yaw = 0.0f;
+    static float s_pitch = -0.2f;
+    static bool s_isMouseLooking = false;
+    static bool s_isPanning = false;
+    static float s_dragAccumX = 0.0f;
+    static float s_dragAccumY = 0.0f;
+    static bool s_is90Swiping = false;
+    static int s_topRotIndex = 0;
+    static int s_bottomRotIndex = 0;
+
+    // Sync camera projection mode with EditorLayout
+    camera.isOrthographic = EditorLayout::instance().isOrthographic;
+
+    // 1. Update Camera Pivot from active selection or keep previous
+    auto selection = SelectionManager::instance().getSelectionList();
+    if (!selection.empty() || SelectionManager::instance().getSelected()) {
+        Engine::Math::Vector3 targetCenter(0, 0, 0);
+        int count = 0;
+        for (auto& inst : selection) {
+            if (auto part = std::dynamic_pointer_cast<Part>(inst)) {
+                targetCenter += part->getPosition();
+                count++;
+            }
+        }
+        if (count == 0) {
+            if (auto singlePart = std::dynamic_pointer_cast<Part>(SelectionManager::instance().getSelected())) {
+                targetCenter = singlePart->getPosition();
+                count = 1;
+            }
+        }
+        if (count > 0) {
+            s_cameraPivot = targetCenter * (1.0f / (float)count);
+        }
+    }
+
+    CameraViewMode curMode = EditorLayout::instance().cameraMode;
+    int cur90Idx = EditorLayout::instance().degree90Index;
+
+    // Helper lambda to calculate 90° camera position cleanly
+    auto apply90DegreeView = [&](int idx) {
+        Engine::Math::Vector3 toCam = camera.position - s_cameraPivot;
+        float dist = toCam.length();
+        if (dist < 5.0f || dist > 200.0f) dist = 25.0f;
+
+        if (idx == 0) { // Front (+Z looking forward)
+            camera.position = Engine::Math::Vector3(s_cameraPivot.x, s_cameraPivot.y, s_cameraPivot.z - dist);
+            camera.forward = Engine::Math::Vector3(0.0f, 0.0f, 1.0f);
+            camera.up = Engine::Math::Vector3(0.0f, 1.0f, 0.0f);
+            s_yaw = 0.0f; s_pitch = 0.0f;
+        } else if (idx == 1) { // Right (-X looking left)
+            camera.position = Engine::Math::Vector3(s_cameraPivot.x + dist, s_cameraPivot.y, s_cameraPivot.z);
+            camera.forward = Engine::Math::Vector3(-1.0f, 0.0f, 0.0f);
+            camera.up = Engine::Math::Vector3(0.0f, 1.0f, 0.0f);
+            s_yaw = 1.5707963f; s_pitch = 0.0f;
+        } else if (idx == 2) { // Back (-Z looking backward)
+            camera.position = Engine::Math::Vector3(s_cameraPivot.x, s_cameraPivot.y, s_cameraPivot.z + dist);
+            camera.forward = Engine::Math::Vector3(0.0f, 0.0f, -1.0f);
+            camera.up = Engine::Math::Vector3(0.0f, 1.0f, 0.0f);
+            s_yaw = 3.14159265f; s_pitch = 0.0f;
+        } else if (idx == 3) { // Left (+X looking right)
+            camera.position = Engine::Math::Vector3(s_cameraPivot.x - dist, s_cameraPivot.y, s_cameraPivot.z);
+            camera.forward = Engine::Math::Vector3(1.0f, 0.0f, 0.0f);
+            camera.up = Engine::Math::Vector3(0.0f, 1.0f, 0.0f);
+            s_yaw = -1.5707963f; s_pitch = 0.0f;
+        } else if (idx == 4) { // Top (+Y looking down)
+            camera.position = Engine::Math::Vector3(s_cameraPivot.x, s_cameraPivot.y + dist, s_cameraPivot.z);
+            camera.forward = Engine::Math::Vector3(0.0f, -1.0f, 0.0f);
+            
+            // 4 compass orientations for top view
+            if (s_topRotIndex == 0) camera.up = Engine::Math::Vector3(0.0f, 0.0f, 1.0f);
+            else if (s_topRotIndex == 1) camera.up = Engine::Math::Vector3(1.0f, 0.0f, 0.0f);
+            else if (s_topRotIndex == 2) camera.up = Engine::Math::Vector3(0.0f, 0.0f, -1.0f);
+            else camera.up = Engine::Math::Vector3(-1.0f, 0.0f, 0.0f);
+            
+            s_yaw = 0.0f; s_pitch = -1.55f;
+        } else if (idx == 5) { // Bottom (-Y looking up)
+            camera.position = Engine::Math::Vector3(s_cameraPivot.x, s_cameraPivot.y - dist, s_cameraPivot.z);
+            camera.forward = Engine::Math::Vector3(0.0f, 1.0f, 0.0f);
+            
+            // 4 compass orientations for bottom view
+            if (s_bottomRotIndex == 0) camera.up = Engine::Math::Vector3(0.0f, 0.0f, -1.0f);
+            else if (s_bottomRotIndex == 1) camera.up = Engine::Math::Vector3(1.0f, 0.0f, 0.0f);
+            else if (s_bottomRotIndex == 2) camera.up = Engine::Math::Vector3(0.0f, 0.0f, 1.0f);
+            else camera.up = Engine::Math::Vector3(-1.0f, 0.0f, 0.0f);
+            
+            s_yaw = 0.0f; s_pitch = 1.55f;
+        }
+    };
+
+    // 2. Camera Mode Snapping when mode changes
+    bool modeChanged = (curMode != s_prevCameraMode) || (curMode == CameraViewMode::Degree90 && cur90Idx != s_prevDegree90Index);
+    if (modeChanged) {
+        s_prevCameraMode = curMode;
+        s_prevDegree90Index = cur90Idx;
+
+        if (curMode == CameraViewMode::Degree90) {
+            apply90DegreeView(cur90Idx);
+        }
+    }
+
+    // 3. Right Mouse Button Drag Interaction
+    if (curMode == CameraViewMode::Degree90) {
+        // In 90 Degree Mode: Right-click swipe turns 90° around focus point
+        if (ImGui::IsMouseDown(ImGuiMouseButton_Right) && (isHovered || s_is90Swiping)) {
+            s_is90Swiping = true;
+            ImVec2 mouseDelta = ImGui::GetIO().MouseDelta;
+            s_dragAccumX += mouseDelta.x;
+            s_dragAccumY += mouseDelta.y;
+
+            const float swipeThreshold = 55.0f;
+            float absX = std::abs(s_dragAccumX);
+            float absY = std::abs(s_dragAccumY);
+
+            if (absX >= swipeThreshold && absX >= absY) {
+                // Horizontal swipe
+                if (cur90Idx == 4) {
+                    // In Top view: rotate compass orientation
+                    if (s_dragAccumX > 0.0f) s_topRotIndex = (s_topRotIndex + 1) % 4;
+                    else s_topRotIndex = (s_topRotIndex + 3) % 4;
+                } else if (cur90Idx == 5) {
+                    // In Bottom view: rotate compass orientation
+                    if (s_dragAccumX > 0.0f) s_bottomRotIndex = (s_bottomRotIndex + 1) % 4;
+                    else s_bottomRotIndex = (s_bottomRotIndex + 3) % 4;
+                } else {
+                    // Horizontal 90° rotation
+                    if (s_dragAccumX > 0.0f) cur90Idx = (cur90Idx + 1) % 4; // Right
+                    else cur90Idx = (cur90Idx + 3) % 4; // Left
+                    EditorLayout::instance().degree90Index = cur90Idx;
+                    s_prevDegree90Index = cur90Idx;
+                }
+                s_dragAccumX = 0.0f;
+                s_dragAccumY = 0.0f;
+                apply90DegreeView(cur90Idx);
+            } else if (absY >= swipeThreshold && absY > absX) {
+                // Vertical swipe
+                // Swiping DOWN (deltaY > 0) -> Top View (looking down from above)
+                // Swiping UP (deltaY < 0) -> Bottom View (looking up from below)
+                if (s_dragAccumY > 0.0f) {
+                    // Swiped DOWN:
+                    if (cur90Idx == 5) cur90Idx = 0; // return to front if was in bottom view
+                    else cur90Idx = 4; // go to Top view
+                } else {
+                    // Swiped UP:
+                    if (cur90Idx == 4) cur90Idx = 0; // return to front if was in top view
+                    else cur90Idx = 5; // go to Bottom view
+                }
+                s_dragAccumX = 0.0f;
+                s_dragAccumY = 0.0f;
+                EditorLayout::instance().degree90Index = cur90Idx;
+                s_prevDegree90Index = cur90Idx;
+                apply90DegreeView(cur90Idx);
+            }
+        } else {
+            s_is90Swiping = false;
+            s_dragAccumX = 0.0f;
+            s_dragAccumY = 0.0f;
+        }
+    } else {
+        // Free View: Right-click drag rotates camera with smooth mouse look
+        if (ImGui::IsMouseDown(ImGuiMouseButton_Right) && (isHovered || s_isMouseLooking)) {
+            s_isMouseLooking = true;
+            ImVec2 mouseDelta = ImGui::GetIO().MouseDelta;
+            if (mouseDelta.x != 0.0f || mouseDelta.y != 0.0f) {
+                float sensitivity = 0.0035f;
+                s_yaw += mouseDelta.x * sensitivity;
+                s_pitch -= mouseDelta.y * sensitivity;
+                s_pitch = std::clamp(s_pitch, -1.55f, 1.55f);
+
+                float cp = std::cos(s_pitch);
+                camera.forward.x = -std::sin(s_yaw) * cp;
+                camera.forward.y = std::sin(s_pitch);
+                camera.forward.z = std::cos(s_yaw) * cp;
+                camera.forward.normalize();
+                camera.up = Engine::Math::Vector3(0.0f, 1.0f, 0.0f);
+
+                if (EditorLayout::instance().cameraMode != CameraViewMode::Free) {
+                    EditorLayout::instance().cameraMode = CameraViewMode::Free;
+                    s_prevCameraMode = CameraViewMode::Free;
+                }
+            }
+        } else {
+            s_isMouseLooking = false;
+        }
+    }
+
+    // 4. WASD + QE Keyboard Navigation
+    bool canMoveKeys = (isHovered || ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)) && !ImGui::GetIO().WantTextInput;
+    if (canMoveKeys) {
+        Engine::Math::Vector3 screenRight = camera.forward.cross(camera.up);
+        screenRight.normalize();
+
+        float speed = 18.0f * ImGui::GetIO().DeltaTime;
+        if (ImGui::GetIO().KeyShift) speed *= 3.0f;
+        if (ImGui::GetIO().KeyAlt) speed *= 0.3f;
+
+        if (camera.isOrthographic) {
+            // In Orthographic mode: 2D Planar Pan navigation (keeps camera distance constant so shadows/LODs are unchanged)
+            if (ImGui::IsKeyDown(ImGuiKey_W)) camera.position += camera.up * speed;
+            if (ImGui::IsKeyDown(ImGuiKey_S)) camera.position -= camera.up * speed;
+            if (ImGui::IsKeyDown(ImGuiKey_D)) camera.position += screenRight * speed;
+            if (ImGui::IsKeyDown(ImGuiKey_A)) camera.position -= screenRight * speed;
+            if (ImGui::IsKeyDown(ImGuiKey_E)) {
+                camera.orthoSize -= speed * (camera.orthoSize * 0.08f + 0.2f);
+                if (camera.orthoSize < 0.5f) camera.orthoSize = 0.5f;
+            }
+            if (ImGui::IsKeyDown(ImGuiKey_Q)) {
+                camera.orthoSize += speed * (camera.orthoSize * 0.08f + 0.2f);
+                if (camera.orthoSize > 500.0f) camera.orthoSize = 500.0f;
+            }
+        } else {
+            // In Perspective mode: 3D Fly navigation
+            if (ImGui::IsKeyDown(ImGuiKey_W)) camera.position += camera.forward * speed;
+            if (ImGui::IsKeyDown(ImGuiKey_S)) camera.position -= camera.forward * speed;
+            if (ImGui::IsKeyDown(ImGuiKey_D)) camera.position += screenRight * speed;
+            if (ImGui::IsKeyDown(ImGuiKey_A)) camera.position -= screenRight * speed;
+            if (ImGui::IsKeyDown(ImGuiKey_E)) camera.position += camera.up * speed;
+            if (ImGui::IsKeyDown(ImGuiKey_Q)) camera.position -= camera.up * speed;
+        }
+    }
+
+    // 5. Middle Mouse Button Pan
+    if (ImGui::IsMouseDown(ImGuiMouseButton_Middle) && (isHovered || s_isPanning)) {
+        s_isPanning = true;
+        ImVec2 mouseDelta = ImGui::GetIO().MouseDelta;
+        if (mouseDelta.x != 0.0f || mouseDelta.y != 0.0f) {
+            Engine::Math::Vector3 screenRight = camera.forward.cross(camera.up);
+            screenRight.normalize();
+            float panSpeed = 0.035f;
+            camera.position -= screenRight * (mouseDelta.x * panSpeed);
+            camera.position += camera.up * (mouseDelta.y * panSpeed);
+        }
+    } else {
+        s_isPanning = false;
+    }
+
+    // 6. Mouse Wheel Zoom (Dolly in / out or Ortho scale)
+    if (isHovered && ImGui::GetIO().MouseWheel != 0.0f) {
+        float wheel = ImGui::GetIO().MouseWheel;
+        if (camera.isOrthographic) {
+            camera.orthoSize -= wheel * (camera.orthoSize * 0.12f + 0.3f);
+            if (camera.orthoSize < 0.5f) camera.orthoSize = 0.5f;
+            if (camera.orthoSize > 500.0f) camera.orthoSize = 500.0f;
+        } else {
+            float zoomAmount = wheel * 3.0f;
+            camera.position += camera.forward * zoomAmount;
+        }
+    }
+
+    // 7. Focus Shortcut ('F' Key)
+    if (isHovered && ImGui::IsKeyPressed(ImGuiKey_F) && !ImGui::GetIO().WantTextInput) {
+        if (camera.isOrthographic) {
+            camera.orthoSize = 15.0f;
+            camera.position = s_cameraPivot - camera.forward * 25.0f;
+        } else {
+            camera.position = s_cameraPivot - camera.forward * 15.0f;
         }
     }
 }

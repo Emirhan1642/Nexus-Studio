@@ -171,6 +171,21 @@ void RendererSystem::init() {
         bgfx::makeRef(s_cubeIndices, sizeof(s_cubeIndices))
     );
 
+    // Generate line index buffer for wireframe cube (all 3 edges of every triangle)
+    std::vector<uint16_t> cubeLineIndices;
+    cubeLineIndices.reserve(sizeof(s_cubeIndices) / sizeof(s_cubeIndices[0]) * 2);
+    for (size_t i = 0; i < sizeof(s_cubeIndices) / sizeof(s_cubeIndices[0]); i += 3) {
+        uint16_t i0 = s_cubeIndices[i];
+        uint16_t i1 = s_cubeIndices[i+1];
+        uint16_t i2 = s_cubeIndices[i+2];
+        cubeLineIndices.push_back(i0); cubeLineIndices.push_back(i1);
+        cubeLineIndices.push_back(i1); cubeLineIndices.push_back(i2);
+        cubeLineIndices.push_back(i2); cubeLineIndices.push_back(i0);
+    }
+    m_cubeLineIbh = bgfx::createIndexBuffer(
+        bgfx::copy(cubeLineIndices.data(), static_cast<uint32_t>(cubeLineIndices.size() * sizeof(uint16_t)))
+    );
+
     // Fullscreen quad: NDC koordinatlarında tam ekranı kaplayan 2 üçgen
     // Z=0, UV (0,0)->(1,1)
     static const PosColorTexCoordVertex s_fsqVertices[] = {
@@ -340,6 +355,7 @@ void RendererSystem::shutdown() {
     m_voxelizer.shutdown();
 
     bgfx::destroy(m_ibh);
+    if (bgfx::isValid(m_cubeLineIbh)) bgfx::destroy(m_cubeLineIbh);
     bgfx::destroy(m_vbh);
     if (bgfx::isValid(m_fsqIbh)) bgfx::destroy(m_fsqIbh);
     if (bgfx::isValid(m_fsqVbh)) bgfx::destroy(m_fsqVbh);
@@ -425,6 +441,7 @@ void RendererSystem::shutdown() {
         for (int i = 0; i < meshData.numLods; ++i) {
             if (bgfx::isValid(meshData.ibhLods[i])) bgfx::destroy(meshData.ibhLods[i]);
         }
+        if (bgfx::isValid(meshData.ibhLines)) bgfx::destroy(meshData.ibhLines);
     }
     m_meshes.clear();
     m_meshGuidToHandle.clear();
@@ -642,6 +659,7 @@ void RendererSystem::renderFrame(const Camera& camera, int width, int height, bg
     for (const auto& proxy : proxies) {
         if (!proxy.visible) continue;
         if (!bgfx::isValid(m_program)) continue;
+        if (m_shadingMode == ShadingMode::Vertex) continue; // In Vertex Mode, faces are hidden (only vertex points & stick edges rendered)
         
         float distSq = (proxy.boundsCenter.x - camera.position.x) * (proxy.boundsCenter.x - camera.position.x) +
                        (proxy.boundsCenter.y - camera.position.y) * (proxy.boundsCenter.y - camera.position.y) +
@@ -668,21 +686,27 @@ void RendererSystem::renderFrame(const Camera& camera, int width, int height, bg
         auto submitColorMesh = [&](int lod, float lodFade) {
             bgfx::setTransform(proxy.worldTransform.m.data());
             
+            bool isWire = (m_shadingMode == ShadingMode::Wireframe);
+
             if (proxy.mesh != InvalidHandle) {
                 auto it = m_meshes.find(proxy.mesh);
                 if (it != m_meshes.end()) {
                     bgfx::setVertexBuffer(0, it->second.vbh);
-                    int safeLod = lod;
-                    if (safeLod >= it->second.numLods) safeLod = it->second.numLods - 1;
-                    if (safeLod < 0) safeLod = 0;
-                    bgfx::setIndexBuffer(it->second.ibhLods[safeLod]);
+                    if (isWire && bgfx::isValid(it->second.ibhLines)) {
+                        bgfx::setIndexBuffer(it->second.ibhLines);
+                    } else {
+                        int safeLod = lod;
+                        if (safeLod >= it->second.numLods) safeLod = it->second.numLods - 1;
+                        if (safeLod < 0) safeLod = 0;
+                        bgfx::setIndexBuffer(it->second.ibhLods[safeLod]);
+                    }
                 } else {
                     bgfx::setVertexBuffer(0, m_vbh);
-                    bgfx::setIndexBuffer(m_ibh);
+                    bgfx::setIndexBuffer(isWire && bgfx::isValid(m_cubeLineIbh) ? m_cubeLineIbh : m_ibh);
                 }
             } else {
                 bgfx::setVertexBuffer(0, m_vbh);
-                bgfx::setIndexBuffer(m_ibh);
+                bgfx::setIndexBuffer(isWire && bgfx::isValid(m_cubeLineIbh) ? m_cubeLineIbh : m_ibh);
             }
 
             if (!proxy.boneTransforms.empty()) {
@@ -690,7 +714,20 @@ void RendererSystem::renderFrame(const Camera& camera, int width, int height, bg
                 bgfx::setUniform(u_boneTransforms, proxy.boneTransforms.data(), numBones);
             }
 
-            float albedoRoughness[4] = { proxy.material.albedo.x, proxy.material.albedo.y, proxy.material.albedo.z, proxy.material.roughness };
+            float albedoRoughness[4];
+            if (isWire) {
+                // Boost wireframe brightness to ensure high contrast against dark background regardless of normal/lighting
+                albedoRoughness[0] = proxy.material.albedo.x * 3.5f + 0.5f;
+                albedoRoughness[1] = proxy.material.albedo.y * 3.5f + 0.5f;
+                albedoRoughness[2] = proxy.material.albedo.z * 3.5f + 0.5f;
+                albedoRoughness[3] = 0.0f;
+            } else {
+                albedoRoughness[0] = proxy.material.albedo.x;
+                albedoRoughness[1] = proxy.material.albedo.y;
+                albedoRoughness[2] = proxy.material.albedo.z;
+                albedoRoughness[3] = proxy.material.roughness;
+            }
+
             float metallicEmissive[4] = { proxy.material.metallic, proxy.material.emissiveStrength, 0.0f, 0.0f };
             float textureFlags[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
             float lodParams[4] = { lodFade, 0.0f, 0.0f, 0.0f };
@@ -712,7 +749,11 @@ void RendererSystem::renderFrame(const Camera& camera, int width, int height, bg
             bgfx::setUniform(u_textureFlags, textureFlags);
             bgfx::setUniform(u_lodParams, lodParams);
 
-            bgfx::setState(BGFX_STATE_DEFAULT);
+            uint64_t state = BGFX_STATE_DEFAULT;
+            if (isWire) {
+                state = (BGFX_STATE_DEFAULT & ~BGFX_STATE_CULL_MASK) | BGFX_STATE_PT_LINES | BGFX_STATE_LINEAA;
+            }
+            bgfx::setState(state);
             
             bgfx::ProgramHandle activeProgram = m_program;
             if (bgfx::isValid(proxy.material.customShader)) {
@@ -827,6 +868,25 @@ MeshHandle RendererSystem::getMeshHandle(const Engine::Assets::AssetGuid& guid) 
             bgfx::copy(importedMesh->lodIndices[i].data(), static_cast<uint32_t>(importedMesh->lodIndices[i].size() * sizeof(uint32_t)))
         );
         meshData.numIndicesLods[i] = static_cast<uint32_t>(importedMesh->lodIndices[i].size());
+    }
+
+    if (!importedMesh->lodIndices.empty() && !importedMesh->lodIndices[0].empty()) {
+        const auto& tris = importedMesh->lodIndices[0];
+        std::vector<uint32_t> lineIndices;
+        lineIndices.reserve(tris.size() * 2);
+        for (size_t i = 0; i + 2 < tris.size(); i += 3) {
+            uint32_t i0 = tris[i];
+            uint32_t i1 = tris[i+1];
+            uint32_t i2 = tris[i+2];
+            lineIndices.push_back(i0); lineIndices.push_back(i1);
+            lineIndices.push_back(i1); lineIndices.push_back(i2);
+            lineIndices.push_back(i2); lineIndices.push_back(i0);
+        }
+        meshData.ibhLines = bgfx::createIndexBuffer(
+            bgfx::copy(lineIndices.data(), static_cast<uint32_t>(lineIndices.size() * sizeof(uint32_t))),
+            BGFX_BUFFER_INDEX32
+        );
+        meshData.numLineIndices = static_cast<uint32_t>(lineIndices.size());
     }
 
     MeshHandle handle = m_nextMeshHandle++;
