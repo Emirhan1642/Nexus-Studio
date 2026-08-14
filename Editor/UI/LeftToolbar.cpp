@@ -264,7 +264,7 @@ void LeftToolbar::draw() {
     
     drawDivider();
     
-    // [Edit & Shading Modes: Object, Face, Edge, Vertex]
+    // [Modes: Object, Face, Edge, Vertex]
     bool isObj = (EditorLayout::instance().shadingMode == EditorShadingMode::Object);
     bool clickedObj = isObj;
     drawShortcut("##shading_obj", "icon_model", DrawIcon_Folder, clickedObj, "Object Mode (Select & Transform Objects)");

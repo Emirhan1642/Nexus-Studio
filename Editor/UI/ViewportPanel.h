@@ -26,4 +26,9 @@ private:
     std::vector<int> selectedFaces;
     bool isBoxSelecting = false;
     ImVec2 boxSelectStart{0, 0};
+
+    // Pie Menu states
+    bool showSnapPieMenu = false;
+    bool showModesPieMenu = false;
+    ImVec2 pieMenuCenter{0, 0};
 };

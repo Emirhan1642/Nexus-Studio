@@ -151,16 +151,9 @@ void ViewportPanel::draw(Engine::Renderer::Camera& camera) {
 
     bool isHovered = ImGui::IsWindowHovered(ImGuiHoveredFlags_RootAndChildWindows);
 
-    // ── Sub-Element Edit Modes (Face, Edge, Vertex) Overlays & Picking ───────
-    bool isObjectMode = (EditorLayout::instance().shadingMode == EditorShadingMode::Object);
-    bool isFaceMode   = (EditorLayout::instance().shadingMode == EditorShadingMode::Face);
-    bool isEdgeMode   = (EditorLayout::instance().shadingMode == EditorShadingMode::Edge);
-    bool isVertexMode = (EditorLayout::instance().shadingMode == EditorShadingMode::Vertex);
-
-    if (!isObjectMode) {
-        Engine::Math::Matrix4 view     = camera.getViewMatrix();
-        Engine::Math::Matrix4 proj     = camera.getProjectionMatrix((float)currentWidth/(float)currentHeight);
-        Engine::Math::Matrix4 viewProj = proj * view;
+    Engine::Math::Matrix4 view     = camera.getViewMatrix();
+    Engine::Math::Matrix4 proj     = camera.getProjectionMatrix((float)currentWidth/(float)currentHeight);
+    Engine::Math::Matrix4 viewProj = proj * view;
 
     auto project = [&](const Engine::Math::Vector3& pos, ImVec2& out) -> bool {
         float x = pos.x*viewProj.m[0]+pos.y*viewProj.m[4]+pos.z*viewProj.m[8] +viewProj.m[12];
@@ -174,49 +167,119 @@ void ViewportPanel::draw(Engine::Renderer::Camera& camera) {
         return true;
     };
 
-    auto pointInTriangle = [](ImVec2 pt, ImVec2 v1, ImVec2 v2, ImVec2 v3) -> bool {
-        float d1 = (pt.x - v2.x) * (v1.y - v2.y) - (v1.x - v2.x) * (pt.y - v2.y);
-        float d2 = (pt.x - v3.x) * (v2.y - v3.y) - (v2.x - v3.x) * (pt.y - v3.y);
-        float d3 = (pt.x - v1.x) * (v3.y - v1.y) - (v3.x - v1.x) * (pt.y - v1.y);
-        bool has_neg = (d1 < 0) || (d2 < 0) || (d3 < 0);
-        bool has_pos = (d1 > 0) || (d2 > 0) || (d3 > 0);
-        return !(has_neg && has_pos);
-    };
+    // ── Render 3D Cursor ──────────────────────────────────────────────────────
+    {
+        ImVec2 cursorScreen;
+        if (project(EditorLayout::instance().cursor3DPosition, cursorScreen)) {
+            float r = 13.0f;
+            dl->AddCircle(cursorScreen, r, IM_COL32(230, 40, 40, 255), 32, 2.0f);
+            dl->AddCircle(cursorScreen, r - 3.0f, IM_COL32(255, 255, 255, 200), 32, 1.2f);
 
-    auto pointInQuad = [&](ImVec2 pt, ImVec2 p0, ImVec2 p1, ImVec2 p2, ImVec2 p3) -> bool {
-        return pointInTriangle(pt, p0, p1, p2) || pointInTriangle(pt, p0, p2, p3);
-    };
+            dl->AddLine(ImVec2(cursorScreen.x - r - 6.0f, cursorScreen.y),
+                        ImVec2(cursorScreen.x + r + 6.0f, cursorScreen.y),
+                        IM_COL32(40, 40, 40, 220), 2.5f);
+            dl->AddLine(ImVec2(cursorScreen.x - r - 6.0f, cursorScreen.y),
+                        ImVec2(cursorScreen.x + r + 6.0f, cursorScreen.y),
+                        IM_COL32(255, 255, 255, 255), 1.2f);
 
-    auto isFrontFacing = [](ImVec2 p0, ImVec2 p1, ImVec2 p2) -> bool {
-        return ((p1.x - p0.x) * (p2.y - p0.y) - (p1.y - p0.y) * (p2.x - p0.x)) < 0.0f;
-    };
+            dl->AddLine(ImVec2(cursorScreen.x, cursorScreen.y - r - 6.0f),
+                        ImVec2(cursorScreen.x, cursorScreen.y + r + 6.0f),
+                        IM_COL32(40, 40, 40, 220), 2.5f);
+            dl->AddLine(ImVec2(cursorScreen.x, cursorScreen.y - r - 6.0f),
+                        ImVec2(cursorScreen.x, cursorScreen.y + r + 6.0f),
+                        IM_COL32(255, 255, 255, 255), 1.2f);
 
-    auto distToSegment = [](ImVec2 p, ImVec2 a, ImVec2 b) -> float {
-        float l2 = (b.x - a.x) * (b.x - a.x) + (b.y - a.y) * (b.y - a.y);
-        if (l2 == 0.0f) {
-            float dx = p.x - a.x, dy = p.y - a.y;
-            return std::sqrt(dx * dx + dy * dy);
+            dl->AddCircleFilled(cursorScreen, 2.5f, IM_COL32(255, 50, 50, 255));
         }
-        float t = ((p.x - a.x) * (b.x - a.x) + (p.y - a.y) * (b.y - a.y)) / l2;
-        t = std::max(0.0f, std::min(1.0f, t));
-        float projX = a.x + t * (b.x - a.x);
-        float projY = a.y + t * (b.y - a.y);
-        float dx = p.x - projX, dy = p.y - projY;
-        return std::sqrt(dx * dx + dy * dy);
-    };
-
-    auto sel = SelectionManager::instance().getSelected();
-    auto selList = SelectionManager::instance().getSelectionList();
+    }
 
     ImVec2 mousePos = ImGui::GetIO().MousePos;
-    bool shiftHeld = ImGui::GetIO().KeyShift || ImGui::GetIO().KeyCtrl;
-    bool canPick = isHovered && !ImGuizmo::IsUsing() && !ImGuizmo::IsOver() && !ImGui::IsMouseDown(ImGuiMouseButton_Right);
 
-    int hoveredVertex = -1;
-    float bestVertexDist = 14.0f;
+    // ── Shortcuts: Tab (Edit Mode), Shift+S (Snap Pie), Ctrl+F (Faces Menu) ──
+    if (!ImGui::GetIO().WantTextInput) {
+        // Shift + S: Open Snap Pie Menu
+        if (ImGui::IsKeyDown(ImGuiMod_Shift) && ImGui::IsKeyPressed(ImGuiKey_S)) {
+            showSnapPieMenu = true;
+            showModesPieMenu = false;
+            pieMenuCenter = mousePos;
+        }
 
-    int hoveredEdge = -1;
-    float bestEdgeDist = 12.0f;
+        // Ctrl + F: Open Faces / Modes Menu
+        if (ImGui::IsKeyDown(ImGuiMod_Ctrl) && ImGui::IsKeyPressed(ImGuiKey_F)) {
+            showModesPieMenu = true;
+            showSnapPieMenu = false;
+            pieMenuCenter = mousePos;
+        }
+
+        // Shift + Right Click in Viewport: Place 3D Cursor on Ground Plane
+        if (isHovered && ImGui::IsKeyDown(ImGuiMod_Shift) && ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
+            float ndcX = ((mousePos.x - screenPos.x) / avail.x) * 2.0f - 1.0f;
+            float ndcY = -(((mousePos.y - screenPos.y) / avail.y) * 2.0f - 1.0f);
+
+            float tanHalfFov = std::tan((camera.fovDegrees * 0.5f * 3.14159265f) / 180.0f);
+            Engine::Math::Vector3 camRight = camera.forward.cross(camera.up).normalized();
+            Engine::Math::Vector3 camUp = camRight.cross(camera.forward).normalized();
+            Engine::Math::Vector3 rayDir = (camera.forward + camRight * (ndcX * tanHalfFov * ((float)currentWidth / (float)currentHeight)) + camUp * (ndcY * tanHalfFov)).normalized();
+            Engine::Math::Vector3 rayOrigin = camera.position;
+
+            if (std::abs(rayDir.y) > 0.0001f) {
+                float t = -rayOrigin.y / rayDir.y;
+                if (t > 0.0f) {
+                    EditorLayout::instance().cursor3DPosition = rayOrigin + rayDir * t;
+                }
+            }
+        }
+    }
+
+    // ── Sub-Element Edit Modes (Face, Edge, Vertex) Overlays & Picking ───────
+    bool isObjectMode = (EditorLayout::instance().shadingMode == EditorShadingMode::Object);
+    bool isFaceMode   = (EditorLayout::instance().shadingMode == EditorShadingMode::Face);
+    bool isEdgeMode   = (EditorLayout::instance().shadingMode == EditorShadingMode::Edge);
+    bool isVertexMode = (EditorLayout::instance().shadingMode == EditorShadingMode::Vertex);
+
+    if (!isObjectMode) {
+        auto pointInTriangle = [](ImVec2 pt, ImVec2 v1, ImVec2 v2, ImVec2 v3) -> bool {
+            float d1 = (pt.x - v2.x) * (v1.y - v2.y) - (v1.x - v2.x) * (pt.y - v2.y);
+            float d2 = (pt.x - v3.x) * (v2.y - v3.y) - (v2.x - v3.x) * (pt.y - v3.y);
+            float d3 = (pt.x - v1.x) * (v3.y - v1.y) - (v3.x - v1.x) * (pt.y - v1.y);
+            bool has_neg = (d1 < 0) || (d2 < 0) || (d3 < 0);
+            bool has_pos = (d1 > 0) || (d2 > 0) || (d3 > 0);
+            return !(has_neg && has_pos);
+        };
+
+        auto pointInQuad = [&](ImVec2 pt, ImVec2 p0, ImVec2 p1, ImVec2 p2, ImVec2 p3) -> bool {
+            return pointInTriangle(pt, p0, p1, p2) || pointInTriangle(pt, p0, p2, p3);
+        };
+
+        auto isFrontFacing = [](ImVec2 p0, ImVec2 p1, ImVec2 p2) -> bool {
+            return ((p1.x - p0.x) * (p2.y - p0.y) - (p1.y - p0.y) * (p2.x - p0.x)) < 0.0f;
+        };
+
+        auto distToSegment = [](ImVec2 p, ImVec2 a, ImVec2 b) -> float {
+            float l2 = (b.x - a.x) * (b.x - a.x) + (b.y - a.y) * (b.y - a.y);
+            if (l2 == 0.0f) {
+                float dx = p.x - a.x, dy = p.y - a.y;
+                return std::sqrt(dx * dx + dy * dy);
+            }
+            float t = ((p.x - a.x) * (b.x - a.x) + (p.y - a.y) * (b.y - a.y)) / l2;
+            t = std::max(0.0f, std::min(1.0f, t));
+            float projX = a.x + t * (b.x - a.x);
+            float projY = a.y + t * (b.y - a.y);
+            float dx = p.x - projX, dy = p.y - projY;
+            return std::sqrt(dx * dx + dy * dy);
+        };
+
+        auto sel = SelectionManager::instance().getSelected();
+        auto selList = SelectionManager::instance().getSelectionList();
+
+        bool shiftHeld = ImGui::GetIO().KeyShift || ImGui::GetIO().KeyCtrl;
+        bool canPick = isHovered && !showSnapPieMenu && !showModesPieMenu && !ImGuizmo::IsUsing() && !ImGuizmo::IsOver() && !ImGui::IsMouseDown(ImGuiMouseButton_Right);
+
+        int hoveredVertex = -1;
+        float bestVertexDist = 14.0f;
+
+        int hoveredEdge = -1;
+        float bestEdgeDist = 12.0f;
 
     int hoveredFace = -1;
 
@@ -587,6 +650,284 @@ void ViewportPanel::draw(Engine::Renderer::Camera& camera) {
         dl->AddText({cMin.x + 8.0f, cMin.y + 35.0f}, rightCol, "RIGHT");
     }
 
+    // ═════════════════════════════════════════════════════════════════════════
+    // PIE MENUS (Snap Shift+S & Modes Ctrl+F)
+    // ═════════════════════════════════════════════════════════════════════════
+    if (showSnapPieMenu || showModesPieMenu) {
+        ImVec2 mPos = ImGui::GetIO().MousePos;
+        ImDrawList* fgDl = ImGui::GetForegroundDrawList();
+
+        // Dark translucent fullscreen overlay backdrop
+        fgDl->AddRectFilled(panelMin, panelMax, IM_COL32(0, 0, 0, 120));
+
+        // Center hub
+        fgDl->AddCircleFilled(pieMenuCenter, 14.0f, IM_COL32(24, 24, 28, 245));
+        fgDl->AddCircle(pieMenuCenter, 14.0f, COL(T.accent), 0, 1.8f);
+        fgDl->AddCircleFilled(pieMenuCenter, 3.5f, COL(T.accent));
+
+        // Close on Escape or right click
+        if (ImGui::IsKeyPressed(ImGuiKey_Escape) || ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
+            showSnapPieMenu = false;
+            showModesPieMenu = false;
+        }
+
+        struct PieItem {
+            std::string label;
+            std::string key;
+            float angleDeg; // -90 = Top, 0 = Right, 90 = Bottom, 180 = Left
+            std::function<void()> action;
+        };
+        std::vector<PieItem> items;
+
+        if (showSnapPieMenu) {
+            auto snapSelectionToGrid = [&]() {
+                auto selList = SelectionManager::instance().getSelectionList();
+                if (selList.empty()) {
+                    if (auto single = SelectionManager::instance().getSelected()) selList.push_back(single);
+                }
+                if (EditorLayout::instance().shadingMode == EditorShadingMode::Object) {
+                    for (auto& inst : selList) {
+                        if (auto p = std::dynamic_pointer_cast<Part>(inst)) {
+                            Engine::Math::Vector3 pos = p->getPosition();
+                            pos.x = std::round(pos.x);
+                            pos.y = std::round(pos.y);
+                            pos.z = std::round(pos.z);
+                            p->setPosition(pos);
+                        }
+                    }
+                } else {
+                    static const int edges[12][2] = {
+                        {0, 1}, {1, 2}, {2, 3}, {3, 0},
+                        {4, 5}, {5, 6}, {6, 7}, {7, 4},
+                        {0, 4}, {1, 5}, {2, 6}, {3, 7}
+                    };
+                    struct FaceDef { int idx[4]; };
+                    static const FaceDef s_boxFaces[6] = {
+                        { { 4, 5, 6, 7 } }, { { 1, 0, 3, 2 } }, { { 7, 6, 2, 3 } },
+                        { { 0, 1, 5, 4 } }, { { 5, 1, 2, 6 } }, { { 0, 4, 7, 3 } }
+                    };
+                    for (auto& inst : selList) {
+                        if (auto p = std::dynamic_pointer_cast<Part>(inst)) {
+                            std::set<int> verts;
+                            if (EditorLayout::instance().shadingMode == EditorShadingMode::Vertex) {
+                                for (int v : selectedVertices) verts.insert(v);
+                            } else if (EditorLayout::instance().shadingMode == EditorShadingMode::Edge) {
+                                for (int e : selectedEdges) {
+                                    if (e >= 0 && e < 12) { verts.insert(edges[e][0]); verts.insert(edges[e][1]); }
+                                }
+                            } else if (EditorLayout::instance().shadingMode == EditorShadingMode::Face) {
+                                for (int f : selectedFaces) {
+                                    if (f >= 0 && f < 6) { for (int v = 0; v < 4; ++v) verts.insert(s_boxFaces[f].idx[v]); }
+                                }
+                            }
+                            for (int v : verts) {
+                                Engine::Math::Vector3 worldV = p->getPosition() + p->getVertex(v);
+                                worldV.x = std::round(worldV.x);
+                                worldV.y = std::round(worldV.y);
+                                worldV.z = std::round(worldV.z);
+                                p->setVertex(v, worldV - p->getPosition());
+                            }
+                        }
+                    }
+                }
+            };
+
+            auto snapSelectionToCursor = [&]() {
+                auto selList = SelectionManager::instance().getSelectionList();
+                if (selList.empty()) {
+                    if (auto single = SelectionManager::instance().getSelected()) selList.push_back(single);
+                }
+                if (EditorLayout::instance().shadingMode == EditorShadingMode::Object) {
+                    for (auto& inst : selList) {
+                        if (auto p = std::dynamic_pointer_cast<Part>(inst)) {
+                            p->setPosition(EditorLayout::instance().cursor3DPosition);
+                        }
+                    }
+                } else {
+                    static const int edges[12][2] = {
+                        {0, 1}, {1, 2}, {2, 3}, {3, 0},
+                        {4, 5}, {5, 6}, {6, 7}, {7, 4},
+                        {0, 4}, {1, 5}, {2, 6}, {3, 7}
+                    };
+                    struct FaceDef { int idx[4]; };
+                    static const FaceDef s_boxFaces[6] = {
+                        { { 4, 5, 6, 7 } }, { { 1, 0, 3, 2 } }, { { 7, 6, 2, 3 } },
+                        { { 0, 1, 5, 4 } }, { { 5, 1, 2, 6 } }, { { 0, 4, 7, 3 } }
+                    };
+                    for (auto& inst : selList) {
+                        if (auto p = std::dynamic_pointer_cast<Part>(inst)) {
+                            std::set<int> verts;
+                            if (EditorLayout::instance().shadingMode == EditorShadingMode::Vertex) {
+                                for (int v : selectedVertices) verts.insert(v);
+                            } else if (EditorLayout::instance().shadingMode == EditorShadingMode::Edge) {
+                                for (int e : selectedEdges) {
+                                    if (e >= 0 && e < 12) { verts.insert(edges[e][0]); verts.insert(edges[e][1]); }
+                                }
+                            } else if (EditorLayout::instance().shadingMode == EditorShadingMode::Face) {
+                                for (int f : selectedFaces) {
+                                    if (f >= 0 && f < 6) { for (int v = 0; v < 4; ++v) verts.insert(s_boxFaces[f].idx[v]); }
+                                }
+                            }
+                            if (!verts.empty()) {
+                                Engine::Math::Vector3 centroidLocal(0, 0, 0);
+                                for (int v : verts) centroidLocal += p->getVertex(v);
+                                centroidLocal = centroidLocal * (1.0f / (float)verts.size());
+                                Engine::Math::Vector3 centroidWorld = p->getPosition() + centroidLocal;
+                                Engine::Math::Vector3 delta = EditorLayout::instance().cursor3DPosition - centroidWorld;
+                                for (int v : verts) {
+                                    p->setVertex(v, p->getVertex(v) + delta);
+                                }
+                            }
+                        }
+                    }
+                }
+            };
+
+            auto snapCursorToSelected = [&]() {
+                auto selList = SelectionManager::instance().getSelectionList();
+                if (selList.empty()) {
+                    if (auto single = SelectionManager::instance().getSelected()) selList.push_back(single);
+                }
+                if (EditorLayout::instance().shadingMode == EditorShadingMode::Object) {
+                    if (!selList.empty()) {
+                        Engine::Math::Vector3 center(0, 0, 0);
+                        int count = 0;
+                        for (auto& inst : selList) {
+                            if (auto p = std::dynamic_pointer_cast<Part>(inst)) {
+                                center += p->getPosition();
+                                count++;
+                            }
+                        }
+                        if (count > 0) EditorLayout::instance().cursor3DPosition = center * (1.0f / (float)count);
+                    }
+                } else {
+                    static const int edges[12][2] = {
+                        {0, 1}, {1, 2}, {2, 3}, {3, 0},
+                        {4, 5}, {5, 6}, {6, 7}, {7, 4},
+                        {0, 4}, {1, 5}, {2, 6}, {3, 7}
+                    };
+                    struct FaceDef { int idx[4]; };
+                    static const FaceDef s_boxFaces[6] = {
+                        { { 4, 5, 6, 7 } }, { { 1, 0, 3, 2 } }, { { 7, 6, 2, 3 } },
+                        { { 0, 1, 5, 4 } }, { { 5, 1, 2, 6 } }, { { 0, 4, 7, 3 } }
+                    };
+                    for (auto& inst : selList) {
+                        if (auto p = std::dynamic_pointer_cast<Part>(inst)) {
+                            std::set<int> verts;
+                            if (EditorLayout::instance().shadingMode == EditorShadingMode::Vertex) {
+                                for (int v : selectedVertices) verts.insert(v);
+                            } else if (EditorLayout::instance().shadingMode == EditorShadingMode::Edge) {
+                                for (int e : selectedEdges) {
+                                    if (e >= 0 && e < 12) { verts.insert(edges[e][0]); verts.insert(edges[e][1]); }
+                                }
+                            } else if (EditorLayout::instance().shadingMode == EditorShadingMode::Face) {
+                                for (int f : selectedFaces) {
+                                    if (f >= 0 && f < 6) { for (int v = 0; v < 4; ++v) verts.insert(s_boxFaces[f].idx[v]); }
+                                }
+                            }
+                            if (!verts.empty()) {
+                                Engine::Math::Vector3 centroidLocal(0, 0, 0);
+                                for (int v : verts) centroidLocal += p->getVertex(v);
+                                centroidLocal = centroidLocal * (1.0f / (float)verts.size());
+                                EditorLayout::instance().cursor3DPosition = p->getPosition() + centroidLocal;
+                            }
+                        }
+                    }
+                }
+            };
+
+            auto snapCursorToOrigin = [&]() {
+                EditorLayout::instance().cursor3DPosition = Engine::Math::Vector3(0.0f, 0.0f, 0.0f);
+            };
+
+            auto snapCursorToGrid = [&]() {
+                EditorLayout::instance().cursor3DPosition.x = std::round(EditorLayout::instance().cursor3DPosition.x);
+                EditorLayout::instance().cursor3DPosition.y = std::round(EditorLayout::instance().cursor3DPosition.y);
+                EditorLayout::instance().cursor3DPosition.z = std::round(EditorLayout::instance().cursor3DPosition.z);
+            };
+
+            auto snapCursorToActive = [&]() {
+                if (auto active = SelectionManager::instance().getSelected()) {
+                    if (auto p = std::dynamic_pointer_cast<Part>(active)) {
+                        EditorLayout::instance().cursor3DPosition = p->getPosition();
+                    }
+                }
+            };
+
+            items = {
+                { "Selection to Grid", "1", -90.0f, snapSelectionToGrid },
+                { "Selection to Cursor", "2", 0.0f, snapSelectionToCursor },
+                { "Cursor to Selected", "3", 90.0f, snapCursorToSelected },
+                { "Cursor to World Origin", "4", 180.0f, snapCursorToOrigin },
+                { "Cursor to Grid", "5", -145.0f, snapCursorToGrid },
+                { "Cursor to Active", "6", -35.0f, snapCursorToActive }
+            };
+        } else if (showModesPieMenu) {
+            items = {
+                { "Object Mode", "1", -90.0f, [&]() {
+                    EditorLayout::instance().shadingMode = EditorShadingMode::Object;
+                    selectedVertices.clear(); selectedEdges.clear(); selectedFaces.clear();
+                } },
+                { "Face Mode", "2", 0.0f, [&]() {
+                    EditorLayout::instance().shadingMode = EditorShadingMode::Face;
+                } },
+                { "Edge Mode", "3", 90.0f, [&]() {
+                    EditorLayout::instance().shadingMode = EditorShadingMode::Edge;
+                } },
+                { "Vertex Mode", "4", 180.0f, [&]() {
+                    EditorLayout::instance().shadingMode = EditorShadingMode::Vertex;
+                } }
+            };
+        }
+
+        // Draw and interact with items
+        float radius = 105.0f;
+        for (size_t i = 0; i < items.size(); ++i) {
+            const auto& item = items[i];
+            float rad = item.angleDeg * 3.14159265f / 180.0f;
+            ImVec2 itemCenter(pieMenuCenter.x + std::cos(rad) * radius,
+                              pieMenuCenter.y + std::sin(rad) * radius);
+
+            ImVec2 textSize = ImGui::CalcTextSize(item.label.c_str());
+            float padX = 14.0f, padY = 8.0f;
+            ImVec2 bMin(itemCenter.x - textSize.x * 0.5f - padX, itemCenter.y - textSize.y * 0.5f - padY);
+            ImVec2 bMax(itemCenter.x + textSize.x * 0.5f + padX, itemCenter.y + textSize.y * 0.5f + padY);
+
+            bool isItemHov = (mPos.x >= bMin.x && mPos.x <= bMax.x && mPos.y >= bMin.y && mPos.y <= bMax.y);
+            
+            bool keyPressed = false;
+            if (item.key == "1" && ImGui::IsKeyPressed(ImGuiKey_1)) keyPressed = true;
+            if (item.key == "2" && ImGui::IsKeyPressed(ImGuiKey_2)) keyPressed = true;
+            if (item.key == "3" && ImGui::IsKeyPressed(ImGuiKey_3)) keyPressed = true;
+            if (item.key == "4" && ImGui::IsKeyPressed(ImGuiKey_4)) keyPressed = true;
+            if (item.key == "5" && ImGui::IsKeyPressed(ImGuiKey_5)) keyPressed = true;
+            if (item.key == "6" && ImGui::IsKeyPressed(ImGuiKey_6)) keyPressed = true;
+
+            if (isItemHov || keyPressed) {
+                fgDl->AddLine(pieMenuCenter, itemCenter, COL(T.accent), 2.0f);
+                fgDl->AddRectFilled(bMin, bMax, IM_COL32(30, 45, 60, 245), 6.0f);
+                fgDl->AddRect(bMin, bMax, COL(T.accent), 6.0f, 0, 2.0f);
+                fgDl->AddText(ImVec2(bMin.x + padX, bMin.y + padY), COL(T.accent), item.label.c_str());
+            } else {
+                fgDl->AddRectFilled(bMin, bMax, IM_COL32(20, 20, 24, 230), 6.0f);
+                fgDl->AddRect(bMin, bMax, COL(T.border), 6.0f, 0, 1.2f);
+                fgDl->AddText(ImVec2(bMin.x + padX, bMin.y + padY), COL(T.textPrimary), item.label.c_str());
+            }
+
+            // Key badge on top-right corner
+            ImVec2 badgePos(bMax.x - 4.0f, bMin.y - 4.0f);
+            fgDl->AddCircleFilled(badgePos, 7.5f, IM_COL32(35, 35, 42, 255));
+            fgDl->AddCircle(badgePos, 7.5f, COL(T.border), 0, 1.0f);
+            fgDl->AddText(ImVec2(badgePos.x - 3.5f, badgePos.y - 6.5f), COL(T.textSecondary), item.key.c_str());
+
+            if ((isItemHov && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) || keyPressed) {
+                item.action();
+                showSnapPieMenu = false;
+                showModesPieMenu = false;
+            }
+        }
+    }
+
     ImGui::End();
     ImGui::PopStyleVar();
 }
@@ -613,170 +954,97 @@ void ViewportPanel::handleGizmoInput(Engine::Renderer::Camera& camera) {
 
     // ── Face Mode Multi-Gizmo ────────────────────────────────────────────────
     if (EditorLayout::instance().shadingMode == EditorShadingMode::Face) {
-        struct FaceDef {
-            int idx[4]; // 0=BL, 1=BR, 2=TR, 3=TL
-        };
-        static const FaceDef s_boxFaces[6] = {
-            { { 4, 5, 6, 7 } }, // 0: Front  (+Z)
-            { { 1, 0, 3, 2 } }, // 1: Back   (-Z)
-            { { 7, 6, 2, 3 } }, // 2: Top    (+Y)
-            { { 0, 1, 5, 4 } }, // 3: Bottom (-Y)
-            { { 5, 1, 2, 6 } }, // 4: Right  (+X)
-            { { 0, 4, 7, 3 } }  // 5: Left   (-X)
-        };
+            struct FaceDef {
+                int idx[4]; // 0=BL, 1=BR, 2=TR, 3=TL
+            };
+            static const FaceDef s_boxFaces[6] = {
+                { { 4, 5, 6, 7 } }, // 0: Front  (+Z)
+                { { 1, 0, 3, 2 } }, // 1: Back   (-Z)
+                { { 7, 6, 2, 3 } }, // 2: Top    (+Y)
+                { { 0, 1, 5, 4 } }, // 3: Bottom (-Y)
+                { { 5, 1, 2, 6 } }, // 4: Right  (+X)
+                { { 0, 4, 7, 3 } }  // 5: Left   (-X)
+            };
 
-        if (selectedParts.size() == 1 && !selectedFaces.empty()) {
-            auto part = selectedParts[0];
+            if (selectedParts.size() == 1 && !selectedFaces.empty()) {
+                auto part = selectedParts[0];
 
-            // Collect all unique vertex indices from selected faces
-            std::set<int> uniqueVerts;
-            for (int fIdx : selectedFaces) {
-                if (fIdx >= 0 && fIdx < 6) {
-                    for (int v = 0; v < 4; ++v) {
-                        uniqueVerts.insert(s_boxFaces[fIdx].idx[v]);
-                    }
-                }
-            }
-
-            if (!uniqueVerts.empty()) {
-                Engine::Math::Vector3 centroidLocal(0, 0, 0);
-                for (int vIdx : uniqueVerts) {
-                    centroidLocal += part->getVertex(vIdx);
-                }
-                centroidLocal = centroidLocal * (1.0f / (float)uniqueVerts.size());
-                Engine::Math::Vector3 centroidWorld = part->getPosition() + centroidLocal;
-
-                ImGuizmo::SetDrawlist();
-                ImGuizmo::SetRect(ImGui::GetWindowPos().x, ImGui::GetWindowPos().y,
-                                  ImGui::GetWindowWidth(), ImGui::GetWindowHeight());
-
-                Engine::Math::Matrix4 vTransform = Engine::Math::Matrix4::translation(centroidWorld);
-                Engine::Math::Matrix4 view = camera.getViewMatrix();
-                Engine::Math::Matrix4 proj = camera.getProjectionMatrix(
-                    (float)currentWidth / (float)currentHeight);
-
-                float snapValues[3] = { 1.0f, 1.0f, 1.0f };
-                float* snapPtr = EditorLayout::instance().gridSnap ? snapValues : nullptr;
-
-                static std::map<int, Engine::Math::Vector3> s_faceDragStartPositions;
-                static Engine::Math::Vector3 s_faceDragStartCenter;
-
-                ImGuizmo::Manipulate(
-                    view.m.data(), proj.m.data(),
-                    ImGuizmo::TRANSLATE,
-                    ImGuizmo::WORLD,
-                    vTransform.m.data(),
-                    nullptr,
-                    snapPtr
-                );
-
-                if (ImGuizmo::IsUsing()) {
-                    if (!isDraggingGizmo) {
-                        isDraggingGizmo = true;
-                        s_faceDragStartCenter = centroidWorld;
-                        s_faceDragStartPositions.clear();
-                        for (int vIdx : uniqueVerts) {
-                            s_faceDragStartPositions[vIdx] = part->getVertex(vIdx);
+                // Collect all unique vertex indices from selected faces
+                std::set<int> uniqueVerts;
+                for (int fIdx : selectedFaces) {
+                    if (fIdx >= 0 && fIdx < 6) {
+                        for (int v = 0; v < 4; ++v) {
+                            uniqueVerts.insert(s_boxFaces[fIdx].idx[v]);
                         }
                     }
-                    Engine::Math::Vector3 newWorldCenter(vTransform.m[12], vTransform.m[13], vTransform.m[14]);
-                    Engine::Math::Vector3 delta = newWorldCenter - s_faceDragStartCenter;
+                }
+
+                if (!uniqueVerts.empty()) {
+                    Engine::Math::Vector3 centroidLocal(0, 0, 0);
                     for (int vIdx : uniqueVerts) {
-                        part->setVertex(vIdx, s_faceDragStartPositions[vIdx] + delta);
+                        centroidLocal += part->getVertex(vIdx);
                     }
-                } else {
-                    isDraggingGizmo = false;
+                    centroidLocal = centroidLocal * (1.0f / (float)uniqueVerts.size());
+                    Engine::Math::Vector3 centroidWorld = part->getPosition() + centroidLocal;
+
+                    ImGuizmo::SetDrawlist();
+                    ImGuizmo::SetRect(ImGui::GetWindowPos().x, ImGui::GetWindowPos().y,
+                                      ImGui::GetWindowWidth(), ImGui::GetWindowHeight());
+
+                    Engine::Math::Matrix4 vTransform = Engine::Math::Matrix4::translation(centroidWorld);
+                    Engine::Math::Matrix4 view = camera.getViewMatrix();
+                    Engine::Math::Matrix4 proj = camera.getProjectionMatrix(
+                        (float)currentWidth / (float)currentHeight);
+
+                    float snapValues[3] = { 1.0f, 1.0f, 1.0f };
+                    float* snapPtr = EditorLayout::instance().gridSnap ? snapValues : nullptr;
+
+                    static std::map<int, Engine::Math::Vector3> s_faceDragStartPositions;
+                    static Engine::Math::Vector3 s_faceDragStartCenter;
+
+                    ImGuizmo::Manipulate(
+                        view.m.data(), proj.m.data(),
+                        ImGuizmo::TRANSLATE,
+                        ImGuizmo::WORLD,
+                        vTransform.m.data(),
+                        nullptr,
+                        snapPtr
+                    );
+
+                    if (ImGuizmo::IsUsing()) {
+                        if (!isDraggingGizmo) {
+                            isDraggingGizmo = true;
+                            s_faceDragStartCenter = centroidWorld;
+                            s_faceDragStartPositions.clear();
+                            for (int vIdx : uniqueVerts) {
+                                s_faceDragStartPositions[vIdx] = part->getVertex(vIdx);
+                            }
+                        }
+                        Engine::Math::Vector3 newWorldCenter(vTransform.m[12], vTransform.m[13], vTransform.m[14]);
+                        Engine::Math::Vector3 delta = newWorldCenter - s_faceDragStartCenter;
+                        for (int vIdx : uniqueVerts) {
+                            part->setVertex(vIdx, s_faceDragStartPositions[vIdx] + delta);
+                        }
+                    } else {
+                        isDraggingGizmo = false;
+                    }
+                    return; // Face is selected and manipulated
                 }
-                return; // Face is selected and manipulated
             }
+            return; // In Face mode, do not draw whole-object gizmo
         }
-        return; // In Face mode, do not draw whole-object gizmo
-    }
 
-    // ── Vertex Mode Multi-Gizmo ──────────────────────────────────────────────
-    if (EditorLayout::instance().shadingMode == EditorShadingMode::Vertex) {
-        if (selectedParts.size() == 1 && !selectedVertices.empty()) {
-            auto part = selectedParts[0];
+        // ── Vertex Mode Multi-Gizmo ──────────────────────────────────────────
+        if (EditorLayout::instance().shadingMode == EditorShadingMode::Vertex) {
+            if (selectedParts.size() == 1 && !selectedVertices.empty()) {
+                auto part = selectedParts[0];
 
-            // Calculate Centroid of all selected vertices
-            Engine::Math::Vector3 centroidLocal(0, 0, 0);
-            for (int vIdx : selectedVertices) {
-                centroidLocal += part->getVertex(vIdx);
-            }
-            centroidLocal = centroidLocal * (1.0f / (float)selectedVertices.size());
-            Engine::Math::Vector3 centroidWorld = part->getPosition() + centroidLocal;
-
-            ImGuizmo::SetDrawlist();
-            ImGuizmo::SetRect(ImGui::GetWindowPos().x, ImGui::GetWindowPos().y,
-                              ImGui::GetWindowWidth(), ImGui::GetWindowHeight());
-
-            Engine::Math::Matrix4 vTransform = Engine::Math::Matrix4::translation(centroidWorld);
-            Engine::Math::Matrix4 view = camera.getViewMatrix();
-            Engine::Math::Matrix4 proj = camera.getProjectionMatrix(
-                (float)currentWidth / (float)currentHeight);
-
-            float snapValues[3] = { 1.0f, 1.0f, 1.0f };
-            float* snapPtr = EditorLayout::instance().gridSnap ? snapValues : nullptr;
-
-            static std::map<int, Engine::Math::Vector3> s_vertDragStartPositions;
-            static Engine::Math::Vector3 s_vertDragStartCenter;
-
-            ImGuizmo::Manipulate(
-                view.m.data(), proj.m.data(),
-                ImGuizmo::TRANSLATE,
-                ImGuizmo::WORLD,
-                vTransform.m.data(),
-                nullptr,
-                snapPtr
-            );
-
-            if (ImGuizmo::IsUsing()) {
-                if (!isDraggingGizmo) {
-                    isDraggingGizmo = true;
-                    s_vertDragStartCenter = centroidWorld;
-                    s_vertDragStartPositions.clear();
-                    for (int vIdx : selectedVertices) {
-                        s_vertDragStartPositions[vIdx] = part->getVertex(vIdx);
-                    }
-                }
-                Engine::Math::Vector3 newWorldCenter(vTransform.m[12], vTransform.m[13], vTransform.m[14]);
-                Engine::Math::Vector3 delta = newWorldCenter - s_vertDragStartCenter;
+                // Calculate Centroid of all selected vertices
+                Engine::Math::Vector3 centroidLocal(0, 0, 0);
                 for (int vIdx : selectedVertices) {
-                    part->setVertex(vIdx, s_vertDragStartPositions[vIdx] + delta);
-                }
-            } else {
-                isDraggingGizmo = false;
-            }
-        }
-        return; // In Vertex mode, do not draw whole-object gizmo
-    }
-
-    // ── Edge Mode Multi-Gizmo ────────────────────────────────────────────────
-    if (EditorLayout::instance().shadingMode == EditorShadingMode::Edge) {
-        static const int edges[12][2] = {
-            {0, 1}, {1, 2}, {2, 3}, {3, 0}, // Front quad
-            {4, 5}, {5, 6}, {6, 7}, {7, 4}, // Back quad
-            {0, 4}, {1, 5}, {2, 6}, {3, 7}  // Connecting edges
-        };
-
-        if (selectedParts.size() == 1 && !selectedEdges.empty()) {
-            auto part = selectedParts[0];
-
-            // Collect all unique vertex indices from selected edges
-            std::set<int> uniqueVerts;
-            for (int eIdx : selectedEdges) {
-                if (eIdx >= 0 && eIdx < 12) {
-                    uniqueVerts.insert(edges[eIdx][0]);
-                    uniqueVerts.insert(edges[eIdx][1]);
-                }
-            }
-
-            if (!uniqueVerts.empty()) {
-                Engine::Math::Vector3 centroidLocal(0, 0, 0);
-                for (int vIdx : uniqueVerts) {
                     centroidLocal += part->getVertex(vIdx);
                 }
-                centroidLocal = centroidLocal * (1.0f / (float)uniqueVerts.size());
+                centroidLocal = centroidLocal * (1.0f / (float)selectedVertices.size());
                 Engine::Math::Vector3 centroidWorld = part->getPosition() + centroidLocal;
 
                 ImGuizmo::SetDrawlist();
@@ -791,8 +1059,8 @@ void ViewportPanel::handleGizmoInput(Engine::Renderer::Camera& camera) {
                 float snapValues[3] = { 1.0f, 1.0f, 1.0f };
                 float* snapPtr = EditorLayout::instance().gridSnap ? snapValues : nullptr;
 
-                static std::map<int, Engine::Math::Vector3> s_edgeDragStartPositions;
-                static Engine::Math::Vector3 s_edgeDragStartCenter;
+                static std::map<int, Engine::Math::Vector3> s_vertDragStartPositions;
+                static Engine::Math::Vector3 s_vertDragStartCenter;
 
                 ImGuizmo::Manipulate(
                     view.m.data(), proj.m.data(),
@@ -806,24 +1074,97 @@ void ViewportPanel::handleGizmoInput(Engine::Renderer::Camera& camera) {
                 if (ImGuizmo::IsUsing()) {
                     if (!isDraggingGizmo) {
                         isDraggingGizmo = true;
-                        s_edgeDragStartCenter = centroidWorld;
-                        s_edgeDragStartPositions.clear();
-                        for (int vIdx : uniqueVerts) {
-                            s_edgeDragStartPositions[vIdx] = part->getVertex(vIdx);
+                        s_vertDragStartCenter = centroidWorld;
+                        s_vertDragStartPositions.clear();
+                        for (int vIdx : selectedVertices) {
+                            s_vertDragStartPositions[vIdx] = part->getVertex(vIdx);
                         }
                     }
                     Engine::Math::Vector3 newWorldCenter(vTransform.m[12], vTransform.m[13], vTransform.m[14]);
-                    Engine::Math::Vector3 delta = newWorldCenter - s_edgeDragStartCenter;
-                    for (int vIdx : uniqueVerts) {
-                        part->setVertex(vIdx, s_edgeDragStartPositions[vIdx] + delta);
+                    Engine::Math::Vector3 delta = newWorldCenter - s_vertDragStartCenter;
+                    for (int vIdx : selectedVertices) {
+                        part->setVertex(vIdx, s_vertDragStartPositions[vIdx] + delta);
                     }
                 } else {
                     isDraggingGizmo = false;
                 }
             }
+            return; // In Vertex mode, do not draw whole-object gizmo
         }
-        return; // In Edge mode, do not draw whole-object gizmo
-    }
+
+        // ── Edge Mode Multi-Gizmo ────────────────────────────────────────────
+        if (EditorLayout::instance().shadingMode == EditorShadingMode::Edge) {
+            static const int edges[12][2] = {
+                {0, 1}, {1, 2}, {2, 3}, {3, 0}, // Front quad
+                {4, 5}, {5, 6}, {6, 7}, {7, 4}, // Back quad
+                {0, 4}, {1, 5}, {2, 6}, {3, 7}  // Connecting edges
+            };
+
+            if (selectedParts.size() == 1 && !selectedEdges.empty()) {
+                auto part = selectedParts[0];
+
+                // Collect all unique vertex indices from selected edges
+                std::set<int> uniqueVerts;
+                for (int eIdx : selectedEdges) {
+                    if (eIdx >= 0 && eIdx < 12) {
+                        uniqueVerts.insert(edges[eIdx][0]);
+                        uniqueVerts.insert(edges[eIdx][1]);
+                    }
+                }
+
+                if (!uniqueVerts.empty()) {
+                    Engine::Math::Vector3 centroidLocal(0, 0, 0);
+                    for (int vIdx : uniqueVerts) {
+                        centroidLocal += part->getVertex(vIdx);
+                    }
+                    centroidLocal = centroidLocal * (1.0f / (float)uniqueVerts.size());
+                    Engine::Math::Vector3 centroidWorld = part->getPosition() + centroidLocal;
+
+                    ImGuizmo::SetDrawlist();
+                    ImGuizmo::SetRect(ImGui::GetWindowPos().x, ImGui::GetWindowPos().y,
+                                      ImGui::GetWindowWidth(), ImGui::GetWindowHeight());
+
+                    Engine::Math::Matrix4 vTransform = Engine::Math::Matrix4::translation(centroidWorld);
+                    Engine::Math::Matrix4 view = camera.getViewMatrix();
+                    Engine::Math::Matrix4 proj = camera.getProjectionMatrix(
+                        (float)currentWidth / (float)currentHeight);
+
+                    float snapValues[3] = { 1.0f, 1.0f, 1.0f };
+                    float* snapPtr = EditorLayout::instance().gridSnap ? snapValues : nullptr;
+
+                    static std::map<int, Engine::Math::Vector3> s_edgeDragStartPositions;
+                    static Engine::Math::Vector3 s_edgeDragStartCenter;
+
+                    ImGuizmo::Manipulate(
+                        view.m.data(), proj.m.data(),
+                        ImGuizmo::TRANSLATE,
+                        ImGuizmo::WORLD,
+                        vTransform.m.data(),
+                        nullptr,
+                        snapPtr
+                    );
+
+                    if (ImGuizmo::IsUsing()) {
+                        if (!isDraggingGizmo) {
+                            isDraggingGizmo = true;
+                            s_edgeDragStartCenter = centroidWorld;
+                            s_edgeDragStartPositions.clear();
+                            for (int vIdx : uniqueVerts) {
+                                s_edgeDragStartPositions[vIdx] = part->getVertex(vIdx);
+                            }
+                        }
+                        Engine::Math::Vector3 newWorldCenter(vTransform.m[12], vTransform.m[13], vTransform.m[14]);
+                        Engine::Math::Vector3 delta = newWorldCenter - s_edgeDragStartCenter;
+                        for (int vIdx : uniqueVerts) {
+                            part->setVertex(vIdx, s_edgeDragStartPositions[vIdx] + delta);
+                        }
+                    } else {
+                        isDraggingGizmo = false;
+                    }
+                }
+            }
+            return; // In Edge mode, do not draw whole-object gizmo
+        }
 
     // Calculate Bounding Centroid Center
     Engine::Math::Vector3 center(0.0f, 0.0f, 0.0f);

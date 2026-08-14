@@ -64,6 +64,15 @@ struct Vector3 {
         }
     }
 
+    Vector3 normalized() const {
+        float len = length();
+        if (len > 0.0f) {
+            float invLen = 1.0f / len;
+            return Vector3(x * invLen, y * invLen, z * invLen);
+        }
+        return *this;
+    }
+
     float dot(const Vector3& other) const {
         return x * other.x + y * other.y + z * other.z;
     }
