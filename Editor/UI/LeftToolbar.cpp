@@ -264,10 +264,15 @@ void LeftToolbar::draw() {
     
     drawDivider();
     
-    // [Render / Shading Modes: Face, Edge, Vertex]
+    // [Edit & Shading Modes: Object, Face, Edge, Vertex]
+    bool isObj = (EditorLayout::instance().shadingMode == EditorShadingMode::Object);
+    bool clickedObj = isObj;
+    drawShortcut("##shading_obj", "icon_model", DrawIcon_Folder, clickedObj, "Object Mode (Select & Transform Objects)");
+    if (clickedObj && !isObj) EditorLayout::instance().shadingMode = EditorShadingMode::Object;
+
     bool isFace = (EditorLayout::instance().shadingMode == EditorShadingMode::Face);
     bool clickedFace = isFace;
-    drawShortcut("##shading_face", "icon_mesh", DrawIcon_Folder, clickedFace, "Face Mode (Solid Shaded)");
+    drawShortcut("##shading_face", "icon_mesh", DrawIcon_Folder, clickedFace, "Face Mode (Select & Move Faces)");
     if (clickedFace && !isFace) EditorLayout::instance().shadingMode = EditorShadingMode::Face;
 
     bool isEdge = (EditorLayout::instance().shadingMode == EditorShadingMode::Edge);

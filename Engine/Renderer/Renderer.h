@@ -35,7 +35,8 @@ enum RenderView : bgfx::ViewId {
 };
 
 enum class ShadingMode {
-    Face,       // Standard full shaded (Lit / PBR)
+    Object,     // Standard full shaded (Lit / PBR) - Object Mode
+    Face,       // Standard full shaded with Face selection
     Edge,       // Edge / Wireframe lines
     Vertex      // Points / Vertices
 };
@@ -56,7 +57,7 @@ public:
     void updateDeformedCubeMesh(MeshHandle handle, const std::vector<Engine::Math::Vector3>& localCorners);
     void destroyMesh(MeshHandle handle);
 
-    // Shading Mode (Face, Wireframe, Vertex)
+    // Shading Mode (Object, Face, Edge, Vertex)
     void setShadingMode(ShadingMode mode) { m_shadingMode = mode; }
     ShadingMode getShadingMode() const { return m_shadingMode; }
 
@@ -69,7 +70,7 @@ public:
 private:
     RendererSystem() = default;
 
-    ShadingMode m_shadingMode = ShadingMode::Face;
+    ShadingMode m_shadingMode = ShadingMode::Object;
 
     // Hardcoded küp nesnesi için VBO/IBO
     bgfx::VertexBufferHandle m_vbh = BGFX_INVALID_HANDLE;

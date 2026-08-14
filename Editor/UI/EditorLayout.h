@@ -4,7 +4,7 @@
 
 enum class EditorTool { Select, Move, Rotate, Scale };
 enum class CameraViewMode { Free, Isometric, Degree90 };
-enum class EditorShadingMode { Face, Edge, Vertex };
+enum class EditorShadingMode { Object, Face, Edge, Vertex };
 
 class EditorLayout {
 public:
@@ -26,7 +26,7 @@ public:
     CameraViewMode cameraMode = CameraViewMode::Free;
     int degree90Index         = 0; // 0=Front, 1=Right, 2=Back, 3=Left, 4=Top, 5=Bottom
     bool isOrthographic       = false;
-    EditorShadingMode shadingMode = EditorShadingMode::Face;
+    EditorShadingMode shadingMode = EditorShadingMode::Object;
 
     bool wantStartMovingAssetBrowser = false;
     bool wantStartMovingMaterialEditor = false;

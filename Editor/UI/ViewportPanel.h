@@ -23,6 +23,7 @@ private:
     Engine::Math::Vector3 dragStartPosition;
     std::vector<int> selectedVertices;
     std::vector<int> selectedEdges;
+    std::vector<int> selectedFaces;
     bool isBoxSelecting = false;
     ImVec2 boxSelectStart{0, 0};
 };
