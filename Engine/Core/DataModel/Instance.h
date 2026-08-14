@@ -29,6 +29,9 @@ public:
 
     void destroy();
 
+    void notifyAddedToWorkspace();
+    void notifyRemovedFromWorkspace();
+
     virtual void onAddedToWorkspace() {}
     virtual void onRemovedFromWorkspace() {}
 

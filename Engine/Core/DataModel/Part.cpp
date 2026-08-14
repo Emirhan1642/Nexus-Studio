@@ -155,10 +155,25 @@ void Part::resetPhysics() {
 void Part::setAnchored(const bool& value) {
     anchored = value;
     if (physicsBodyId != 0xFFFFFFFF) {
-        JPH::BodyID bodyId(physicsBodyId);
+        JPH::BodyID oldBodyId(physicsBodyId);
         auto& bi = Engine::Physics::PhysicsWorld::instance().getBodyInterface();
-        bi.SetMotionType(bodyId, value ? JPH::EMotionType::Static : JPH::EMotionType::Dynamic, JPH::EActivation::Activate);
-        bi.SetObjectLayer(bodyId, value ? Engine::Physics::Layers::NON_MOVING : Engine::Physics::Layers::MOVING);
+        bi.RemoveBody(oldBodyId);
+        bi.DestroyBody(oldBodyId);
+        physicsBodyId = 0xFFFFFFFF;
+
+        JPH::BodyCreationSettings bodySettings(
+            new JPH::BoxShape(Engine::Physics::toJoltVec3(size * 0.5f)),
+            Engine::Physics::toJoltVec3(position),
+            JPH::Quat::sIdentity(),
+            anchored ? JPH::EMotionType::Static : JPH::EMotionType::Dynamic,
+            anchored ? Engine::Physics::Layers::NON_MOVING : Engine::Physics::Layers::MOVING
+        );
+        bodySettings.mUserData = (uint64_t)getInstanceId();
+        
+        JPH::BodyID newBodyId = bi.CreateAndAddBody(
+            bodySettings, anchored ? JPH::EActivation::DontActivate : JPH::EActivation::Activate
+        );
+        physicsBodyId = newBodyId.GetIndexAndSequenceNumber();
     }
 }
 

@@ -1,6 +1,20 @@
 #include "Instance.h"
 #include "InstanceRegistry.h"
 
+void Instance::notifyAddedToWorkspace() {
+    onAddedToWorkspace();
+    for (auto& child : children) {
+        if (child) child->notifyAddedToWorkspace();
+    }
+}
+
+void Instance::notifyRemovedFromWorkspace() {
+    onRemovedFromWorkspace();
+    for (auto& child : children) {
+        if (child) child->notifyRemovedFromWorkspace();
+    }
+}
+
 void Instance::setParent(const std::shared_ptr<Instance>& newParent) {
     if (auto oldParent = parent.lock()) {
         auto& siblings = oldParent->children;
@@ -8,32 +22,30 @@ void Instance::setParent(const std::shared_ptr<Instance>& newParent) {
             std::remove(siblings.begin(), siblings.end(), shared_from_this()),
             siblings.end()
         );
-        onRemovedFromWorkspace();
+        notifyRemovedFromWorkspace();
     }
 
     parent = newParent;
     if (newParent) {
         newParent->children.push_back(shared_from_this());
         InstanceRegistry::instance().registerInstance(shared_from_this());
-        onAddedToWorkspace();
+        notifyAddedToWorkspace();
     }
 }
 
 std::shared_ptr<Instance> Instance::findFirstChild(const std::string& childName) const {
     for (const auto& child : children) {
-        if (child->name == childName) return child;
+        if (child && child->name == childName) return child;
     }
     return nullptr;
 }
 
 void Instance::destroy() {
     InstanceRegistry::instance().unregisterInstance(getInstanceId());
+    for (auto& child : children) {
+        if (child) child->destroy();
+    }
     setParent(nullptr);
-    // Let children handle their own cleanup if needed, but clearing parent
-    // effectively removes this instance from the active tree.
-    
-    // To fully match Roblox behavior, we would also recursively call destroy on children
-    // and lock properties, but for Phase 1 this is sufficient.
 }
 
 std::shared_ptr<Instance> createInstance(const std::string& className) {

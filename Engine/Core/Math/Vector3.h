@@ -34,6 +34,21 @@ struct Vector3 {
     Vector3 operator-(const Vector3& other) const {
         return Vector3(x - other.x, y - other.y, z - other.z);
     }
+
+    Vector3& operator+=(const Vector3& other) {
+        x += other.x; y += other.y; z += other.z;
+        return *this;
+    }
+
+    Vector3& operator-=(const Vector3& other) {
+        x -= other.x; y -= other.y; z -= other.z;
+        return *this;
+    }
+
+    Vector3& operator*=(float scalar) {
+        x *= scalar; y *= scalar; z *= scalar;
+        return *this;
+    }
     
     float length() const {
         return std::sqrt(x * x + y * y + z * z);

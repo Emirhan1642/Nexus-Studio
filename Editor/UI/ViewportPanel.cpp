@@ -193,17 +193,39 @@ void ViewportPanel::draw(Engine::Renderer::Camera& camera) {
     ImGui::PopStyleVar();
 }
 
+#include "Engine/Core/Math/Quaternion.h"
+#include <map>
+#include <vector>
+
 void ViewportPanel::handleGizmoInput(Engine::Renderer::Camera& camera) {
-    auto sel  = SelectionManager::instance().getSelected();
-    auto part = std::dynamic_pointer_cast<Part>(sel);
-    if (!part) return;
+    auto selectionList = SelectionManager::instance().getSelectionList();
+    std::vector<std::shared_ptr<Part>> selectedParts;
+    for (auto& inst : selectionList) {
+        if (auto p = std::dynamic_pointer_cast<Part>(inst)) {
+            selectedParts.push_back(p);
+        }
+    }
+    if (selectedParts.empty()) {
+        if (auto singlePart = std::dynamic_pointer_cast<Part>(SelectionManager::instance().getSelected())) {
+            selectedParts.push_back(singlePart);
+        }
+    }
+    if (selectedParts.empty()) return;
+
+    // Calculate Bounding Centroid Center
+    Engine::Math::Vector3 center(0.0f, 0.0f, 0.0f);
+    for (const auto& p : selectedParts) {
+        center += p->getPosition();
+    }
+    center = center * (1.0f / (float)selectedParts.size());
 
     ImGuizmo::SetDrawlist();
     ImGuizmo::SetRect(ImGui::GetWindowPos().x, ImGui::GetWindowPos().y,
                       ImGui::GetWindowWidth(), ImGui::GetWindowHeight());
 
-    Engine::Math::Matrix4 transform =
-        Engine::Math::Matrix4::fromPositionAndSize(part->getPosition(), part->getSize());
+    // Single part scale or unit scale for group
+    Engine::Math::Vector3 gizmoScale = (selectedParts.size() == 1) ? selectedParts[0]->getSize() : Engine::Math::Vector3(1.0f, 1.0f, 1.0f);
+    Engine::Math::Matrix4 transform = Engine::Math::Matrix4::fromPositionAndSize(center, gizmoScale);
     Engine::Math::Matrix4 view = camera.getViewMatrix();
     Engine::Math::Matrix4 proj = camera.getProjectionMatrix(
         (float)currentWidth / (float)currentHeight);
@@ -215,20 +237,73 @@ void ViewportPanel::handleGizmoInput(Engine::Renderer::Camera& camera) {
         if (ImGui::IsKeyPressed(ImGuiKey_R)) currentOp = ImGuizmo::SCALE;
     }
 
+    static std::map<Part*, Engine::Math::Vector3> s_dragStartPositions;
+    static std::map<Part*, Engine::Math::Vector3> s_dragStartSizes;
+    static Engine::Math::Vector3 s_gizmoStartCenter(0, 0, 0);
+
     ImGuizmo::Manipulate(view.m.data(), proj.m.data(),
                          currentOp, ImGuizmo::WORLD, transform.m.data());
 
     if (ImGuizmo::IsUsing()) {
         if (!isDraggingGizmo) {
             isDraggingGizmo    = true;
-            dragStartPosition  = part->getPosition();
+            s_gizmoStartCenter = center;
+            s_dragStartPositions.clear();
+            s_dragStartSizes.clear();
+            for (auto& p : selectedParts) {
+                s_dragStartPositions[p.get()] = p->getPosition();
+                s_dragStartSizes[p.get()] = p->getSize();
+            }
         }
-        part->setPosition(transform.getTranslation());
+
+        Engine::Math::Vector3 newTrans, newScale;
+        Engine::Math::Quaternion newRot;
+        transform.decompose(newTrans, newRot, newScale);
+
+        Engine::Math::Vector3 deltaPos = newTrans - s_gizmoStartCenter;
+
+        if (currentOp == ImGuizmo::TRANSLATE) {
+            for (auto& p : selectedParts) {
+                p->setPosition(s_dragStartPositions[p.get()] + deltaPos);
+            }
+        } else if (currentOp == ImGuizmo::SCALE) {
+            if (selectedParts.size() == 1) {
+                selectedParts[0]->setSize(newScale);
+                selectedParts[0]->setPosition(newTrans);
+            } else {
+                for (auto& p : selectedParts) {
+                    Engine::Math::Vector3 origSz = s_dragStartSizes[p.get()];
+                    p->setSize(Engine::Math::Vector3(origSz.x * newScale.x, origSz.y * newScale.y, origSz.z * newScale.z));
+                    Engine::Math::Vector3 origPos = s_dragStartPositions[p.get()];
+                    Engine::Math::Vector3 rel = origPos - s_gizmoStartCenter;
+                    Engine::Math::Vector3 scaledRel(rel.x * newScale.x, rel.y * newScale.y, rel.z * newScale.z);
+                    p->setPosition(s_gizmoStartCenter + scaledRel + deltaPos);
+                }
+            }
+        } else if (currentOp == ImGuizmo::ROTATE) {
+            if (selectedParts.size() == 1) {
+                selectedParts[0]->setPosition(newTrans);
+            } else {
+                Engine::Math::Matrix4 rotMat = Engine::Math::Matrix4::fromRotation(newRot);
+                for (auto& p : selectedParts) {
+                    Engine::Math::Vector3 origPos = s_dragStartPositions[p.get()];
+                    Engine::Math::Vector3 rel = origPos - s_gizmoStartCenter;
+                    float rx = rel.x * rotMat.m[0] + rel.y * rotMat.m[4] + rel.z * rotMat.m[8];
+                    float ry = rel.x * rotMat.m[1] + rel.y * rotMat.m[5] + rel.z * rotMat.m[9];
+                    float rz = rel.x * rotMat.m[2] + rel.y * rotMat.m[6] + rel.z * rotMat.m[10];
+                    p->setPosition(s_gizmoStartCenter + Engine::Math::Vector3(rx, ry, rz) + deltaPos);
+                }
+            }
+        }
     } else {
         if (isDraggingGizmo) {
-            UndoStack::instance().pushPropertyChangeCommand(
-                part, "Position", dragStartPosition, part->getPosition());
+            for (auto& p : selectedParts) {
+                UndoStack::instance().pushPropertyChangeCommand(
+                    p, "Position", s_dragStartPositions[p.get()], p->getPosition());
+            }
             isDraggingGizmo = false;
+            s_dragStartPositions.clear();
+            s_dragStartSizes.clear();
         }
     }
 }
