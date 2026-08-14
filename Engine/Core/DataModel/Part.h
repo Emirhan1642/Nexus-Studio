@@ -70,7 +70,19 @@ public:
     void setBoneTransforms(const std::vector<Engine::Math::Matrix4>& transforms);
     const std::vector<Engine::Math::Matrix4>& getBoneTransforms() const { return currentBoneTransforms; }
 
+    // Vertex / Mesh Deformation (Blender Edit Mode Style)
+    bool isDeformed() const { return !customVertices.empty(); }
+    Engine::Math::Vector3 getVertex(int index) const;
+    void setVertex(int index, const Engine::Math::Vector3& localPos);
+    void resetDeformation();
+    const std::vector<Engine::Math::Vector3>& getCustomVertices() const { return customVertices; }
+
+    void ensureCustomVertices();
+    void rebuildProceduralMesh();
+
 private:
+    std::vector<Engine::Math::Vector3> customVertices;
+    uint32_t customMeshHandle = 0xFFFFFFFF; // InvalidHandle
     std::vector<Engine::Math::Matrix4> currentBoneTransforms;
     uint32_t renderProxyIndex = 0xFFFFFFFF; // InvalidHandle
     uint32_t physicsBodyId = 0xFFFFFFFF; // JPH::BodyID::cInvalidBodyID

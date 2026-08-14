@@ -145,7 +145,9 @@ void ViewportPanel::draw(Engine::Renderer::Camera& camera) {
         drawConstraints(DataModel::instance());
     }
 
-    // ── Vertex Mode Noktalarını render et ─────────────────────────────────────
+    bool isHovered = ImGui::IsWindowHovered(ImGuiHoveredFlags_RootAndChildWindows);
+
+    // ── Vertex Mode Noktalarını render et & Vertex Picking ────────────────────
     if (EditorLayout::instance().shadingMode == EditorShadingMode::Vertex) {
         Engine::Math::Matrix4 view     = camera.getViewMatrix();
         Engine::Math::Matrix4 proj     = camera.getProjectionMatrix((float)currentWidth/(float)currentHeight);
@@ -166,35 +168,45 @@ void ViewportPanel::draw(Engine::Renderer::Camera& camera) {
         auto sel = SelectionManager::instance().getSelected();
         auto selList = SelectionManager::instance().getSelectionList();
 
+        ImVec2 mousePos = ImGui::GetIO().MousePos;
+        bool canPick = isHovered && !ImGuizmo::IsUsing() && !ImGuizmo::IsOver() && !ImGui::IsMouseDown(ImGuiMouseButton_Right);
+
+        int hoveredVertex = -1;
+        float bestDist = 14.0f; // 14px picking radius
+
         std::function<void(const std::shared_ptr<Instance>&)> drawVertices = [&](const std::shared_ptr<Instance>& inst) {
             if (auto part = std::dynamic_pointer_cast<Part>(inst)) {
                 Engine::Math::Vector3 pos = part->getPosition();
-                Engine::Math::Vector3 size = part->getSize();
 
                 bool isSelected = (part == sel);
                 if (!isSelected) {
                     for (auto& s : selList) { if (s == part) { isSelected = true; break; } }
                 }
 
-                float hx = size.x;
-                float hy = size.y;
-                float hz = size.z;
-
-                Engine::Math::Vector3 corners[8] = {
-                    {pos.x - hx, pos.y - hy, pos.z - hz},
-                    {pos.x + hx, pos.y - hy, pos.z - hz},
-                    {pos.x + hx, pos.y + hy, pos.z - hz},
-                    {pos.x - hx, pos.y + hy, pos.z - hz},
-                    {pos.x - hx, pos.y - hy, pos.z + hz},
-                    {pos.x + hx, pos.y - hy, pos.z + hz},
-                    {pos.x + hx, pos.y + hy, pos.z + hz},
-                    {pos.x - hx, pos.y + hy, pos.z + hz}
-                };
+                Engine::Math::Vector3 corners[8];
+                for (int i = 0; i < 8; ++i) {
+                    corners[i] = pos + part->getVertex(i);
+                }
 
                 ImVec2 sPts[8];
                 bool visible[8];
                 for (int i = 0; i < 8; ++i) {
                     visible[i] = project(corners[i], sPts[i]);
+                }
+
+                // Check vertex hover / picking if this is the selected part
+                if (isSelected && canPick) {
+                    for (int i = 0; i < 8; ++i) {
+                        if (visible[i]) {
+                            float dx = mousePos.x - sPts[i].x;
+                            float dy = mousePos.y - sPts[i].y;
+                            float dist = std::sqrt(dx * dx + dy * dy);
+                            if (dist < bestDist) {
+                                bestDist = dist;
+                                hoveredVertex = i;
+                            }
+                        }
+                    }
                 }
 
                 // 12 edges connecting the 8 vertices (Blender stick cage style)
@@ -212,23 +224,42 @@ void ViewportPanel::draw(Engine::Renderer::Camera& camera) {
                 }
 
                 // Vertex Corner dots (Blender style)
-                ImU32 vCol = isSelected ? IM_COL32(255, 255, 255, 255) : IM_COL32(255, 210, 40, 255);
-                ImU32 borderCol = isSelected ? IM_COL32(0, 120, 215, 255) : IM_COL32(20, 20, 20, 240);
-                float radius = isSelected ? 4.5f : 3.5f;
-
                 for (int i = 0; i < 8; ++i) {
                     if (visible[i]) {
-                        dl->AddCircleFilled(sPts[i], radius, vCol);
-                        dl->AddCircle(sPts[i], radius + 0.5f, borderCol, 0, 1.2f);
+                        bool isHoveredVert = (isSelected && hoveredVertex == i);
+                        bool isCurrentVert = (isSelected && selectedVertexIndex == i);
+
+                        if (isCurrentVert) {
+                            // Active selected vertex: Glowing cyan target with inner bright white dot
+                            dl->AddCircleFilled(sPts[i], 6.5f, IM_COL32(0, 210, 255, 255));
+                            dl->AddCircleFilled(sPts[i], 4.0f, IM_COL32(255, 255, 255, 255));
+                            dl->AddCircle(sPts[i], 8.5f, IM_COL32(0, 140, 255, 200), 0, 1.8f);
+                        } else if (isHoveredVert) {
+                            // Hovered vertex: Yellow pulse ring
+                            dl->AddCircleFilled(sPts[i], 5.5f, IM_COL32(255, 240, 80, 255));
+                            dl->AddCircle(sPts[i], 7.5f, IM_COL32(255, 180, 0, 220), 0, 1.5f);
+                        } else {
+                            // Unselected vertex
+                            ImU32 vCol = isSelected ? IM_COL32(255, 255, 255, 255) : IM_COL32(255, 210, 40, 255);
+                            ImU32 borderCol = isSelected ? IM_COL32(0, 120, 215, 255) : IM_COL32(20, 20, 20, 240);
+                            dl->AddCircleFilled(sPts[i], 3.5f, vCol);
+                            dl->AddCircle(sPts[i], 4.0f, borderCol, 0, 1.2f);
+                        }
                     }
                 }
             }
             for (auto& child : inst->getChildren()) drawVertices(child);
         };
         drawVertices(DataModel::instance());
+
+        // Handle vertex click selection
+        if (canPick && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+            if (hoveredVertex != -1) {
+                selectedVertexIndex = hoveredVertex;
+            }
+        }
     }
 
-    bool isHovered = ImGui::IsWindowHovered(ImGuiHoveredFlags_RootAndChildWindows);
     handleCameraControls(camera, isHovered);
 
     // ── Gizmo ─────────────────────────────────────────────────────────────────
@@ -317,7 +348,47 @@ void ViewportPanel::handleGizmoInput(Engine::Renderer::Camera& camera) {
             selectedParts.push_back(singlePart);
         }
     }
-    if (selectedParts.empty()) return;
+    if (selectedParts.empty()) {
+        selectedVertexIndex = -1;
+        return;
+    }
+
+    // ── Vertex Mode Gizmo ────────────────────────────────────────────────────
+    if (EditorLayout::instance().shadingMode == EditorShadingMode::Vertex) {
+        if (selectedParts.size() == 1 && selectedVertexIndex >= 0 && selectedVertexIndex < 8) {
+            auto part = selectedParts[0];
+            Engine::Math::Vector3 vLocal = part->getVertex(selectedVertexIndex);
+            Engine::Math::Vector3 vWorld = part->getPosition() + vLocal;
+
+            ImGuizmo::SetDrawlist();
+            ImGuizmo::SetRect(ImGui::GetWindowPos().x, ImGui::GetWindowPos().y,
+                              ImGui::GetWindowWidth(), ImGui::GetWindowHeight());
+
+            Engine::Math::Matrix4 vTransform = Engine::Math::Matrix4::translation(vWorld);
+            Engine::Math::Matrix4 view = camera.getViewMatrix();
+            Engine::Math::Matrix4 proj = camera.getProjectionMatrix(
+                (float)currentWidth / (float)currentHeight);
+
+            float snapValues[3] = { 1.0f, 1.0f, 1.0f };
+            float* snapPtr = EditorLayout::instance().gridSnap ? snapValues : nullptr;
+
+            ImGuizmo::Manipulate(
+                view.m.data(), proj.m.data(),
+                ImGuizmo::TRANSLATE,
+                ImGuizmo::WORLD,
+                vTransform.m.data(),
+                nullptr,
+                snapPtr
+            );
+
+            if (ImGuizmo::IsUsing()) {
+                Engine::Math::Vector3 newWorldPos(vTransform.m[12], vTransform.m[13], vTransform.m[14]);
+                Engine::Math::Vector3 newLocalPos = newWorldPos - part->getPosition();
+                part->setVertex(selectedVertexIndex, newLocalPos);
+            }
+        }
+        return; // In Vertex mode, do not draw whole-object gizmo
+    }
 
     // Calculate Bounding Centroid Center
     Engine::Math::Vector3 center(0.0f, 0.0f, 0.0f);

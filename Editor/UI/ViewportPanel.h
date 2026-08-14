@@ -19,4 +19,5 @@ private:
 
     bool isDraggingGizmo = false;
     Engine::Math::Vector3 dragStartPosition;
+    int selectedVertexIndex = -1;
 };

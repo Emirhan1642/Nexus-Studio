@@ -896,4 +896,151 @@ MeshHandle RendererSystem::getMeshHandle(const Engine::Assets::AssetGuid& guid) 
     return handle;
 }
 
+static void buildDeformedCubeGeometry(
+    const std::vector<Engine::Math::Vector3>& V,
+    std::vector<PosColorTexCoordVertex>& outVertices,
+    std::vector<uint16_t>& outIndices,
+    std::vector<uint16_t>& outLineIndices
+) {
+    if (V.size() < 8) return;
+
+    outVertices.clear();
+    outVertices.reserve(24);
+    outIndices.clear();
+    outIndices.reserve(36);
+    outLineIndices.clear();
+    outLineIndices.reserve(72);
+
+    auto computeNormal = [](const Engine::Math::Vector3& a, const Engine::Math::Vector3& b, const Engine::Math::Vector3& c) {
+        Engine::Math::Vector3 u = b - a;
+        Engine::Math::Vector3 v = c - a;
+        Engine::Math::Vector3 n = u.cross(v);
+        n.normalize();
+        return n;
+    };
+
+    struct FaceDef {
+        int idx[4]; // 0=BL, 1=BR, 2=TR, 3=TL
+    };
+
+    // 6 faces: Front, Back, Top, Bottom, Right, Left
+    static const FaceDef faces[6] = {
+        { { 4, 5, 6, 7 } }, // Front (Z = +)
+        { { 1, 0, 3, 2 } }, // Back  (Z = -)
+        { { 7, 6, 2, 3 } }, // Top   (Y = +)
+        { { 0, 1, 5, 4 } }, // Bottom(Y = -)
+        { { 5, 1, 2, 6 } }, // Right (X = +)
+        { { 0, 4, 7, 3 } }  // Left  (X = -)
+    };
+
+    static const float uvs[4][2] = {
+        { 0.0f, 0.0f },
+        { 1.0f, 0.0f },
+        { 1.0f, 1.0f },
+        { 0.0f, 1.0f }
+    };
+
+    for (int f = 0; f < 6; ++f) {
+        uint16_t baseIdx = static_cast<uint16_t>(outVertices.size());
+        const auto& fd = faces[f];
+
+        Engine::Math::Vector3 p0 = V[fd.idx[0]];
+        Engine::Math::Vector3 p1 = V[fd.idx[1]];
+        Engine::Math::Vector3 p2 = V[fd.idx[2]];
+        Engine::Math::Vector3 p3 = V[fd.idx[3]];
+
+        Engine::Math::Vector3 n = computeNormal(p0, p1, p3);
+
+        const Engine::Math::Vector3 pts[4] = { p0, p1, p2, p3 };
+        for (int v = 0; v < 4; ++v) {
+            PosColorTexCoordVertex vert;
+            vert.x = pts[v].x; vert.y = pts[v].y; vert.z = pts[v].z;
+            vert.abgr = 0xffffffff;
+            vert.nx = n.x; vert.ny = n.y; vert.nz = n.z;
+            vert.u = uvs[v][0]; vert.v = uvs[v][1];
+            outVertices.push_back(vert);
+        }
+
+        // Tri 1: (0, 1, 2), Tri 2: (0, 2, 3)
+        outIndices.push_back(baseIdx + 0);
+        outIndices.push_back(baseIdx + 1);
+        outIndices.push_back(baseIdx + 2);
+
+        outIndices.push_back(baseIdx + 0);
+        outIndices.push_back(baseIdx + 2);
+        outIndices.push_back(baseIdx + 3);
+
+        // Lines for Tri 1
+        outLineIndices.push_back(baseIdx + 0); outLineIndices.push_back(baseIdx + 1);
+        outLineIndices.push_back(baseIdx + 1); outLineIndices.push_back(baseIdx + 2);
+        outLineIndices.push_back(baseIdx + 2); outLineIndices.push_back(baseIdx + 0);
+
+        // Lines for Tri 2
+        outLineIndices.push_back(baseIdx + 0); outLineIndices.push_back(baseIdx + 2);
+        outLineIndices.push_back(baseIdx + 2); outLineIndices.push_back(baseIdx + 3);
+        outLineIndices.push_back(baseIdx + 3); outLineIndices.push_back(baseIdx + 0);
+    }
+}
+
+MeshHandle RendererSystem::createDeformedCubeMesh(const std::vector<Engine::Math::Vector3>& localCorners) {
+    if (localCorners.size() < 8) return InvalidHandle;
+
+    std::vector<PosColorTexCoordVertex> vertices;
+    std::vector<uint16_t> indices;
+    std::vector<uint16_t> lineIndices;
+    buildDeformedCubeGeometry(localCorners, vertices, indices, lineIndices);
+
+    MeshData meshData;
+    meshData.vbh = bgfx::createVertexBuffer(
+        bgfx::copy(vertices.data(), static_cast<uint32_t>(vertices.size() * sizeof(PosColorTexCoordVertex))),
+        PosColorTexCoordVertex::ms_layout
+    );
+    meshData.ibhLods[0] = bgfx::createIndexBuffer(
+        bgfx::copy(indices.data(), static_cast<uint32_t>(indices.size() * sizeof(uint16_t)))
+    );
+    meshData.numIndicesLods[0] = static_cast<uint32_t>(indices.size());
+    meshData.numLods = 1;
+
+    meshData.ibhLines = bgfx::createIndexBuffer(
+        bgfx::copy(lineIndices.data(), static_cast<uint32_t>(lineIndices.size() * sizeof(uint16_t)))
+    );
+    meshData.numLineIndices = static_cast<uint32_t>(lineIndices.size());
+
+    MeshHandle handle = m_nextMeshHandle++;
+    m_meshes[handle] = meshData;
+    return handle;
+}
+
+void RendererSystem::updateDeformedCubeMesh(MeshHandle handle, const std::vector<Engine::Math::Vector3>& localCorners) {
+    auto it = m_meshes.find(handle);
+    if (it == m_meshes.end()) return;
+
+    if (localCorners.size() < 8) return;
+
+    std::vector<PosColorTexCoordVertex> vertices;
+    std::vector<uint16_t> indices;
+    std::vector<uint16_t> lineIndices;
+    buildDeformedCubeGeometry(localCorners, vertices, indices, lineIndices);
+
+    if (bgfx::isValid(it->second.vbh)) {
+        bgfx::destroy(it->second.vbh);
+    }
+    it->second.vbh = bgfx::createVertexBuffer(
+        bgfx::copy(vertices.data(), static_cast<uint32_t>(vertices.size() * sizeof(PosColorTexCoordVertex))),
+        PosColorTexCoordVertex::ms_layout
+    );
+}
+
+void RendererSystem::destroyMesh(MeshHandle handle) {
+    auto it = m_meshes.find(handle);
+    if (it != m_meshes.end()) {
+        if (bgfx::isValid(it->second.vbh)) bgfx::destroy(it->second.vbh);
+        for (int i = 0; i < it->second.numLods; ++i) {
+            if (bgfx::isValid(it->second.ibhLods[i])) bgfx::destroy(it->second.ibhLods[i]);
+        }
+        if (bgfx::isValid(it->second.ibhLines)) bgfx::destroy(it->second.ibhLines);
+        m_meshes.erase(it);
+    }
+}
+
 } // namespace Engine::Renderer

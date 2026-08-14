@@ -62,9 +62,73 @@ void Part::setBoneTransforms(const std::vector<Engine::Math::Matrix4>& transform
     markRenderDirty();
 }
 
+void Part::ensureCustomVertices() {
+    if (customVertices.size() == 8) return;
+    float hx = size.x;
+    float hy = size.y;
+    float hz = size.z;
+    customVertices = {
+        {-hx, -hy, -hz}, // 0
+        { hx, -hy, -hz}, // 1
+        { hx,  hy, -hz}, // 2
+        {-hx,  hy, -hz}, // 3
+        {-hx, -hy,  hz}, // 4
+        { hx, -hy,  hz}, // 5
+        { hx,  hy,  hz}, // 6
+        {-hx,  hy,  hz}  // 7
+    };
+}
+
+Engine::Math::Vector3 Part::getVertex(int index) const {
+    if (index < 0 || index >= 8) return {0, 0, 0};
+    if (customVertices.size() == 8) {
+        return customVertices[index];
+    }
+    float hx = size.x;
+    float hy = size.y;
+    float hz = size.z;
+    static const float signs[8][3] = {
+        {-1, -1, -1}, { 1, -1, -1}, { 1,  1, -1}, {-1,  1, -1},
+        {-1, -1,  1}, { 1, -1,  1}, { 1,  1,  1}, {-1,  1,  1}
+    };
+    return { signs[index][0] * hx, signs[index][1] * hy, signs[index][2] * hz };
+}
+
+void Part::setVertex(int index, const Engine::Math::Vector3& localPos) {
+    if (index < 0 || index >= 8) return;
+    ensureCustomVertices();
+    customVertices[index] = localPos;
+    rebuildProceduralMesh();
+    markRenderDirty();
+}
+
+void Part::resetDeformation() {
+    if (customMeshHandle != Engine::Renderer::InvalidHandle) {
+        Engine::Renderer::RendererSystem::instance().destroyMesh(customMeshHandle);
+        customMeshHandle = Engine::Renderer::InvalidHandle;
+    }
+    customVertices.clear();
+    markRenderDirty();
+}
+
+void Part::rebuildProceduralMesh() {
+    if (customVertices.size() < 8) return;
+    if (customMeshHandle == Engine::Renderer::InvalidHandle) {
+        customMeshHandle = Engine::Renderer::RendererSystem::instance().createDeformedCubeMesh(customVertices);
+    } else {
+        Engine::Renderer::RendererSystem::instance().updateDeformedCubeMesh(customMeshHandle, customVertices);
+    }
+}
+
 void Part::markRenderDirty() {
     if (renderProxyIndex != Engine::Renderer::InvalidHandle) {
-        Engine::Math::Matrix4 transform = Engine::Math::Matrix4::fromPositionAndSize(position, size);
+        Engine::Math::Matrix4 transform;
+        if (customMeshHandle != Engine::Renderer::InvalidHandle) {
+            transform = Engine::Math::Matrix4::translation(position);
+        } else {
+            transform = Engine::Math::Matrix4::fromPositionAndSize(position, size);
+        }
+
         Engine::Renderer::RenderProxy proxy;
         proxy.worldTransform = transform;
         proxy.material.albedo = albedoColor;
@@ -74,29 +138,32 @@ void Part::markRenderDirty() {
         proxy.material.customShader = { customShaderHandle };
         proxy.boneTransforms = currentBoneTransforms;
         
-        // Textures will be loaded/assigned via strings. We can store paths or pass them.
-        // Wait, RenderProxy only has MaterialData, which holds TextureHandles.
-        // We need to request the Renderer to load the texture and return the handle.
-        // Let's call RendererSystem::instance().getTexture(path)
         proxy.material.albedoTexture = Engine::Renderer::RendererSystem::instance().getTexture(albedoTexturePath);
         proxy.material.normalTexture = Engine::Renderer::RendererSystem::instance().getTexture(normalTexturePath);
         proxy.material.metallicTexture = Engine::Renderer::RendererSystem::instance().getTexture(metallicTexturePath);
         proxy.material.roughnessTexture = Engine::Renderer::RendererSystem::instance().getTexture(roughnessTexturePath);
         
-        if (meshAssetGuid.isValid()) {
+        if (customMeshHandle != Engine::Renderer::InvalidHandle) {
+            proxy.mesh = customMeshHandle;
+        } else if (meshAssetGuid.isValid()) {
             proxy.mesh = Engine::Renderer::RendererSystem::instance().getMeshHandle(meshAssetGuid);
         }
 
         Engine::Renderer::RenderScene::instance().markDirty(renderProxyIndex, transform);
-        // Wait, RenderScene::markDirty only updates the transform!
-        // We need an updateProxy method in RenderScene.
         Engine::Renderer::RenderScene::instance().updateProxy(renderProxyIndex, proxy);
     }
 }
 
 void Part::onAddedToWorkspace() {
+    Engine::Math::Matrix4 transform;
+    if (customMeshHandle != Engine::Renderer::InvalidHandle) {
+        transform = Engine::Math::Matrix4::translation(position);
+    } else {
+        transform = Engine::Math::Matrix4::fromPositionAndSize(position, size);
+    }
+
     Engine::Renderer::RenderProxy proxy;
-    proxy.worldTransform = Engine::Math::Matrix4::fromPositionAndSize(position, size);
+    proxy.worldTransform = transform;
     proxy.material.albedo = albedoColor;
     proxy.material.metallic = metallic;
     proxy.material.roughness = roughness;
@@ -108,7 +175,9 @@ void Part::onAddedToWorkspace() {
     proxy.material.roughnessTexture = Engine::Renderer::RendererSystem::instance().getTexture(roughnessTexturePath);
     proxy.boneTransforms = currentBoneTransforms;
     
-    if (meshAssetGuid.isValid()) {
+    if (customMeshHandle != Engine::Renderer::InvalidHandle) {
+        proxy.mesh = customMeshHandle;
+    } else if (meshAssetGuid.isValid()) {
         proxy.mesh = Engine::Renderer::RendererSystem::instance().getMeshHandle(meshAssetGuid);
     }
     
@@ -134,6 +203,10 @@ void Part::onRemovedFromWorkspace() {
     if (renderProxyIndex != Engine::Renderer::InvalidHandle) {
         Engine::Renderer::RenderScene::instance().unregisterProxy(renderProxyIndex);
         renderProxyIndex = Engine::Renderer::InvalidHandle;
+    }
+    if (customMeshHandle != Engine::Renderer::InvalidHandle) {
+        Engine::Renderer::RendererSystem::instance().destroyMesh(customMeshHandle);
+        customMeshHandle = Engine::Renderer::InvalidHandle;
     }
     if (physicsBodyId != 0xFFFFFFFF) {
         JPH::BodyID bodyId(physicsBodyId);

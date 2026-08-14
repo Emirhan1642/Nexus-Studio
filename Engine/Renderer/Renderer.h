@@ -52,6 +52,9 @@ public:
     void renderFrame(const Camera& camera, int width, int height, bgfx::FrameBufferHandle fb = BGFX_INVALID_HANDLE);
     bgfx::TextureHandle getTexture(const std::string& path);
     MeshHandle getMeshHandle(const Engine::Assets::AssetGuid& guid);
+    MeshHandle createDeformedCubeMesh(const std::vector<Engine::Math::Vector3>& localCorners);
+    void updateDeformedCubeMesh(MeshHandle handle, const std::vector<Engine::Math::Vector3>& localCorners);
+    void destroyMesh(MeshHandle handle);
 
     // Shading Mode (Face, Wireframe, Vertex)
     void setShadingMode(ShadingMode mode) { m_shadingMode = mode; }
