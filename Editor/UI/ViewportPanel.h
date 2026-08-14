@@ -1,7 +1,9 @@
 #pragma once
 #include <bgfx/bgfx.h>
-#include "Engine/Renderer/Camera.h"
+#include <imgui.h>
+#include <vector>
 #include <memory>
+#include "Engine/Renderer/Camera.h"
 
 class ViewportPanel {
 public:
@@ -19,5 +21,8 @@ private:
 
     bool isDraggingGizmo = false;
     Engine::Math::Vector3 dragStartPosition;
-    int selectedVertexIndex = -1;
+    std::vector<int> selectedVertices;
+    std::vector<int> selectedEdges;
+    bool isBoxSelecting = false;
+    ImVec2 boxSelectStart{0, 0};
 };

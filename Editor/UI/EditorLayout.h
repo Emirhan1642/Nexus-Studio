@@ -4,7 +4,7 @@
 
 enum class EditorTool { Select, Move, Rotate, Scale };
 enum class CameraViewMode { Free, Isometric, Degree90 };
-enum class EditorShadingMode { Face, Wireframe, Vertex };
+enum class EditorShadingMode { Face, Edge, Vertex };
 
 class EditorLayout {
 public:

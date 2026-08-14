@@ -36,7 +36,7 @@ enum RenderView : bgfx::ViewId {
 
 enum class ShadingMode {
     Face,       // Standard full shaded (Lit / PBR)
-    Wireframe,  // Full wireframe lines
+    Edge,       // Edge / Wireframe lines
     Vertex      // Points / Vertices
 };
 

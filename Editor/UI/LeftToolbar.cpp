@@ -264,20 +264,20 @@ void LeftToolbar::draw() {
     
     drawDivider();
     
-    // [Render / Shading Modes: Face, Wireframe, Vertex]
+    // [Render / Shading Modes: Face, Edge, Vertex]
     bool isFace = (EditorLayout::instance().shadingMode == EditorShadingMode::Face);
     bool clickedFace = isFace;
-    drawShortcut("##shading_face", "icon_mesh", DrawIcon_Folder, clickedFace, "Face / Solid Shaded Mode");
+    drawShortcut("##shading_face", "icon_mesh", DrawIcon_Folder, clickedFace, "Face Mode (Solid Shaded)");
     if (clickedFace && !isFace) EditorLayout::instance().shadingMode = EditorShadingMode::Face;
 
-    bool isWire = (EditorLayout::instance().shadingMode == EditorShadingMode::Wireframe);
-    bool clickedWire = isWire;
-    drawShortcut("##shading_wire", "icon_wireframe", DrawIcon_Folder, clickedWire, "Wireframe Mode");
-    if (clickedWire && !isWire) EditorLayout::instance().shadingMode = EditorShadingMode::Wireframe;
+    bool isEdge = (EditorLayout::instance().shadingMode == EditorShadingMode::Edge);
+    bool clickedEdge = isEdge;
+    drawShortcut("##shading_edge", "icon_box", DrawIcon_Folder, clickedEdge, "Edge Mode (Select & Move Edges)");
+    if (clickedEdge && !isEdge) EditorLayout::instance().shadingMode = EditorShadingMode::Edge;
 
     bool isVert = (EditorLayout::instance().shadingMode == EditorShadingMode::Vertex);
     bool clickedVert = isVert;
-    drawShortcut("##shading_vert", "icon_node_editor", DrawIcon_Folder, clickedVert, "Vertex / Points Mode");
+    drawShortcut("##shading_vert", "icon_wireframe", DrawIcon_Folder, clickedVert, "Vertex Mode (Select & Move Vertices)");
     if (clickedVert && !isVert) EditorLayout::instance().shadingMode = EditorShadingMode::Vertex;
 
     drawShortcut("##coll", "icon_collision", DrawIcon_Folder, s_collision, "Collision Bounds");

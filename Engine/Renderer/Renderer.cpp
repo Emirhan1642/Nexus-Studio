@@ -658,8 +658,7 @@ void RendererSystem::renderFrame(const Camera& camera, int width, int height, bg
 
     for (const auto& proxy : proxies) {
         if (!proxy.visible) continue;
-        if (!bgfx::isValid(m_program)) continue;
-        if (m_shadingMode == ShadingMode::Vertex) continue; // In Vertex Mode, faces are hidden (only vertex points & stick edges rendered)
+        if (m_shadingMode == ShadingMode::Vertex || m_shadingMode == ShadingMode::Edge) continue; // In Vertex & Edge Modes, faces & diagonals are hidden (only clean quad cage edges rendered)
         
         float distSq = (proxy.boundsCenter.x - camera.position.x) * (proxy.boundsCenter.x - camera.position.x) +
                        (proxy.boundsCenter.y - camera.position.y) * (proxy.boundsCenter.y - camera.position.y) +
@@ -686,13 +685,13 @@ void RendererSystem::renderFrame(const Camera& camera, int width, int height, bg
         auto submitColorMesh = [&](int lod, float lodFade) {
             bgfx::setTransform(proxy.worldTransform.m.data());
             
-            bool isWire = (m_shadingMode == ShadingMode::Wireframe);
+            bool isEdge = (m_shadingMode == ShadingMode::Edge);
 
             if (proxy.mesh != InvalidHandle) {
                 auto it = m_meshes.find(proxy.mesh);
                 if (it != m_meshes.end()) {
                     bgfx::setVertexBuffer(0, it->second.vbh);
-                    if (isWire && bgfx::isValid(it->second.ibhLines)) {
+                    if (isEdge && bgfx::isValid(it->second.ibhLines)) {
                         bgfx::setIndexBuffer(it->second.ibhLines);
                     } else {
                         int safeLod = lod;
@@ -702,11 +701,11 @@ void RendererSystem::renderFrame(const Camera& camera, int width, int height, bg
                     }
                 } else {
                     bgfx::setVertexBuffer(0, m_vbh);
-                    bgfx::setIndexBuffer(isWire && bgfx::isValid(m_cubeLineIbh) ? m_cubeLineIbh : m_ibh);
+                    bgfx::setIndexBuffer(isEdge && bgfx::isValid(m_cubeLineIbh) ? m_cubeLineIbh : m_ibh);
                 }
             } else {
                 bgfx::setVertexBuffer(0, m_vbh);
-                bgfx::setIndexBuffer(isWire && bgfx::isValid(m_cubeLineIbh) ? m_cubeLineIbh : m_ibh);
+                bgfx::setIndexBuffer(isEdge && bgfx::isValid(m_cubeLineIbh) ? m_cubeLineIbh : m_ibh);
             }
 
             if (!proxy.boneTransforms.empty()) {
@@ -715,8 +714,8 @@ void RendererSystem::renderFrame(const Camera& camera, int width, int height, bg
             }
 
             float albedoRoughness[4];
-            if (isWire) {
-                // Boost wireframe brightness to ensure high contrast against dark background regardless of normal/lighting
+            if (isEdge) {
+                // Boost edge wireframe brightness to ensure high contrast against dark background regardless of normal/lighting
                 albedoRoughness[0] = proxy.material.albedo.x * 3.5f + 0.5f;
                 albedoRoughness[1] = proxy.material.albedo.y * 3.5f + 0.5f;
                 albedoRoughness[2] = proxy.material.albedo.z * 3.5f + 0.5f;
@@ -750,7 +749,7 @@ void RendererSystem::renderFrame(const Camera& camera, int width, int height, bg
             bgfx::setUniform(u_lodParams, lodParams);
 
             uint64_t state = BGFX_STATE_DEFAULT;
-            if (isWire) {
+            if (isEdge) {
                 state = (BGFX_STATE_DEFAULT & ~BGFX_STATE_CULL_MASK) | BGFX_STATE_PT_LINES | BGFX_STATE_LINEAA;
             }
             bgfx::setState(state);
