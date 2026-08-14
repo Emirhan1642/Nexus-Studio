@@ -114,8 +114,10 @@ void AICopilotPanel::draw() {
     ImGuiWindowClass window_class;
     window_class.DockNodeFlagsOverrideSet = ImGuiDockNodeFlags_HiddenTabBar;
     ImGui::SetNextWindowClass(&window_class);
+    float minW = Editor::UI::CalculateNodeMinTabWidth("AI Copilot");
+    ImGui::SetNextWindowSizeConstraints(ImVec2(minW, 80.0f), ImVec2(FLT_MAX, FLT_MAX));
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
-    ImGui::Begin("AI Copilot", &EditorLayout::instance().showAICopilot, ImGuiWindowFlags_NoTitleBar);
+    ImGui::Begin("AI Copilot", &EditorLayout::instance().showAICopilot, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoMove);
 
     Editor::UI::DrawSingleTabHeader("AI Copilot", "icon_ai_bold", 150.0f, ImGui::ColorConvertFloat4ToU32(T.accent));
 

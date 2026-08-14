@@ -120,15 +120,12 @@ void FileListBar::draw() {
 
                 ImGuiDockNode* tgtNode = t.targetWindow->DockNode;
                 if (tgtNode) {
-                    int actualIdx = -1;
-                    for (int i = 0; i < tgtNode->Windows.Size; i++) {
-                        if (tgtNode->Windows[i] == t.targetWindow) { actualIdx = i; break; }
+                    tgtNode->SelectedTabId = t.targetWindow->TabId;
+                    if (tgtNode->TabBar) {
+                        tgtNode->TabBar->NextSelectedTabId = t.targetWindow->TabId;
+                        tgtNode->TabBar->SelectedTabId = t.targetWindow->TabId;
                     }
-                    if (actualIdx > 0) {
-                        ImGuiWindow* temp = tgtNode->Windows[0];
-                        tgtNode->Windows[0] = tgtNode->Windows[actualIdx];
-                        tgtNode->Windows[actualIdx] = temp;
-                    }
+                    tgtNode->VisibleWindow = t.targetWindow;
                 }
             }
         }

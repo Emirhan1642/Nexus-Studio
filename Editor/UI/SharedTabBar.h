@@ -11,6 +11,48 @@
 
 namespace Editor::UI {
 
+inline float CalculateNodeMinTabWidth(const char* windowName) {
+    ImGuiWindow* window = ImGui::FindWindowByName(windowName);
+    if (!window) return 160.0f;
+    ImGuiDockNode* node = window->DockNode;
+    
+    // If docked with Viewport, minimum width is handled by center Viewport
+    ImGuiWindow* vpWindow = ImGui::FindWindowByName("Viewport");
+    if (vpWindow && node && vpWindow->DockNode == node) {
+        return 200.0f;
+    }
+    
+    ImGuiIO& io = ImGui::GetIO();
+    
+    auto getTabWidth = [&](const char* rawName) -> float {
+        const char* sLabel = rawName;
+        if (strstr(sLabel, "Asset Browser")) sLabel = "Asset Manager";
+        bool pushedFont = false;
+        if (io.Fonts->Fonts.Size > 1) {
+            ImGui::PushFont(io.Fonts->Fonts[1]);
+            pushedFont = true;
+        }
+        ImVec2 ts = ImGui::CalcTextSize(sLabel);
+        if (pushedFont) ImGui::PopFont();
+        return 18.0f + 6.0f + ts.x + 10.0f; // icon (18px) + gap (6px) + text + right padding (10px)
+    };
+    
+    float totalW = 10.0f; // initial left margin
+    if (node && node->Windows.Size > 1) {
+        for (int i = 0; i < node->Windows.Size; i++) {
+            totalW += getTabWidth(node->Windows[i]->Name);
+            if (i < node->Windows.Size - 1) {
+                totalW += 6.0f + 3.0f + 6.0f; // separator + gaps
+            }
+        }
+    } else {
+        totalW += getTabWidth(windowName);
+    }
+    
+    totalW += 20.0f; // right breathing room
+    return std::max(totalW, 160.0f);
+}
+
 inline void DrawSingleTabHeader(const char* label, const char* icon, float width, ImU32 indicatorCol, bool drawIfSingle = true) {
     ImGuiContext& g = *GImGui;
     ImGuiWindow* window = g.CurrentWindow;
@@ -160,16 +202,14 @@ inline void DrawSingleTabHeader(const char* label, const char* icon, float width
                     g.ActiveIdWindow = sibling;
                 }
                 
-                int actualIdx = -1;
-                for (int i = 0; i < node->Windows.Size; i++) {
-                    if (node->Windows[i] == sibling) { actualIdx = i; break; }
+                if (node) {
+                    node->SelectedTabId = sibling->TabId;
+                    if (node->TabBar) {
+                        node->TabBar->NextSelectedTabId = sibling->TabId;
+                        node->TabBar->SelectedTabId = sibling->TabId;
+                    }
+                    node->VisibleWindow = sibling;
                 }
-                if (actualIdx > 0) {
-                    ImGuiWindow* temp = node->Windows[0];
-                    node->Windows[0] = node->Windows[actualIdx];
-                    node->Windows[actualIdx] = temp;
-                }
-                node->VisibleWindow = sibling;
             }
             
             if (ImGui::IsItemActive() && ImGui::IsMouseDragging(0)) {

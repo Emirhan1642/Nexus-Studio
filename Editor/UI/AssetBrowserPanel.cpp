@@ -45,19 +45,29 @@ void AssetBrowserPanel::drawContents() {
     Engine::Assets::AssetImportPipeline::instance().update();
     Engine::Assets::ThumbnailCache::instance().processPendingRenders(2);
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // 1. FIGMA TOPBAR (h = 30px, bg: #0E0E0E, border: #242424)
-    // ─────────────────────────────────────────────────────────────────────────
-    drawTopBar(width);
+    ImGuiWindow* window = ImGui::GetCurrentWindow();
+    ImGuiDockNode* node = window->DockNode;
+    ImGuiWindow* vpWindow = ImGui::FindWindowByName("Viewport");
+    bool dockedWithViewport = (vpWindow && node && vpWindow->DockNode == node);
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // 2. MAIN BODY (AssetFrame)
-    // ─────────────────────────────────────────────────────────────────────────
-    float bodyH = ImGui::GetContentRegionAvail().y;
-    if (bodyH < 10.0f) bodyH = height - 30.0f;
+    if (!dockedWithViewport) {
+        // ─────────────────────────────────────────────────────────────────────────
+        // 1. FIGMA TOPBAR (h = 30px, bg: #0E0E0E, border: #242424)
+        // ─────────────────────────────────────────────────────────────────────────
+        drawTopBar(width);
 
-    ImGui::SetCursorPos(ImVec2(0, 30.0f));
-    drawAssetFrame(width, bodyH);
+        // ─────────────────────────────────────────────────────────────────────────
+        // 2. MAIN BODY (AssetFrame)
+        // ─────────────────────────────────────────────────────────────────────────
+        float bodyH = ImGui::GetContentRegionAvail().y;
+        if (bodyH < 10.0f) bodyH = height - 30.0f;
+
+        ImGui::SetCursorPos(ImVec2(0, 30.0f));
+        drawAssetFrame(width, bodyH);
+    } else {
+        float bodyH = ImGui::GetContentRegionAvail().y;
+        drawAssetFrame(width, bodyH);
+    }
 
     // Panel Outer Border Lines
     ImVec2 winP = ImGui::GetWindowPos();
@@ -139,11 +149,11 @@ void AssetBrowserPanel::drawTopBar(float width) {
         ImVec2 tMin = ImVec2(curX, basePos.y);
         ImVec2 tMax = ImVec2(curX + tabW, basePos.y + H);
 
-        tabWin->IDStack.push_back(tabWin->ID);
-        ImGuiID tabBtnId = tabWin->GetID(sLabel);
+        window->IDStack.push_back(tabWin->ID);
+        ImGuiID tabBtnId = window->GetID(sLabel);
         ImGui::SetCursorScreenPos(tMin);
         ImGui::InvisibleButton(sLabel, ImVec2(tabW, H));
-        tabWin->IDStack.pop_back();
+        window->IDStack.pop_back();
 
         if (ImGui::IsItemClicked()) {
             ImGui::FocusWindow(tabWin);
@@ -151,14 +161,10 @@ void AssetBrowserPanel::drawTopBar(float width) {
                 g.ActiveIdWindow = tabWin;
             }
             if (node) {
-                int actualIdx = -1;
-                for (int w = 0; w < node->Windows.Size; w++) {
-                    if (node->Windows[w] == tabWin) { actualIdx = w; break; }
-                }
-                if (actualIdx > 0) {
-                    ImGuiWindow* temp = node->Windows[0];
-                    node->Windows[0] = node->Windows[actualIdx];
-                    node->Windows[actualIdx] = temp;
+                node->SelectedTabId = tabWin->TabId;
+                if (node->TabBar) {
+                    node->TabBar->NextSelectedTabId = tabWin->TabId;
+                    node->TabBar->SelectedTabId = tabWin->TabId;
                 }
                 node->VisibleWindow = tabWin;
             }
@@ -203,67 +209,99 @@ void AssetBrowserPanel::drawTopBar(float width) {
     if (pushedFont) ImGui::PopFont();
 
     // ─────────────────────────────────────────────────────────────────────────
-    // RIGHT SIDE: ACTION BUTTONS & PROJECT INFO
+    // RIGHT SIDE: ADAPTIVE / RESPONSIVE ACTION BUTTONS & PROJECT INFO
     // ─────────────────────────────────────────────────────────────────────────
+    float tabsEndX = curX + 15.0f; // End of tabs with safety margin
     float rightX = basePos.x + width - 10.0f;
+    float availRightW = rightX - tabsEndX;
 
-    // Project Name & Cloud Status Icon
-    std::string projName = "Nexus/Project";
-    std::string root = Engine::Assets::AssetDatabase::instance().getProjectRoot();
-    if (!root.empty()) {
-        std::error_code ec;
-        fs::path rp(root);
-        if (fs::exists(rp, ec)) {
-            projName = "Nexus/" + rp.filename().string();
+    // 1. Project Name & Cloud Status Icon (Only if plenty of space: availRightW >= 340px)
+    if (availRightW >= 340.0f) {
+        std::string projName = "Nexus/Project";
+        std::string root = Engine::Assets::AssetDatabase::instance().getProjectRoot();
+        if (!root.empty()) {
+            std::error_code ec;
+            fs::path rp(root);
+            if (fs::exists(rp, ec)) {
+                projName = "Nexus/" + rp.filename().string();
+            }
+        }
+
+        float cloudIconSz = 18.0f;
+        ImVec2 projTextSz = ImGui::CalcTextSize(projName.c_str());
+        float projGroupW = projTextSz.x + 8.0f + cloudIconSz;
+
+        rightX -= projGroupW;
+        dl->AddText(ImVec2(rightX, basePos.y + (H - projTextSz.y) * 0.5f), COL(T.textPrimary), projName.c_str());
+
+        ImTextureID cloudTex = IconRegistry::instance().get("icon_svr_bold");
+        if (!cloudTex) cloudTex = IconRegistry::instance().get("icon_folder_bold");
+        if (cloudTex) {
+            float iy = basePos.y + (H - cloudIconSz) * 0.5f;
+            dl->AddImage(cloudTex, ImVec2(rightX + projTextSz.x + 8.0f, iy), ImVec2(rightX + projTextSz.x + 8.0f + cloudIconSz, iy + cloudIconSz), ImVec2(0,0), ImVec2(1,1), COL(T.textPrimary));
+        }
+
+        // 2px Capsule Vertical Divider
+        rightX -= 12.0f;
+        dl->AddRectFilled(ImVec2(rightX, basePos.y + 5.0f), ImVec2(rightX + 2.0f, basePos.y + 25.0f), COLA(0xFFFFFF, 0.12f), 1.0f);
+        rightX -= 12.0f;
+    }
+
+    // 2. Search Box (Full input box if space >= 170px, else compact Search Icon Button)
+    float remainingForSearchAndAdd = rightX - tabsEndX;
+    if (remainingForSearchAndAdd >= 170.0f) {
+        float searchInputW = std::min(130.0f, remainingForSearchAndAdd - 36.0f);
+        rightX -= searchInputW;
+        ImGui::SetCursorScreenPos(ImVec2(rightX, basePos.y + 4.0f));
+        ImGui::PushItemWidth(searchInputW);
+        ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 4.0f);
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(6, 3));
+        ImGui::PushStyleColor(ImGuiCol_FrameBg, COL(T.bgDeep));
+        ImGui::PushStyleColor(ImGuiCol_Border, COL(T.border));
+        ImGui::InputTextWithHint("##AssetSearch", "Search assets...", m_searchBuffer, sizeof(m_searchBuffer));
+        ImGui::PopStyleColor(2);
+        ImGui::PopStyleVar(2);
+        ImGui::PopItemWidth();
+    } else if (remainingForSearchAndAdd >= 55.0f) {
+        // Compact search icon button (Click opens mini search popup)
+        rightX -= 22.0f;
+        ImGui::SetCursorScreenPos(ImVec2(rightX, basePos.y + 5.0f));
+        ImTextureID searchTex = IconRegistry::instance().get("icon_search_bold");
+        if (!searchTex) searchTex = IconRegistry::instance().get("icon_search");
+        if (ImGui::InvisibleButton("##SearchBtn", ImVec2(20, 20))) {
+            ImGui::OpenPopup("##AssetSearchPopup");
+        }
+        bool searchHov = ImGui::IsItemHovered();
+        if (searchTex) {
+            dl->AddImage(searchTex, ImVec2(rightX, basePos.y + 5.0f), ImVec2(rightX + 20.0f, basePos.y + 25.0f), ImVec2(0,0), ImVec2(1,1), (searchHov || m_searchBuffer[0] != '\0') ? COL(T.accent) : COL(T.textMuted));
+        }
+        if (searchHov) ImGui::SetTooltip("Search Assets");
+
+        ImGui::SetNextWindowPos(ImVec2(rightX - 140.0f, basePos.y + H + 2.0f));
+        if (ImGui::BeginPopup("##AssetSearchPopup")) {
+            ImGui::PushItemWidth(160.0f);
+            if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
+            ImGui::InputTextWithHint("##PopupSearch", "Search assets...", m_searchBuffer, sizeof(m_searchBuffer));
+            ImGui::PopItemWidth();
+            ImGui::EndPopup();
         }
     }
 
-    float cloudIconSz = 18.0f;
-    ImVec2 projTextSz = ImGui::CalcTextSize(projName.c_str());
-    float projGroupW = projTextSz.x + 8.0f + cloudIconSz;
-
-    rightX -= projGroupW;
-    dl->AddText(ImVec2(rightX, basePos.y + (H - projTextSz.y) * 0.5f), COL(T.textPrimary), projName.c_str());
-
-    ImTextureID cloudTex = IconRegistry::instance().get("icon_svr_bold");
-    if (!cloudTex) cloudTex = IconRegistry::instance().get("icon_folder_bold");
-    if (cloudTex) {
-        float iy = basePos.y + (H - cloudIconSz) * 0.5f;
-        dl->AddImage(cloudTex, ImVec2(rightX + projTextSz.x + 8.0f, iy), ImVec2(rightX + projTextSz.x + 8.0f + cloudIconSz, iy + cloudIconSz), ImVec2(0,0), ImVec2(1,1), COL(T.textPrimary));
+    // 3. Add Button (Only if it safely fits without touching tabs)
+    if (rightX - 28.0f >= tabsEndX) {
+        rightX -= 28.0f;
+        ImGui::SetCursorScreenPos(ImVec2(rightX, basePos.y + 5.0f));
+        ImTextureID addTex = IconRegistry::instance().get("icon_add");
+        if (!addTex) addTex = IconRegistry::instance().get("icon_add_bold");
+        if (ImGui::InvisibleButton("##AddBtn", ImVec2(20, 20))) {
+            // Quick add dialog or import trigger
+        }
+        bool addHov = ImGui::IsItemHovered();
+        if (addTex) {
+            dl->AddImage(addTex, ImVec2(rightX, basePos.y + 5.0f), ImVec2(rightX + 20.0f, basePos.y + 25.0f), ImVec2(0,0), ImVec2(1,1), addHov ? COL(T.accent) : COL(T.textMuted));
+        }
+        if (addHov) ImGui::SetTooltip("Add Asset / Create New");
     }
-
-    // 2px Capsule Vertical Divider 3
-    rightX -= 12.0f;
-    dl->AddRectFilled(ImVec2(rightX, basePos.y + 5.0f), ImVec2(rightX + 2.0f, basePos.y + 25.0f), COLA(0xFFFFFF, 0.12f), 1.0f);
-    rightX -= 12.0f;
-
-    // Search Input Field
-    float searchInputW = 140.0f;
-    rightX -= searchInputW;
-    ImGui::SetCursorScreenPos(ImVec2(rightX, basePos.y + 4.0f));
-    ImGui::PushItemWidth(searchInputW);
-    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 4.0f);
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(6, 3));
-    ImGui::PushStyleColor(ImGuiCol_FrameBg, COL(T.bgDeep));
-    ImGui::PushStyleColor(ImGuiCol_Border, COL(T.border));
-    ImGui::InputTextWithHint("##AssetSearch", "Search assets...", m_searchBuffer, sizeof(m_searchBuffer));
-    ImGui::PopStyleColor(2);
-    ImGui::PopStyleVar(2);
-    ImGui::PopItemWidth();
-
-    // Add Button
-    rightX -= 28.0f;
-    ImGui::SetCursorScreenPos(ImVec2(rightX, basePos.y + 5.0f));
-    ImTextureID addTex = IconRegistry::instance().get("icon_add");
-    if (!addTex) addTex = IconRegistry::instance().get("icon_add_bold");
-    if (ImGui::InvisibleButton("##AddBtn", ImVec2(20, 20))) {
-        // Quick add dialog or import trigger
-    }
-    bool addHov = ImGui::IsItemHovered();
-    if (addTex) {
-        dl->AddImage(addTex, ImVec2(rightX, basePos.y + 5.0f), ImVec2(rightX + 20.0f, basePos.y + 25.0f), ImVec2(0,0), ImVec2(1,1), addHov ? COL(T.accent) : COL(T.textMuted));
-    }
-    if (addHov) ImGui::SetTooltip("Add Asset / Create New");
 }
 
 void AssetBrowserPanel::drawAssetFrame(float width, float height) {

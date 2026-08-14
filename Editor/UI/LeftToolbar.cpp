@@ -96,20 +96,22 @@ void LeftToolbar::draw() {
 
     auto& T = NexusTheme::instance();
 
-    ImGuiWindowClass window_class;
-    window_class.DockNodeFlagsOverrideSet = ImGuiDockNodeFlags_NoTabBar;
-    ImGui::SetNextWindowClass(&window_class);
+    ImGuiViewport* vp = ImGui::GetMainViewport();
+    float topBarH = 30.0f;
+    float bottomBarH = 20.0f;
+    float leftBarW = 50.0f;
+
+    ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x, vp->WorkPos.y + topBarH));
+    ImGui::SetNextWindowSize(ImVec2(leftBarW, vp->WorkSize.y - (topBarH + bottomBarH)));
+
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,   ImVec2(0, 15)); // gap: 15px
     ImGui::PushStyleColor(ImGuiCol_WindowBg, T.bgPanel);
 
-    ImGuiWindowClass window_class_left;
-    window_class_left.DockNodeFlagsOverrideSet = ImGuiDockNodeFlags_NoDockingOverMe | ImGuiDockNodeFlags_NoDockingSplit | ImGuiDockNodeFlags_NoResize;
-    ImGui::SetNextWindowClass(&window_class_left);
-
     ImGui::Begin("##LeftToolbar", nullptr, 
         ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
-        ImGuiWindowFlags_NoMove     | ImGuiWindowFlags_NoScrollbar);
+        ImGuiWindowFlags_NoMove     | ImGuiWindowFlags_NoScrollbar |
+        ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoDocking);
     ImGui::PopStyleColor();
 
     ImDrawList* dl   = ImGui::GetWindowDrawList();

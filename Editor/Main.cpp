@@ -340,10 +340,12 @@ int main(int argc, char** argv) {
         // Render Asset Browser with native docking
         if (EditorLayout::instance().showAssetBrowser) {
             ImGuiWindowClass window_class_panels;
-            window_class_panels.DockNodeFlagsOverrideSet = ImGuiDockNodeFlags_NoTabBar;
+            window_class_panels.DockNodeFlagsOverrideSet = ImGuiDockNodeFlags_HiddenTabBar;
             ImGui::SetNextWindowClass(&window_class_panels);
+            float minW = Editor::UI::CalculateNodeMinTabWidth("Asset Browser");
+            ImGui::SetNextWindowSizeConstraints(ImVec2(minW, 80.0f), ImVec2(FLT_MAX, FLT_MAX));
             ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
-            ImGuiWindowFlags panelFlags = ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoTitleBar;
+            ImGuiWindowFlags panelFlags = ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoMove;
             
             if (ImGui::Begin("Asset Browser", &EditorLayout::instance().showAssetBrowser, panelFlags)) {
                 assetBrowser.drawContents();
@@ -358,10 +360,12 @@ int main(int argc, char** argv) {
         // Render Material Editor with native docking
         if (EditorLayout::instance().showMaterialEditor) {
             ImGuiWindowClass window_class_mat;
-            window_class_mat.DockNodeFlagsOverrideSet = ImGuiDockNodeFlags_NoTabBar;
+            window_class_mat.DockNodeFlagsOverrideSet = ImGuiDockNodeFlags_HiddenTabBar;
             ImGui::SetNextWindowClass(&window_class_mat);
+            float minW = Editor::UI::CalculateNodeMinTabWidth("Material Editor");
+            ImGui::SetNextWindowSizeConstraints(ImVec2(minW, 80.0f), ImVec2(FLT_MAX, FLT_MAX));
             ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
-            ImGuiWindowFlags matFlags = ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoTitleBar;
+            ImGuiWindowFlags matFlags = ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoMove;
             if (ImGui::Begin("Material Editor", &EditorLayout::instance().showMaterialEditor, matFlags)) {
                 Editor::UI::DrawSingleTabHeader("Material Editor", "icon_node_editor_bold", 160.0f, ImGui::ColorConvertFloat4ToU32(NexusTheme::instance().accentGreen));
                 materialEditor.drawContents();

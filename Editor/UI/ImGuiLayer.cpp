@@ -70,9 +70,12 @@ void ImGuiLayer::beginFrame() {
     ImVec2 workSize = vp->WorkSize;
     float topBarHeight = 30.0f;
     float bottomBarHeight = 20.0f;
-    // Offset dockspace for our custom 30px TopBar and 20px BottomBar
+    float leftBarWidth = 50.0f;
+    // Offset dockspace for our custom 30px TopBar, 20px BottomBar, and 50px LeftToolbar
     workPos.y += topBarHeight;
     workSize.y -= (topBarHeight + bottomBarHeight);
+    workPos.x += leftBarWidth;
+    workSize.x -= leftBarWidth;
 
     ImGui::SetNextWindowPos(workPos);
     ImGui::SetNextWindowSize(workSize);
@@ -110,36 +113,30 @@ void ImGuiLayer::buildDefaultLayout(ImGuiID dockspaceId, ImVec2 size) {
 
     ImGuiID main = dockspaceId;
 
-    // 1. Left toolbar — fixed ~50px
-    //    ratio = 50 / size.x (approx 0.035 at 1440px)
-    float leftRatio = 50.0f / size.x;
-    ImGuiID left = ImGui::DockBuilderSplitNode(main, ImGuiDir_Left, leftRatio, nullptr, &main);
-
-    // 2. Copilot — far right, fixed ~270px
-    float copilotRatio = 270.0f / (size.x - 50.0f);
+    // 1. Copilot — far right, fixed ~270px
+    float copilotRatio = 270.0f / size.x;
     ImGuiID copilot = ImGui::DockBuilderSplitNode(main, ImGuiDir_Right, copilotRatio, nullptr, &main);
 
-    // 3. Explorer + Properties column — right of center, fixed ~270px
-    float rightRatio = 270.0f / (size.x - 50.0f - 270.0f);
+    // 2. Explorer + Properties column — right of center, fixed ~270px
+    float rightRatio = 270.0f / (size.x - 270.0f);
     ImGuiID right = ImGui::DockBuilderSplitNode(main, ImGuiDir_Right, rightRatio, nullptr, &main);
 
-    // 4. Asset Manager — bottom of center, fixed ~244px
+    // 3. Asset Manager — bottom of center, fixed ~244px
     float assetRatio = 244.0f / size.y;
     ImGuiID bottom = ImGui::DockBuilderSplitNode(main, ImGuiDir_Down, assetRatio, nullptr, &main);
 
-    // 5. FileListBar — top of center, fixed ~30px
+    // 4. FileListBar — top of center, fixed ~30px
     float fileListRatio = 30.0f / size.y;
     ImGuiID fileList = ImGui::DockBuilderSplitNode(main, ImGuiDir_Up, fileListRatio, nullptr, &main);
 
-    // 6. Viewport fills the remaining center
+    // 5. Viewport fills the remaining center
     ImGuiID centerTop = main;
 
-    // 7. Right column: Explorer top (~38%), Properties bottom (~62%)
+    // 6. Right column: Explorer top (~38%), Properties bottom (~62%)
     ImGuiID explorer   = right;
     ImGuiID properties = ImGui::DockBuilderSplitNode(explorer, ImGuiDir_Down, 0.57f, nullptr, &explorer);
 
     // ── Dock windows ─────────────────────────────────────────────────
-    ImGui::DockBuilderDockWindow("##LeftToolbar", left);
     ImGui::DockBuilderDockWindow("FileListBar",   fileList);
     ImGui::DockBuilderDockWindow("Viewport",      centerTop);
     ImGui::DockBuilderDockWindow("Asset Browser",  bottom);
