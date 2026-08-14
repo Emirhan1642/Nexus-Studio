@@ -2,6 +2,8 @@
 #include <imgui.h>
 #include <string>
 
+enum class EditorTool { Select, Move, Rotate, Scale };
+
 class EditorLayout {
 public:
     static EditorLayout& instance();
@@ -14,7 +16,10 @@ public:
     bool showExplorer        = true;
     bool showProperties      = true;
 
-    
+    // Active transform tool and grid snapping
+    EditorTool currentTool   = EditorTool::Move;
+    bool gridSnap            = true;
+
     bool wantStartMovingAssetBrowser = false;
     bool wantStartMovingMaterialEditor = false;
 

@@ -6,6 +6,7 @@
 #include "NexusTheme.h"
 #include "IconRegistry.h"
 #include "SelectionManager.h"
+#include "EditorLayout.h"
 #include "../Undo/UndoStack.h"
 #include "Engine/Renderer/Renderer.h"
 #include "Engine/Core/DataModel/Part.h"
@@ -230,19 +231,37 @@ void ViewportPanel::handleGizmoInput(Engine::Renderer::Camera& camera) {
     Engine::Math::Matrix4 proj = camera.getProjectionMatrix(
         (float)currentWidth / (float)currentHeight);
 
-    static ImGuizmo::OPERATION currentOp = ImGuizmo::TRANSLATE;
     if (!ImGui::GetIO().WantTextInput) {
-        if (ImGui::IsKeyPressed(ImGuiKey_W)) currentOp = ImGuizmo::TRANSLATE;
-        if (ImGui::IsKeyPressed(ImGuiKey_E)) currentOp = ImGuizmo::ROTATE;
-        if (ImGui::IsKeyPressed(ImGuiKey_R)) currentOp = ImGuizmo::SCALE;
+        if (ImGui::IsKeyPressed(ImGuiKey_Q)) EditorLayout::instance().currentTool = EditorTool::Select;
+        if (ImGui::IsKeyPressed(ImGuiKey_W)) EditorLayout::instance().currentTool = EditorTool::Move;
+        if (ImGui::IsKeyPressed(ImGuiKey_E)) EditorLayout::instance().currentTool = EditorTool::Rotate;
+        if (ImGui::IsKeyPressed(ImGuiKey_R)) EditorLayout::instance().currentTool = EditorTool::Scale;
     }
+
+    EditorTool curTool = EditorLayout::instance().currentTool;
+    if (curTool == EditorTool::Select) {
+        return; // No gizmo drawn in Select mode
+    }
+
+    ImGuizmo::OPERATION currentOp = ImGuizmo::TRANSLATE;
+    if (curTool == EditorTool::Move) currentOp = ImGuizmo::TRANSLATE;
+    else if (curTool == EditorTool::Rotate) currentOp = ImGuizmo::ROTATE;
+    else if (curTool == EditorTool::Scale) currentOp = ImGuizmo::SCALE;
+
+    ImGuizmo::MODE currentMode = s_worldSpace ? ImGuizmo::WORLD : ImGuizmo::LOCAL;
+
+    float snapValues[3] = { 1.0f, 1.0f, 1.0f };
+    if (currentOp == ImGuizmo::ROTATE) {
+        snapValues[0] = snapValues[1] = snapValues[2] = 15.0f; // 15 degrees
+    }
+    float* snapPtr = EditorLayout::instance().gridSnap ? snapValues : nullptr;
 
     static std::map<Part*, Engine::Math::Vector3> s_dragStartPositions;
     static std::map<Part*, Engine::Math::Vector3> s_dragStartSizes;
     static Engine::Math::Vector3 s_gizmoStartCenter(0, 0, 0);
 
     ImGuizmo::Manipulate(view.m.data(), proj.m.data(),
-                         currentOp, ImGuizmo::WORLD, transform.m.data());
+                         currentOp, currentMode, transform.m.data(), nullptr, snapPtr);
 
     if (ImGuizmo::IsUsing()) {
         if (!isDraggingGizmo) {

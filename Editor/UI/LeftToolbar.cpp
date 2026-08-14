@@ -5,10 +5,6 @@
 #include "NexusTheme.h"
 #include "EditorLayout.h"
 
-enum class Tool { Select, Move, Rotate, Scale };
-static Tool  s_currentTool = Tool::Move;
-static bool  s_gridSnap    = true;
-
 // ─── Viewport states (extern from ViewportPanel.cpp) ───
 extern bool  s_wireframe;
 extern bool  s_collision;
@@ -128,12 +124,12 @@ void LeftToolbar::draw() {
     ImGui::Dummy(ImVec2(winW, 10));
 
     auto drawToolBtn = [&](
-        Tool toolType,
+        EditorTool toolType,
         const char* iconKey,
         void(*drawFallback)(ImDrawList*, ImVec2, float, ImU32),
         const char* tooltip
     ) {
-        bool isActive = (s_currentTool == toolType);
+        bool isActive = (EditorLayout::instance().currentTool == toolType);
         ImGui::SetCursorPosX(offX);
 
         ImVec2 bMin = ImGui::GetCursorScreenPos();
@@ -143,7 +139,7 @@ void LeftToolbar::draw() {
         bool hov = ImGui::IsItemHovered();
         bool clk = ImGui::IsItemClicked();
 
-        if (clk) s_currentTool = toolType;
+        if (clk) EditorLayout::instance().currentTool = toolType;
 
         ImU32 iconCol = isActive ? COL(T.accent) : (hov ? COL(T.textPrimary) : COL(T.textMuted));
 
@@ -166,33 +162,35 @@ void LeftToolbar::draw() {
     };
 
     // Tool ikonları
-    drawToolBtn(Tool::Select, "icon_cursor", DrawIcon_Select, "Select Tool (Q)");
-    drawToolBtn(Tool::Move,   "icon_move",   DrawIcon_Move,   "Move Tool (W)");
-    drawToolBtn(Tool::Rotate, "icon_rotate", DrawIcon_Rotate, "Rotate Tool (E)");
-    drawToolBtn(Tool::Scale,  "icon_scale",  DrawIcon_Scale,  "Scale Tool (R)");
+    drawToolBtn(EditorTool::Select, "icon_cursor", DrawIcon_Select, "Select Tool (Q)");
+    drawToolBtn(EditorTool::Move,   "icon_move",   DrawIcon_Move,   "Move Tool (W)");
+    drawToolBtn(EditorTool::Rotate, "icon_rotate", DrawIcon_Rotate, "Rotate Tool (E)");
+    drawToolBtn(EditorTool::Scale,  "icon_scale",  DrawIcon_Scale,  "Scale Tool (R)");
 
     // Snap toggle
     {
+        bool isSnap = EditorLayout::instance().gridSnap;
         ImGui::SetCursorPosX(offX);
         ImVec2 bMin = ImGui::GetCursorScreenPos();
         ImVec2 bMax = ImVec2(bMin.x + btnS, bMin.y + btnS);
 
         ImGui::InvisibleButton("##snap", ImVec2(btnS, btnS));
         bool hov = ImGui::IsItemHovered();
-        if (ImGui::IsItemClicked()) s_gridSnap = !s_gridSnap;
+        if (ImGui::IsItemClicked()) EditorLayout::instance().gridSnap = !EditorLayout::instance().gridSnap;
 
-        ImU32 snapCol = s_gridSnap ? COL(T.toggleOn) : COL(T.textMuted);
-        if (hov && !s_gridSnap) snapCol = COL(T.textPrimary);
+        ImU32 snapCol = isSnap ? COL(T.accent) : (hov ? COL(T.textPrimary) : COL(T.textMuted));
 
         ImVec2 c = {(bMin.x+bMax.x)*0.5f,(bMin.y+bMax.y)*0.5f};
-        ImTextureID tex = IconRegistry::instance().get("icon_snap");
+        std::string finalIcon = isSnap ? "icon_snap_bold" : "icon_snap";
+        ImTextureID tex = IconRegistry::instance().get(finalIcon.c_str());
+        if (!tex && isSnap) tex = IconRegistry::instance().get("icon_snap");
         if (tex) {
             float is = 20.0f;
             dl->AddImage(tex,{c.x-is*0.5f,c.y-is*0.5f},{c.x+is*0.5f,c.y+is*0.5f},{0,0},{1,1},snapCol);
         } else {
             DrawIcon_Snap(dl, c, 20.0f * 0.45f, snapCol);
         }
-        if (hov) ImGui::SetTooltip("Grid Snap • 1m / 15°  [%s]", s_gridSnap ? "Active" : "Off");
+        if (hov) ImGui::SetTooltip("Grid Snap • 1m / 15°  [%s]", isSnap ? "Active" : "Off");
     }
 
     // Divider
@@ -232,36 +230,37 @@ void LeftToolbar::draw() {
     };
 
     // [Panel ikonları: Folder / Material / AI / Explorer / Properties]
-    drawShortcut("##ast", "icon_folder_bold", DrawIcon_Folder, EditorLayout::instance().showAssetBrowser, "Asset Manager");
-    drawShortcut("##mat", "icon_node_editor_bold", DrawIcon_Material, EditorLayout::instance().showMaterialEditor, "Material Editor");
-    drawShortcut("##exp", "icon_explorer_bold", DrawIcon_Folder, EditorLayout::instance().showExplorer, "Explorer");
-    drawShortcut("##prop", "icon_properties_bold", DrawIcon_Folder, EditorLayout::instance().showProperties, "Properties");
-    drawShortcut("##ai", "icon_ai_bold", DrawIcon_Folder, EditorLayout::instance().showAICopilot, "AI Copilot");
+    drawShortcut("##ast", "icon_folder", DrawIcon_Folder, EditorLayout::instance().showAssetBrowser, "Asset Manager");
+    drawShortcut("##mat", "icon_node_editor", DrawIcon_Material, EditorLayout::instance().showMaterialEditor, "Material Editor");
+    drawShortcut("##exp", "icon_explorer", DrawIcon_Folder, EditorLayout::instance().showExplorer, "Explorer");
+    drawShortcut("##prop", "icon_properties", DrawIcon_Folder, EditorLayout::instance().showProperties, "Properties");
+    drawShortcut("##ai", "icon_ai", DrawIcon_Folder, EditorLayout::instance().showAICopilot, "AI Copilot");
 
     drawDivider();
 
     // [Camera View İkonları]
     // s_viewMode: 0=Perspective, 1=Top, 2=Front, 3=Right
     bool isIso = (s_viewMode == 0);
-    drawShortcut("##cam_iso", "icon_isometric", DrawIcon_Folder, isIso, "Isometric/Perspective View");
-    if (isIso && s_viewMode != 0) s_viewMode = 0;
+    bool clickedIso = isIso;
+    drawShortcut("##cam_iso", "icon_isometric", DrawIcon_Folder, clickedIso, "Isometric/Perspective View");
+    if (clickedIso != isIso) s_viewMode = 0;
     
     bool isTop = (s_viewMode == 1);
-    drawShortcut("##cam_90", "icon_90_degree_bold", DrawIcon_Folder, isTop, "Top View");
-    if (isTop && s_viewMode != 1) s_viewMode = 1;
+    bool clickedTop = isTop;
+    drawShortcut("##cam_90", "icon_90_degree", DrawIcon_Folder, clickedTop, "Top View");
+    if (clickedTop != isTop) s_viewMode = 1;
 
     bool isFree = (s_viewMode == 2);
-    drawShortcut("##cam_free", "icon_free_cam_bold", DrawIcon_Folder, isFree, "Front View");
-    if (isFree && s_viewMode != 2) s_viewMode = 2;
+    bool clickedFree = isFree;
+    drawShortcut("##cam_free", "icon_free_cam", DrawIcon_Folder, clickedFree, "Front View");
+    if (clickedFree != isFree) s_viewMode = 2;
     
     drawDivider();
     
     // [Render Modes]
-    drawShortcut("##wire", "icon_wireframe_bold", DrawIcon_Folder, s_wireframe, "Wireframe Mode");
-    drawShortcut("##coll", "icon_collision_bold", DrawIcon_Folder, s_collision, "Collision Bounds");
-    
-    // World/Local Toggle (reusing a folder icon fallback since we don't have a specific icon)
-    drawShortcut("##world", "icon_world_bold", DrawIcon_Folder, s_worldSpace, "World Space Toggle");
+    drawShortcut("##wire", "icon_wireframe", DrawIcon_Folder, s_wireframe, "Wireframe Mode");
+    drawShortcut("##coll", "icon_collision", DrawIcon_Folder, s_collision, "Collision Bounds");
+    drawShortcut("##world", "icon_world", DrawIcon_Folder, s_worldSpace, "World Space Toggle");
 
     // Settings icon at bottom
     {
@@ -275,7 +274,14 @@ void LeftToolbar::draw() {
         bool hov = ImGui::IsItemHovered();
         
         ImVec2 c = {(bMin.x+bMax.x)*0.5f,(bMin.y+bMax.y)*0.5f};
-        DrawIcon_Settings(dl, c, 20.0f*0.45f, hov ? COL(T.textPrimary) : COL(T.textMuted));
+        ImTextureID tex = IconRegistry::instance().get(hov ? "icon_setting_bold" : "icon_setting");
+        if (tex) {
+            float is = 20.0f;
+            dl->AddImage(tex,{c.x-is*0.5f,c.y-is*0.5f},{c.x+is*0.5f,c.y+is*0.5f},{0,0},{1,1}, hov ? COL(T.textPrimary) : COL(T.textMuted));
+        } else {
+            DrawIcon_Settings(dl, c, 20.0f*0.45f, hov ? COL(T.textPrimary) : COL(T.textMuted));
+        }
+        if (hov) ImGui::SetTooltip("Settings");
     }
 
     ImGui::End();
