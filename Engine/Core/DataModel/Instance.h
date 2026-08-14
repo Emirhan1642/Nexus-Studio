@@ -12,9 +12,13 @@ public:
     virtual ~Instance() = default;
 
     std::string name = "Instance";
+    std::string customClassName = "";
     bool alwaysRelevant = false;
 
-    virtual std::string getClassName() const { return "Instance"; }
+    virtual std::string getClassName() const {
+        if (!customClassName.empty()) return customClassName;
+        return "Instance";
+    }
 
     InstanceId getInstanceId() const { return reinterpret_cast<InstanceId>(this); }
 

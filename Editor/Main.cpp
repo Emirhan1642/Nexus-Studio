@@ -191,18 +191,37 @@ int main(int argc, char** argv) {
     // Create fundamental services if not already present
     auto workspace = std::make_shared<Instance>();
     workspace->name = "Workspace";
+    workspace->customClassName = "Workspace";
     workspace->setParent(DataModel::instance());
+
+    // Default Camera in Workspace
+    auto cameraObj = std::make_shared<Instance>();
+    cameraObj->name = "Camera";
+    cameraObj->customClassName = "Camera";
+    cameraObj->setParent(workspace);
+
+    // Default Baseplate in Workspace
+    auto baseplate = std::make_shared<Part>();
+    baseplate->name = "Baseplate";
+    baseplate->setPosition(Engine::Math::Vector3(0.0f, -0.5f, 0.0f));
+    baseplate->setSize(Engine::Math::Vector3(512.0f, 1.0f, 512.0f));
+    baseplate->setAnchored(true);
+    baseplate->setAlbedoColor(Engine::Math::Vector3(0.35f, 0.35f, 0.35f));
+    baseplate->setParent(workspace);
 
     auto lighting = std::make_shared<Instance>();
     lighting->name = "Lighting";
+    lighting->customClassName = "Lighting";
     lighting->setParent(DataModel::instance());
 
     auto sss = std::make_shared<Instance>();
     sss->name = "ServerScriptService";
+    sss->customClassName = "ServerScriptService";
     sss->setParent(DataModel::instance());
 
     auto replicated = std::make_shared<Instance>();
     replicated->name = "ReplicatedStorage";
+    replicated->customClassName = "ReplicatedStorage";
     replicated->setParent(DataModel::instance());
 
     std::string projectRoot = Engine::Assets::AssetDatabase::instance().getProjectRoot();

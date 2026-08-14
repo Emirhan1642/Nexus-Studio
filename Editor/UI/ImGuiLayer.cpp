@@ -24,7 +24,8 @@ void ImGuiLayer::init(GLFWwindow* window) {
     ImGui_ImplGlfw_InitForOther(window, true);
 
     // 2. Fontlari ekle (backend init'TEN ONCE! Backend init sirasinda atlas olusturuluyor)
-    std::string fontPath = "C:/Windows/Fonts/arial.ttf";
+    std::string fontPath = "Assets/Fonts/Inter-Regular.ttf";
+    if (!std::filesystem::exists(fontPath)) fontPath = "C:/Windows/Fonts/arial.ttf";
 
     if (std::filesystem::exists(fontPath)) {
         ImFontConfig fontCfg;
@@ -33,6 +34,12 @@ void ImGuiLayer::init(GLFWwindow* window) {
         io.Fonts->AddFontFromFileTTF(fontPath.c_str(), 14.0f, &fontCfg);
         io.Fonts->AddFontFromFileTTF(fontPath.c_str(), 12.0f, &fontCfg);
         io.Fonts->AddFontFromFileTTF(fontPath.c_str(), 10.0f, &fontCfg);
+
+        std::string monoPath = "Assets/Fonts/consolas.ttf";
+        if (!std::filesystem::exists(monoPath)) monoPath = "C:/Windows/Fonts/consola.ttf";
+        if (std::filesystem::exists(monoPath)) {
+            m_fontMono = io.Fonts->AddFontFromFileTTF(monoPath.c_str(), 13.5f, &fontCfg);
+        }
 
         io.FontDefault = io.Fonts->Fonts[0];
     } else {

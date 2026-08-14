@@ -14,10 +14,13 @@ public:
     void beginFrame();
     void endFrame();
 
+    ImFont* getMonoFont() const { return m_fontMono; }
+
 private:
     ImGuiLayer() = default;
     void buildDefaultLayout(ImGuiID dockspaceId, ImVec2 size);
 
     GLFWwindow* m_window = nullptr;
     ImGuiID m_dockspaceId = 0;
+    ImFont* m_fontMono = nullptr;
 };
