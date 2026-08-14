@@ -27,6 +27,7 @@ inline float CalculateNodeMinTabWidth(const char* windowName) {
     auto getTabWidth = [&](const char* rawName) -> float {
         const char* sLabel = rawName;
         if (strstr(sLabel, "Asset Browser")) sLabel = "Asset Manager";
+        if (strstr(sLabel, "AI Copilot")) sLabel = "Nexus Assistant";
         bool pushedFont = false;
         if (io.Fonts->Fonts.Size > 1) {
             ImGui::PushFont(io.Fonts->Fonts[1]);
@@ -171,6 +172,7 @@ inline void DrawSingleTabHeader(const char* label, const char* icon, float width
             } else if (strstr(sLabel, "Properties")) {
                 sIcon = "icon_properties_bold";
             } else if (strstr(sLabel, "AI Copilot")) {
+                sLabel = "Nexus Assistant";
                 sIcon = "icon_ai_bold";
             }
 

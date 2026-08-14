@@ -168,8 +168,8 @@ namespace {
             using namespace Engine::Reflection;
             ClassBuilder<Part>("Part")
                 .base("Instance")
-                .propertyAccessor("Position", &Part::getPosition, &Part::setPosition).category("Data")
-                .propertyAccessor("Size", &Part::getSize, &Part::setSize).category("Data")
+                .propertyAccessor("Position", &Part::getPosition, &Part::setPosition).category("Transform")
+                .propertyAccessor("Size", &Part::getSize, &Part::setSize).category("Transform")
                 .property("Transparency", &Part::transparency).category("Appearance")
                 .propertyAccessor("Anchored", &Part::getAnchored, &Part::setAnchored).category("Behavior")
                 
