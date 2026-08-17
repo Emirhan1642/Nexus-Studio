@@ -25,14 +25,16 @@ void ModelingOperatorPanel::render(const ImVec2& viewportPos, const ImVec2& view
 
     ImGuiWindowFlags flags = ImGuiWindowFlags_NoResize |
                              ImGuiWindowFlags_NoSavedSettings |
-                             ImGuiWindowFlags_AlwaysAutoResize;
+                             ImGuiWindowFlags_AlwaysAutoResize |
+                             ImGuiWindowFlags_NoDocking;
 
-    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.10f, 0.11f, 0.13f, 0.92f));
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.10f, 0.11f, 0.13f, 0.94f));
     ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.25f, 0.35f, 0.50f, 0.80f));
     ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 8.0f);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10.0f, 8.0f));
 
-    if (ImGui::Begin(opTitle, nullptr, flags)) {
+    bool isOpen = true;
+    if (ImGui::Begin(opTitle, &isOpen, flags)) {
         bool changed = false;
 
         if (ctx.lastOp == LastOpType::Extrude) {
@@ -57,6 +59,10 @@ void ModelingOperatorPanel::render(const ImVec2& viewportPos, const ImVec2& view
         }
     }
     ImGui::End();
+
+    if (!isOpen) {
+        ctx.lastOp = LastOpType::None;
+    }
 
     ImGui::PopStyleVar(2);
     ImGui::PopStyleColor(2);

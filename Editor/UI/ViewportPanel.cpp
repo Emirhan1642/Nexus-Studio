@@ -199,7 +199,7 @@ void ViewportPanel::draw(Engine::Renderer::Camera& camera) {
     auto& mCtx = Editor::Modeling::ModelingContext::instance();
 
     // ── Blender Shortcuts: Tab (Edit/Object), 1/2/3, E, I, Ctrl+B, Ctrl+R, K, M, X, F, Alt+Z ──
-    if (!ImGui::GetIO().WantTextInput) {
+    if (!ImGui::GetIO().WantTextInput && !ImGui::IsMouseDown(ImGuiMouseButton_Right)) {
         auto selPart = std::dynamic_pointer_cast<Part>(SelectionManager::instance().getSelected());
 
         // Tab: Toggle Object / Edit (Face) Mode
@@ -232,13 +232,16 @@ void ViewportPanel::draw(Engine::Renderer::Camera& camera) {
             s_wireframe = !s_wireframe;
         }
 
-        // A: Select All, Alt + A: Deselect All
+        // A: Select All (Only when Ctrl/Alt not held and hovering viewport), Alt + A: Deselect All
         if (ImGui::IsKeyDown(ImGuiMod_Alt) && ImGui::IsKeyPressed(ImGuiKey_A)) {
             mCtx.clearSelection();
-        } else if (ImGui::IsKeyPressed(ImGuiKey_A) && isHovered) {
-            int mode = (EditorLayout::instance().shadingMode == EditorShadingMode::Face) ? 3 :
-                       (EditorLayout::instance().shadingMode == EditorShadingMode::Edge) ? 2 : 1;
-            mCtx.selectAll(selPart, mode);
+        } else if (!ImGui::IsKeyDown(ImGuiMod_Ctrl) && !ImGui::IsKeyDown(ImGuiMod_Alt) && ImGui::IsKeyPressed(ImGuiKey_A) && isHovered && mCtx.activeModal == Editor::Modeling::ModalTool::None) {
+            // In Object mode, don't hijack 'A' unless intended; in edit mode select all sub-elements
+            if (EditorLayout::instance().shadingMode != EditorShadingMode::Object && selPart) {
+                int mode = (EditorLayout::instance().shadingMode == EditorShadingMode::Face) ? 3 :
+                           (EditorLayout::instance().shadingMode == EditorShadingMode::Edge) ? 2 : 1;
+                mCtx.selectAll(selPart, mode);
+            }
         }
 
         // Modeling Operator Shortcuts:
@@ -439,7 +442,7 @@ void ViewportPanel::draw(Engine::Renderer::Camera& camera) {
                                 }
                             }
                         }
-                    } else if (isEdgeMode) {
+                    } else if (isEdgeMode || mCtx.activeModal == Editor::Modeling::ModalTool::LoopCut) {
                         for (size_t e = 0; e < edges.size(); ++e) {
                             if (edges[e].deleted) continue;
                             uint32_t i0 = edges[e].v0, i1 = edges[e].v1;
@@ -450,6 +453,9 @@ void ViewportPanel::draw(Engine::Renderer::Camera& camera) {
                                     hoveredEdge = static_cast<int>(e);
                                 }
                             }
+                        }
+                        if (mCtx.activeModal == Editor::Modeling::ModalTool::LoopCut && hoveredEdge != -1) {
+                            mCtx.previewLoopEdges = Engine::Geometry::MeshCutOperators::findEdgeLoop(*mesh, (uint32_t)hoveredEdge);
                         }
                     } else if (isFaceMode) {
                         for (size_t f = 0; f < faces.size(); ++f) {
@@ -473,6 +479,22 @@ void ViewportPanel::draw(Engine::Renderer::Camera& camera) {
                                         hoveredFace = static_cast<int>(f);
                                     }
                                 }
+                            }
+                        }
+                    }
+                }
+
+                // Render Loop Cut Preview Line and Dots
+                if (mCtx.activeModal == Editor::Modeling::ModalTool::LoopCut && isSelected && !mCtx.previewLoopEdges.empty()) {
+                    for (uint32_t e : mCtx.previewLoopEdges) {
+                        if (e < edges.size() && !edges[e].deleted) {
+                            uint32_t i0 = edges[e].v0, i1 = edges[e].v1;
+                            if (i0 < numVerts && i1 < numVerts && visible[i0] && visible[i1]) {
+                                float t = 0.5f + mCtx.opSlide * 0.45f;
+                                ImVec2 pMid(sPts[i0].x + (sPts[i1].x - sPts[i0].x) * t,
+                                            sPts[i0].y + (sPts[i1].y - sPts[i0].y) * t);
+                                dl->AddCircleFilled(pMid, 5.5f, IM_COL32(255, 200, 0, 255));
+                                dl->AddCircle(pMid, 7.5f, IM_COL32(255, 255, 255, 255), 0, 1.8f);
                             }
                         }
                     }

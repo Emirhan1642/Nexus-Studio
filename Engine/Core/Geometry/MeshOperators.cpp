@@ -157,42 +157,78 @@ void MeshOperators::bevelEdges(
 ) {
     if (edgeIndices.empty() || width <= 0.0001f) return;
     auto& edges = mesh.getEdges();
+    auto& faces = mesh.getFaces();
     auto& vertices = mesh.getVertices();
 
-    // Chamfer / Bevel edges by splitting vertices along edge directions
     for (uint32_t eIdx : edgeIndices) {
         if (eIdx >= edges.size() || edges[eIdx].deleted) continue;
 
         uint32_t v0 = edges[eIdx].v0;
         uint32_t v1 = edges[eIdx].v1;
-        const auto& p0 = vertices[v0].position;
-        const auto& p1 = vertices[v1].position;
-        Engine::Math::Vector3 edgeDir = (p1 - p0).normalized();
+        if (v0 >= vertices.size() || v1 >= vertices.size()) continue;
 
-        float edgeLen = (p1 - p0).length();
-        float bevelOffset = std::min(width, edgeLen * 0.45f);
+        const auto p0 = vertices[v0].position;
+        const auto p1 = vertices[v1].position;
+        Engine::Math::Vector3 edgeDir = (p1 - p0);
+        float edgeLen = edgeDir.length();
+        if (edgeLen < 0.0001f) continue;
+        edgeDir = edgeDir * (1.0f / edgeLen);
 
-        // Create new vertices offset along the edge
-        uint32_t split0 = mesh.addVertex(p0 + edgeDir * bevelOffset, vertices[v0].u, vertices[v0].v);
-        uint32_t split1 = mesh.addVertex(p1 - edgeDir * bevelOffset, vertices[v1].u, vertices[v1].v);
+        float bevelWidth = std::min(width, edgeLen * 0.45f);
 
-        // Find connected faces and inject new vertices
         auto connectedFaces = mesh.getEdgeFaces(eIdx);
-        for (uint32_t fIdx : connectedFaces) {
-            auto& f = mesh.getFaces()[fIdx];
-            std::vector<uint32_t> newVerts;
-            for (size_t i = 0; i < f.vertices.size(); ++i) {
-                uint32_t cur = f.vertices[i];
-                uint32_t next = f.vertices[(i + 1) % f.vertices.size()];
-                newVerts.push_back(cur);
-                if (cur == v0 && next == v1) newVerts.push_back(split0);
-                else if (cur == v1 && next == v0) newVerts.push_back(split1);
-            }
-            f.vertices = newVerts;
+        if (connectedFaces.size() < 2) {
+            // Boundary edge chamfer
+            continue;
         }
 
-        // Add facet quad over the chamfered edge
-        mesh.addFace({v0, split0, split1, v1});
+        uint32_t fA_idx = connectedFaces[0];
+        uint32_t fB_idx = connectedFaces[1];
+        if (fA_idx >= faces.size() || fB_idx >= faces.size()) continue;
+
+        mesh.calculateFaceNormal(fA_idx);
+        mesh.calculateFaceNormal(fB_idx);
+        auto nA = faces[fA_idx].normal;
+        auto nB = faces[fB_idx].normal;
+
+        Engine::Math::Vector3 centerA(0, 0, 0);
+        for (uint32_t v : faces[fA_idx].vertices) centerA += vertices[v].position;
+        if (!faces[fA_idx].vertices.empty()) centerA = centerA * (1.0f / (float)faces[fA_idx].vertices.size());
+
+        Engine::Math::Vector3 centerB(0, 0, 0);
+        for (uint32_t v : faces[fB_idx].vertices) centerB += vertices[v].position;
+        if (!faces[fB_idx].vertices.empty()) centerB = centerB * (1.0f / (float)faces[fB_idx].vertices.size());
+
+        // Compute face-inward tangent vectors perpendicular to edge
+        Engine::Math::Vector3 tanA = nA.cross(edgeDir).normalized();
+        if ((centerA - p0).dot(tanA) < 0.0f) tanA = tanA * -1.0f;
+
+        Engine::Math::Vector3 tanB = nB.cross(edgeDir).normalized();
+        if ((centerB - p0).dot(tanB) < 0.0f) tanB = tanB * -1.0f;
+
+        // Create split vertex pairs for face A and face B
+        uint32_t v0_A = mesh.addVertex(p0 + tanA * bevelWidth, vertices[v0].u, vertices[v0].v);
+        uint32_t v1_A = mesh.addVertex(p1 + tanA * bevelWidth, vertices[v1].u, vertices[v1].v);
+
+        uint32_t v0_B = mesh.addVertex(p0 + tanB * bevelWidth, vertices[v0].u, vertices[v0].v);
+        uint32_t v1_B = mesh.addVertex(p1 + tanB * bevelWidth, vertices[v1].u, vertices[v1].v);
+
+        // Replace v0, v1 in Face A with v0_A, v1_A
+        auto& fA = faces[fA_idx];
+        for (auto& v : fA.vertices) {
+            if (v == v0) v = v0_A;
+            else if (v == v1) v = v1_A;
+        }
+
+        // Replace v0, v1 in Face B with v0_B, v1_B
+        auto& fB = faces[fB_idx];
+        for (auto& v : fB.vertices) {
+            if (v == v0) v = v0_B;
+            else if (v == v1) v = v1_B;
+        }
+
+        // Add connecting chamfer quad strip between Face A and Face B
+        mesh.addFace({ v0_A, v1_A, v1_B, v0_B });
     }
 
     mesh.rebuildTopology();
@@ -214,16 +250,16 @@ void MeshOperators::bevelVertices(
         auto adjVerts = mesh.getAdjacentVertices(vIdx);
         if (adjVerts.size() < 3) continue;
 
-        const auto& centerPos = vertices[vIdx].position;
+        const auto centerPos = vertices[vIdx].position;
         std::vector<uint32_t> capVerts;
 
         for (uint32_t adjV : adjVerts) {
+            if (adjV >= vertices.size()) continue;
             Engine::Math::Vector3 dir = (vertices[adjV].position - centerPos).normalized();
             uint32_t newV = mesh.addVertex(centerPos + dir * width, vertices[vIdx].u, vertices[vIdx].v);
             capVerts.push_back(newV);
         }
 
-        // Add corner polygon
         if (capVerts.size() >= 3) {
             mesh.addFace(capVerts);
         }
