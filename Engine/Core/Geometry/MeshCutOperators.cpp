@@ -180,6 +180,41 @@ std::vector<uint32_t> MeshCutOperators::applyLoopCut(
 }
 
 // ── Knife Tool ──────────────────────────────────────────────────────────────
+bool MeshCutOperators::cutMeshWithKnifePolyline(
+    EditableMesh& mesh,
+    const std::vector<Engine::Math::Vector3>& localPoints
+) {
+    if (localPoints.size() < 2) return false;
+
+    // Fixed snapshot of face indices at the beginning of the cut to prevent iterator invalidation
+    std::vector<uint32_t> initialFaceIndices;
+    for (size_t f = 0; f < mesh.getFaces().size(); ++f) {
+        if (!mesh.getFaces()[f].deleted) {
+            initialFaceIndices.push_back((uint32_t)f);
+        }
+    }
+
+    bool anyCut = false;
+    for (size_t i = 0; i + 1 < localPoints.size(); ++i) {
+        const auto& p0 = localPoints[i];
+        const auto& p1 = localPoints[i + 1];
+
+        for (uint32_t fIdx : initialFaceIndices) {
+            if (fIdx < mesh.getFaces().size() && !mesh.getFaces()[fIdx].deleted) {
+                if (cutFaceWithRaySegment(mesh, fIdx, p0, p1)) {
+                    anyCut = true;
+                }
+            }
+        }
+    }
+
+    if (anyCut) {
+        mesh.rebuildTopology();
+        mesh.recalculateAllNormals(false);
+    }
+    return anyCut;
+}
+
 bool MeshCutOperators::cutFaceWithRaySegment(
     EditableMesh& mesh,
     uint32_t faceIndex,

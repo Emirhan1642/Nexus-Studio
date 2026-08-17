@@ -148,8 +148,6 @@ std::vector<uint32_t> MeshOperators::insetFaces(
 }
 
 // ── 3. Bevel / Chamfer ──────────────────────────────────────────────────────
-// ── 3. Bevel / Chamfer ──────────────────────────────────────────────────────
-// ── 3. Bevel / Chamfer ──────────────────────────────────────────────────────
 void MeshOperators::bevelFaces(
     EditableMesh& mesh,
     const std::vector<uint32_t>& faceIndices,
@@ -160,79 +158,25 @@ void MeshOperators::bevelFaces(
 ) {
     if (faceIndices.empty() || width <= 0.0001f) return;
     auto& faces = mesh.getFaces();
-    auto& vertices = mesh.getVertices();
 
-    segments = std::max(1, std::min(8, segments));
-    profile = std::max(0.0f, std::min(1.0f, profile));
-
+    // Collect all boundary edges belonging to the selected faces
+    std::set<uint32_t> boundaryEdges;
     for (uint32_t fIdx : faceIndices) {
         if (fIdx >= faces.size() || faces[fIdx].deleted) continue;
-
-        auto face = faces[fIdx]; // copy
-        size_t count = face.vertices.size();
-        if (count < 3) continue;
-
-        mesh.calculateFaceNormal(fIdx);
-        Engine::Math::Vector3 normal = face.normal;
-
-        Engine::Math::Vector3 center(0, 0, 0);
-        for (uint32_t v : face.vertices) center += vertices[v].position;
-        center = center * (1.0f / (float)count);
-
-        float maxRadius = 0.0f;
-        for (uint32_t v : face.vertices) {
-            float dist = (vertices[v].position - center).length();
-            if (dist > maxRadius) maxRadius = dist;
-        }
-
-        float actualWidth = std::min(width, maxRadius * 0.85f);
-        float shrinkRatio = (maxRadius > 0.0001f) ? (1.0f - (actualWidth / maxRadius)) : 0.8f;
-        shrinkRatio = std::max(0.05f, std::min(0.95f, shrinkRatio));
-
-        // Create rings of vertices from outer boundary to inner top face
-        // ring 0 = lowered boundary ring, ring segments = inner elevated top ring
-        std::vector<std::vector<uint32_t>> rings(segments + 1, std::vector<uint32_t>(count));
-
+        const auto& fVerts = faces[fIdx].vertices;
+        size_t count = fVerts.size();
         for (size_t i = 0; i < count; ++i) {
-            uint32_t origV = face.vertices[i];
-            Engine::Math::Vector3 origPos = vertices[origV].position;
-            Engine::Math::Vector3 topPos = center + (origPos - center) * shrinkRatio + normal * depth;
-            Engine::Math::Vector3 basePos = origPos - normal * actualWidth;
-
-            // Generate intermediate profile curved positions
-            for (int s = 0; s <= segments; ++s) {
-                float u = (float)s / (float)segments; // 0.0 (base) to 1.0 (top)
-
-                // Superellipse / Arc profile curvature blending
-                float rad = u * 1.5707963f; // 0 to PI/2
-                float curveH = std::sin(rad) * (1.0f - profile) + u * profile;
-                float curveW = (1.0f - std::cos(rad)) * (1.0f - profile) + u * profile;
-
-                Engine::Math::Vector3 ringPos = basePos + (origPos - basePos) * (1.0f - curveW) + (topPos - origPos) * curveW + normal * (actualWidth * curveH);
-                rings[s][i] = mesh.addVertex(ringPos, vertices[origV].u, vertices[origV].v, normal);
-            }
-        }
-
-        // Replace original face with top inner face
-        mesh.removeFace(fIdx);
-        mesh.addFace(rings[segments]);
-
-        // Connect segments with quads
-        for (int s = 0; s < segments; ++s) {
-            for (size_t i = 0; i < count; ++i) {
-                size_t next = (i + 1) % count;
-                uint32_t v0 = rings[s][i];
-                uint32_t v1 = rings[s][next];
-                uint32_t iv1 = rings[s + 1][next];
-                uint32_t iv0 = rings[s + 1][i];
-
-                mesh.addFace({ v0, v1, iv1, iv0 });
+            uint32_t v0 = fVerts[i];
+            uint32_t v1 = fVerts[(i + 1) % count];
+            int e = mesh.findEdge(v0, v1);
+            if (e >= 0) {
+                boundaryEdges.insert((uint32_t)e);
             }
         }
     }
 
-    mesh.rebuildTopology();
-    mesh.recalculateAllNormals(false);
+    std::vector<uint32_t> edgesList(boundaryEdges.begin(), boundaryEdges.end());
+    bevelEdges(mesh, edgesList, width, segments, profile);
 }
 
 void MeshOperators::bevelEdges(
@@ -246,6 +190,9 @@ void MeshOperators::bevelEdges(
     auto& edges = mesh.getEdges();
     auto& faces = mesh.getFaces();
     auto& vertices = mesh.getVertices();
+
+    segments = std::max(1, std::min(8, segments));
+    profile = std::max(0.0f, std::min(1.0f, profile));
 
     for (uint32_t eIdx : edgeIndices) {
         if (eIdx >= edges.size() || edges[eIdx].deleted) continue;
@@ -290,29 +237,47 @@ void MeshOperators::bevelEdges(
         Engine::Math::Vector3 tanB = nB.cross(edgeDir).normalized();
         if ((centerB - p0).dot(tanB) < 0.0f) tanB = tanB * -1.0f;
 
-        // Create split vertex pairs for face A and face B
-        uint32_t v0_A = mesh.addVertex(p0 + tanA * bevelWidth, vertices[v0].u, vertices[v0].v);
-        uint32_t v1_A = mesh.addVertex(p1 + tanA * bevelWidth, vertices[v1].u, vertices[v1].v);
+        // Create segmented rings of vertices between tanA and tanB
+        std::vector<uint32_t> splitA0(segments + 1);
+        std::vector<uint32_t> splitA1(segments + 1);
 
-        uint32_t v0_B = mesh.addVertex(p0 + tanB * bevelWidth, vertices[v0].u, vertices[v0].v);
-        uint32_t v1_B = mesh.addVertex(p1 + tanB * bevelWidth, vertices[v1].u, vertices[v1].v);
+        for (int s = 0; s <= segments; ++s) {
+            float u = (float)s / (float)segments; // 0.0 at tanA, 1.0 at tanB
+            float rad = u * 1.5707963f; // 0 to PI/2
 
-        // Replace v0, v1 in Face A with v0_A, v1_A
+            float wA = (1.0f - std::sin(rad)) * (1.0f - profile) + (1.0f - u) * profile;
+            float wB = (1.0f - std::cos(rad)) * (1.0f - profile) + u * profile;
+
+            Engine::Math::Vector3 pt0 = p0 + tanA * (bevelWidth * wA) + tanB * (bevelWidth * wB);
+            Engine::Math::Vector3 pt1 = p1 + tanA * (bevelWidth * wA) + tanB * (bevelWidth * wB);
+
+            splitA0[s] = mesh.addVertex(pt0, vertices[v0].u, vertices[v0].v);
+            splitA1[s] = mesh.addVertex(pt1, vertices[v1].u, vertices[v1].v);
+        }
+
+        // Replace v0, v1 in Face A with splitA0[0], splitA1[0]
         auto& fA = faces[fA_idx];
         for (auto& v : fA.vertices) {
-            if (v == v0) v = v0_A;
-            else if (v == v1) v = v1_A;
+            if (v == v0) v = splitA0[0];
+            else if (v == v1) v = splitA1[0];
         }
 
-        // Replace v0, v1 in Face B with v0_B, v1_B
+        // Replace v0, v1 in Face B with splitA0[segments], splitA1[segments]
         auto& fB = faces[fB_idx];
         for (auto& v : fB.vertices) {
-            if (v == v0) v = v0_B;
-            else if (v == v1) v = v1_B;
+            if (v == v0) v = splitA0[segments];
+            else if (v == v1) v = splitA1[segments];
         }
 
-        // Add connecting chamfer quad strip with guaranteed CCW outwards normal
-        mesh.addFace({ v0_A, v1_A, v1_B, v0_B });
+        // Connect intermediate segments with quads
+        for (int s = 0; s < segments; ++s) {
+            uint32_t p0_s  = splitA0[s];
+            uint32_t p1_s  = splitA1[s];
+            uint32_t p0_s1 = splitA0[s + 1];
+            uint32_t p1_s1 = splitA1[s + 1];
+
+            mesh.addFace({ p0_s, p1_s, p1_s1, p0_s1 });
+        }
     }
 
     mesh.rebuildTopology();

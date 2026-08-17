@@ -180,16 +180,13 @@ void ModelingContext::confirmModal() {
     if (part && preModalMesh) {
         if (activeModal == ModalTool::Knife && knifePoints.size() >= 2) {
             auto workingMesh = preModalMesh->clone();
-            for (size_t i = 0; i + 1 < knifePoints.size(); ++i) {
-                for (size_t f = 0; f < workingMesh->getFaces().size(); ++f) {
-                    if (!workingMesh->getFaces()[f].deleted) {
-                        Engine::Geometry::MeshCutOperators::cutFaceWithRaySegment(*workingMesh, (uint32_t)f, knifePoints[i], knifePoints[i+1]);
-                    }
-                }
-            }
+            Engine::Geometry::MeshCutOperators::cutMeshWithKnifePolyline(*workingMesh, knifePoints);
             part->setEditableMesh(workingMesh);
         } else if (activeModal == ModalTool::LoopCut && !previewLoopEdges.empty()) {
             opTargetEdges = previewLoopEdges;
+            auto workingMesh = baseSnapshotMesh ? baseSnapshotMesh->clone() : preModalMesh->clone();
+            Engine::Geometry::MeshCutOperators::applyLoopCut(*workingMesh, previewLoopEdges, opSlide, opCuts);
+            part->setEditableMesh(workingMesh);
         }
 
         if (part->getEditableMesh()) {

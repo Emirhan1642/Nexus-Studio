@@ -32,7 +32,12 @@ public:
         int numCuts = 1
     );
 
-    // ── Knife Tool (Plane / Ray Segment Cut) ─────────────────────────────────
+    // ── Knife Tool (Polyline Slice) ──────────────────────────────────────────
+    static bool cutMeshWithKnifePolyline(
+        EditableMesh& mesh,
+        const std::vector<Engine::Math::Vector3>& localPoints
+    );
+
     static bool cutFaceWithRaySegment(
         EditableMesh& mesh,
         uint32_t faceIndex,

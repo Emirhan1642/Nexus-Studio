@@ -413,7 +413,7 @@ void ViewportPanel::draw(Engine::Renderer::Camera& camera) {
         float bestVertexDist = 14.0f;
 
         int hoveredEdge = -1;
-        float bestEdgeDist = 12.0f;
+        float bestEdgeDist = (mCtx.activeModal == Editor::Modeling::ModalTool::LoopCut) ? 120.0f : 12.0f;
 
         int hoveredFace = -1;
 
