@@ -158,7 +158,7 @@ void ModelingContext::updateModal(const ImVec2& currentMousePos, bool shiftHeld,
         opWidth = std::max(0.001f, std::abs(dx - dy) * factor);
         auto workingMesh = baseSnapshotMesh->clone();
         if (!opTargetFaces.empty()) {
-            Engine::Geometry::MeshOperators::bevelFaces(*workingMesh, opTargetFaces, opWidth, opSegments, opDepth);
+            Engine::Geometry::MeshOperators::bevelFaces(*workingMesh, opTargetFaces, opWidth, opSegments, opProfile, opDepth);
         } else if (!opTargetEdges.empty()) {
             Engine::Geometry::MeshOperators::bevelEdges(*workingMesh, opTargetEdges, opWidth, opSegments, opProfile);
         } else if (!opTargetVertices.empty()) {
@@ -226,7 +226,7 @@ void ModelingContext::reapplyLastOperation() {
         Engine::Geometry::MeshOperators::insetFaces(*workingMesh, opTargetFaces, opThickness, opDepth);
     } else if (lastOp == LastOpType::Bevel) {
         if (!opTargetFaces.empty()) {
-            Engine::Geometry::MeshOperators::bevelFaces(*workingMesh, opTargetFaces, opWidth, opSegments, opDepth);
+            Engine::Geometry::MeshOperators::bevelFaces(*workingMesh, opTargetFaces, opWidth, opSegments, opProfile, opDepth);
         } else if (!opTargetEdges.empty()) {
             Engine::Geometry::MeshOperators::bevelEdges(*workingMesh, opTargetEdges, opWidth, opSegments, opProfile);
         } else if (!opTargetVertices.empty()) {

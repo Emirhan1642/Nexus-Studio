@@ -53,6 +53,7 @@ public:
         const std::vector<uint32_t>& faceIndices,
         float width = 0.2f,
         int segments = 1,
+        float profile = 0.5f,
         float depth = 0.0f
     );
 
