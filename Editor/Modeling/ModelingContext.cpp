@@ -2,6 +2,7 @@
 #include "Engine/Core/Geometry/UVUnwrapper.h"
 #include <cmath>
 #include <set>
+#include <map>
 #include <algorithm>
 
 namespace Editor::Modeling {
@@ -453,6 +454,227 @@ void ModelingContext::executeWeldByDistance(std::shared_ptr<Part> part, float th
 
     auto before = mesh->clone();
     Engine::Geometry::MeshOperators::weldVerticesByDistance(*mesh, threshold);
+    part->rebuildProceduralMesh();
+
+    auto cmd = std::make_unique<MeshTopologyCommand>(part, before, mesh->clone());
+    UndoStack::instance().push(std::move(cmd));
+}
+
+void ModelingContext::selectLinked(const std::shared_ptr<Part>& part, int mode) {
+    if (!part) return;
+    part->ensureEditableMesh();
+    auto mesh = part->getEditableMesh();
+    if (!mesh) return;
+
+    auto& faces = mesh->getFaces();
+    auto& vertices = mesh->getVertices();
+    std::set<uint32_t> visitedVerts;
+    std::vector<uint32_t> queue;
+
+    if (mode == 3 && !selectedFaces.empty()) {
+        for (uint32_t f : selectedFaces) {
+            if (f < faces.size()) {
+                for (uint32_t v : faces[f].vertices) {
+                    if (visitedVerts.insert(v).second) queue.push_back(v);
+                }
+            }
+        }
+    } else if (mode == 2 && !selectedEdges.empty()) {
+        const auto& edges = mesh->getEdges();
+        for (uint32_t e : selectedEdges) {
+            if (e < edges.size()) {
+                if (visitedVerts.insert(edges[e].v0).second) queue.push_back(edges[e].v0);
+                if (visitedVerts.insert(edges[e].v1).second) queue.push_back(edges[e].v1);
+            }
+        }
+    } else if (mode == 1 && !selectedVertices.empty()) {
+        for (uint32_t v : selectedVertices) {
+            if (visitedVerts.insert(v).second) queue.push_back(v);
+        }
+    }
+
+    // BFS through connected vertices
+    while (!queue.empty()) {
+        uint32_t curV = queue.back();
+        queue.pop_back();
+        auto adj = mesh->getAdjacentVertices(curV);
+        for (uint32_t nxt : adj) {
+            if (nxt < vertices.size() && !vertices[nxt].deleted && visitedVerts.insert(nxt).second) {
+                queue.push_back(nxt);
+            }
+        }
+    }
+
+    clearSelection();
+    if (mode == 3) {
+        for (size_t f = 0; f < faces.size(); ++f) {
+            if (faces[f].deleted) continue;
+            bool allIn = true;
+            for (uint32_t v : faces[f].vertices) {
+                if (!visitedVerts.count(v)) { allIn = false; break; }
+            }
+            if (allIn) selectedFaces.push_back(static_cast<uint32_t>(f));
+        }
+    } else if (mode == 2) {
+        const auto& edges = mesh->getEdges();
+        for (size_t e = 0; e < edges.size(); ++e) {
+            if (!edges[e].deleted && visitedVerts.count(edges[e].v0) && visitedVerts.count(edges[e].v1)) {
+                selectedEdges.push_back(static_cast<uint32_t>(e));
+            }
+        }
+    } else {
+        selectedVertices.assign(visitedVerts.begin(), visitedVerts.end());
+    }
+}
+
+void ModelingContext::selectMore(const std::shared_ptr<Part>& part, int mode) {
+    if (!part) return;
+    part->ensureEditableMesh();
+    auto mesh = part->getEditableMesh();
+    if (!mesh) return;
+
+    auto& faces = mesh->getFaces();
+    auto& vertices = mesh->getVertices();
+
+    if (mode == 3) {
+        std::set<uint32_t> selVerts;
+        for (uint32_t f : selectedFaces) {
+            if (f < faces.size()) {
+                for (uint32_t v : faces[f].vertices) selVerts.insert(v);
+            }
+        }
+        std::set<uint32_t> newFaces(selectedFaces.begin(), selectedFaces.end());
+        for (size_t f = 0; f < faces.size(); ++f) {
+            if (faces[f].deleted) continue;
+            for (uint32_t v : faces[f].vertices) {
+                if (selVerts.count(v)) { newFaces.insert(static_cast<uint32_t>(f)); break; }
+            }
+        }
+        selectedFaces.assign(newFaces.begin(), newFaces.end());
+    } else if (mode == 1) {
+        std::set<uint32_t> newVerts(selectedVertices.begin(), selectedVertices.end());
+        for (uint32_t v : selectedVertices) {
+            auto adj = mesh->getAdjacentVertices(v);
+            for (uint32_t nxt : adj) {
+                if (nxt < vertices.size() && !vertices[nxt].deleted) newVerts.insert(nxt);
+            }
+        }
+        selectedVertices.assign(newVerts.begin(), newVerts.end());
+    }
+}
+
+void ModelingContext::selectLess(const std::shared_ptr<Part>& part, int mode) {
+    if (!part) return;
+    part->ensureEditableMesh();
+    auto mesh = part->getEditableMesh();
+    if (!mesh) return;
+
+    auto& faces = mesh->getFaces();
+    auto& vertices = mesh->getVertices();
+
+    if (mode == 3) {
+        std::set<uint32_t> selFaceSet(selectedFaces.begin(), selectedFaces.end());
+        std::vector<uint32_t> keptFaces;
+        for (uint32_t f : selectedFaces) {
+            if (f >= faces.size() || faces[f].deleted) continue;
+            bool isBoundary = false;
+            for (uint32_t v : faces[f].vertices) {
+                auto conn = mesh->getConnectedFaces(v);
+                for (uint32_t cf : conn) {
+                    if (!selFaceSet.count(cf)) { isBoundary = true; break; }
+                }
+                if (isBoundary) break;
+            }
+            if (!isBoundary) keptFaces.push_back(f);
+        }
+        selectedFaces = keptFaces;
+    } else if (mode == 1) {
+        std::set<uint32_t> selVertSet(selectedVertices.begin(), selectedVertices.end());
+        std::vector<uint32_t> keptVerts;
+        for (uint32_t v : selectedVertices) {
+            if (v >= vertices.size() || vertices[v].deleted) continue;
+            auto adj = mesh->getAdjacentVertices(v);
+            bool isBoundary = false;
+            for (uint32_t nxt : adj) {
+                if (!selVertSet.count(nxt)) { isBoundary = true; break; }
+            }
+            if (!isBoundary) keptVerts.push_back(v);
+        }
+        selectedVertices = keptVerts;
+    }
+}
+
+void ModelingContext::selectInvert(const std::shared_ptr<Part>& part, int mode) {
+    if (!part) return;
+    part->ensureEditableMesh();
+    auto mesh = part->getEditableMesh();
+    if (!mesh) return;
+
+    if (mode == 3) {
+        std::set<uint32_t> current(selectedFaces.begin(), selectedFaces.end());
+        selectedFaces.clear();
+        for (size_t f = 0; f < mesh->getFaces().size(); ++f) {
+            if (!mesh->getFaces()[f].deleted && !current.count(static_cast<uint32_t>(f))) {
+                selectedFaces.push_back(static_cast<uint32_t>(f));
+            }
+        }
+    } else if (mode == 2) {
+        std::set<uint32_t> current(selectedEdges.begin(), selectedEdges.end());
+        selectedEdges.clear();
+        for (size_t e = 0; e < mesh->getEdges().size(); ++e) {
+            if (!mesh->getEdges()[e].deleted && !current.count(static_cast<uint32_t>(e))) {
+                selectedEdges.push_back(static_cast<uint32_t>(e));
+            }
+        }
+    } else if (mode == 1) {
+        std::set<uint32_t> current(selectedVertices.begin(), selectedVertices.end());
+        selectedVertices.clear();
+        for (size_t v = 0; v < mesh->getVertices().size(); ++v) {
+            if (!mesh->getVertices()[v].deleted && !current.count(static_cast<uint32_t>(v))) {
+                selectedVertices.push_back(static_cast<uint32_t>(v));
+            }
+        }
+    }
+}
+
+void ModelingContext::selectBoundaryLoop(const std::shared_ptr<Part>& part) {
+    if (!part || selectedFaces.empty()) return;
+    part->ensureEditableMesh();
+    auto mesh = part->getEditableMesh();
+    if (!mesh) return;
+
+    std::set<uint32_t> selFaceSet(selectedFaces.begin(), selectedFaces.end());
+    std::map<std::pair<uint32_t, uint32_t>, int> edgeCount;
+    auto& faces = mesh->getFaces();
+
+    for (uint32_t f : selectedFaces) {
+        if (f >= faces.size() || faces[f].deleted) continue;
+        const auto& fv = faces[f].vertices;
+        size_t count = fv.size();
+        for (size_t i = 0; i < count; ++i) {
+            uint32_t v0 = fv[i];
+            uint32_t v1 = fv[(i + 1) % count];
+            edgeCount[{v0, v1}]++;
+        }
+    }
+
+    selectedEdges.clear();
+    for (const auto& [edge, count] : edgeCount) {
+        if (count == 1 && edgeCount.find({edge.second, edge.first}) == edgeCount.end()) {
+            int e = mesh->findEdge(edge.first, edge.second);
+            if (e >= 0) selectedEdges.push_back(static_cast<uint32_t>(e));
+        }
+    }
+}
+
+void ModelingContext::executeSolidify(std::shared_ptr<Part> part, float thickness, bool rimFill) {
+    if (!part) return;
+    part->ensureEditableMesh();
+    auto mesh = part->getEditableMesh();
+    if (!mesh) return;
+
+    auto before = mesh->clone();
+    Engine::Geometry::MeshOperators::solidify(*mesh, thickness, rimFill);
     part->rebuildProceduralMesh();
 
     auto cmd = std::make_unique<MeshTopologyCommand>(part, before, mesh->clone());

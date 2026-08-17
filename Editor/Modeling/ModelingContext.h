@@ -104,6 +104,14 @@ public:
     void executeEdgeSplit(std::shared_ptr<Part> part);
     void executeWeldByDistance(std::shared_ptr<Part> part, float threshold = 0.001f);
 
+    // Advanced Selection Actions
+    void selectLinked(const std::shared_ptr<Part>& part, int mode);
+    void selectMore(const std::shared_ptr<Part>& part, int mode);
+    void selectLess(const std::shared_ptr<Part>& part, int mode);
+    void selectInvert(const std::shared_ptr<Part>& part, int mode);
+    void selectBoundaryLoop(const std::shared_ptr<Part>& part);
+
+    void executeSolidify(std::shared_ptr<Part> part, float thickness = 0.2f, bool rimFill = true);
     void reapplyLastOperation();
 
 private:

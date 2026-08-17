@@ -299,6 +299,30 @@ void ViewportPanel::draw(Engine::Renderer::Camera& camera) {
             if (ImGui::IsKeyDown(ImGuiMod_Alt) && ImGui::IsKeyPressed(ImGuiKey_N)) {
                 mCtx.executeFlipNormals(selPart);
             }
+            // Select Linked: Ctrl + L
+            if (ImGui::IsKeyDown(ImGuiMod_Ctrl) && ImGui::IsKeyPressed(ImGuiKey_L)) {
+                int mode = (EditorLayout::instance().shadingMode == EditorShadingMode::Face) ? 3 :
+                           (EditorLayout::instance().shadingMode == EditorShadingMode::Edge) ? 2 : 1;
+                mCtx.selectLinked(selPart, mode);
+            }
+            // Select More: Ctrl + KeypadAdd / Ctrl + Equal
+            if (ImGui::IsKeyDown(ImGuiMod_Ctrl) && (ImGui::IsKeyPressed(ImGuiKey_KeypadAdd) || ImGui::IsKeyPressed(ImGuiKey_Equal))) {
+                int mode = (EditorLayout::instance().shadingMode == EditorShadingMode::Face) ? 3 :
+                           (EditorLayout::instance().shadingMode == EditorShadingMode::Edge) ? 2 : 1;
+                mCtx.selectMore(selPart, mode);
+            }
+            // Select Less: Ctrl + KeypadSubtract / Ctrl + Minus
+            if (ImGui::IsKeyDown(ImGuiMod_Ctrl) && (ImGui::IsKeyPressed(ImGuiKey_KeypadSubtract) || ImGui::IsKeyPressed(ImGuiKey_Minus))) {
+                int mode = (EditorLayout::instance().shadingMode == EditorShadingMode::Face) ? 3 :
+                           (EditorLayout::instance().shadingMode == EditorShadingMode::Edge) ? 2 : 1;
+                mCtx.selectLess(selPart, mode);
+            }
+            // Select Invert: Ctrl + I
+            if (ImGui::IsKeyDown(ImGuiMod_Ctrl) && ImGui::IsKeyPressed(ImGuiKey_I)) {
+                int mode = (EditorLayout::instance().shadingMode == EditorShadingMode::Face) ? 3 :
+                           (EditorLayout::instance().shadingMode == EditorShadingMode::Edge) ? 2 : 1;
+                mCtx.selectInvert(selPart, mode);
+            }
         }
 
         // Shift + S: Open Snap Pie Menu

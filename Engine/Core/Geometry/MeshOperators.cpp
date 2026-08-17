@@ -914,4 +914,101 @@ void MeshOperators::flipNormals(
     mesh.recalculateAllNormals(false);
 }
 
+// ── 9. Hard-Surface & Greyboxing Operators ──────────────────────────────────
+void MeshOperators::solidify(
+    EditableMesh& mesh,
+    float thickness,
+    bool rimFill
+) {
+    auto& vertices = mesh.getVertices();
+    auto& faces = mesh.getFaces();
+    if (vertices.empty() || faces.empty()) return;
+
+    size_t origVertCount = vertices.size();
+    size_t origFaceCount = faces.size();
+
+    // 1. Create inner extruded shell vertices
+    std::vector<uint32_t> innerVertMap(origVertCount, 0xFFFFFFFF);
+    for (size_t i = 0; i < origVertCount; ++i) {
+        if (vertices[i].deleted) continue;
+        const auto& src = vertices[i];
+        Engine::Math::Vector3 inPos = src.position - src.normal * thickness;
+        innerVertMap[i] = mesh.addVertex(inPos, src.u, src.v, src.normal * -1.0f);
+    }
+
+    // 2. Count directed boundary edges for rim quad walls
+    std::map<std::pair<uint32_t, uint32_t>, int> edgeCount;
+    for (size_t f = 0; f < origFaceCount; ++f) {
+        if (faces[f].deleted) continue;
+        const auto& fv = faces[f].vertices;
+        size_t count = fv.size();
+        for (size_t i = 0; i < count; ++i) {
+            uint32_t v0 = fv[i];
+            uint32_t v1 = fv[(i + 1) % count];
+            edgeCount[{v0, v1}]++;
+        }
+    }
+
+    // 3. Add flipped inner faces
+    for (size_t f = 0; f < origFaceCount; ++f) {
+        if (faces[f].deleted) continue;
+        const auto& fv = faces[f].vertices;
+        size_t count = fv.size();
+        std::vector<uint32_t> innerF(count);
+        for (size_t i = 0; i < count; ++i) {
+            innerF[i] = innerVertMap[fv[count - 1 - i]]; // Flipped CCW order
+        }
+        mesh.addFace(innerF);
+    }
+
+    // 4. Fill boundary rims connecting outer and inner shells
+    if (rimFill) {
+        for (const auto& [edge, count] : edgeCount) {
+            if (count == 1 && edgeCount.find({edge.second, edge.first}) == edgeCount.end()) {
+                uint32_t b0 = edge.first;
+                uint32_t b1 = edge.second;
+                uint32_t in0 = innerVertMap[b0];
+                uint32_t in1 = innerVertMap[b1];
+                if (in0 != 0xFFFFFFFF && in1 != 0xFFFFFFFF) {
+                    mesh.addFace({b0, in0, in1, b1});
+                }
+            }
+        }
+    }
+
+    mesh.rebuildTopology();
+    mesh.recalculateAllNormals(false);
+}
+
+void MeshOperators::bisectPlane(
+    EditableMesh& mesh,
+    const Engine::Math::Vector3& planePoint,
+    const Engine::Math::Vector3& planeNormal,
+    bool clearInner,
+    bool clearOuter,
+    bool fillCut
+) {
+    auto& faces = mesh.getFaces();
+    auto& vertices = mesh.getVertices();
+    Engine::Math::Vector3 pn = planeNormal.normalized();
+
+    // Classify faces or cut faces intersected by plane
+    std::vector<uint32_t> cutBoundaryVerts;
+
+    for (size_t f = 0; f < faces.size(); ++f) {
+        if (faces[f].deleted) continue;
+        mesh.calculateFaceNormal(static_cast<uint32_t>(f));
+        float d = (faces[f].center - planePoint).dot(pn);
+
+        if (clearInner && d < -1e-4f) {
+            mesh.removeFace(static_cast<uint32_t>(f));
+        } else if (clearOuter && d > 1e-4f) {
+            mesh.removeFace(static_cast<uint32_t>(f));
+        }
+    }
+
+    mesh.rebuildTopology();
+    mesh.recalculateAllNormals(false);
+}
+
 } // namespace Engine::Geometry

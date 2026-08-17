@@ -154,6 +154,22 @@ public:
         EditableMesh& mesh,
         const std::vector<uint32_t>& faceIndices
     );
+
+    // ── 9. Hard-Surface & Greyboxing Operators ──────────────────────────────
+    static void solidify(
+        EditableMesh& mesh,
+        float thickness = 0.2f,
+        bool rimFill = true
+    );
+
+    static void bisectPlane(
+        EditableMesh& mesh,
+        const Engine::Math::Vector3& planePoint,
+        const Engine::Math::Vector3& planeNormal,
+        bool clearInner = false,
+        bool clearOuter = false,
+        bool fillCut = true
+    );
 };
 
 } // namespace Engine::Geometry
