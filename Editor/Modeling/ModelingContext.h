@@ -112,6 +112,9 @@ public:
     void selectBoundaryLoop(const std::shared_ptr<Part>& part);
 
     void executeSolidify(std::shared_ptr<Part> part, float thickness = 0.2f, bool rimFill = true);
+    void executeSeparate(std::shared_ptr<Part> part);
+    void executeJoin(std::vector<std::shared_ptr<Instance>> selectedInstances);
+
     void reapplyLastOperation();
 
 private:

@@ -681,4 +681,103 @@ void ModelingContext::executeSolidify(std::shared_ptr<Part> part, float thicknes
     UndoStack::instance().push(std::move(cmd));
 }
 
+void ModelingContext::executeSeparate(std::shared_ptr<Part> part) {
+    if (!part || selectedFaces.empty()) return;
+    part->ensureEditableMesh();
+    auto mesh = part->getEditableMesh();
+    if (!mesh) return;
+
+    auto before = mesh->clone();
+    auto newMesh = std::make_shared<Engine::Geometry::EditableMesh>();
+
+    std::map<uint32_t, uint32_t> oldToNew;
+    const auto& vertices = mesh->getVertices();
+    const auto& faces = mesh->getFaces();
+
+    for (uint32_t fIdx : selectedFaces) {
+        if (fIdx >= faces.size() || faces[fIdx].deleted) continue;
+        const auto& fv = faces[fIdx].vertices;
+        std::vector<uint32_t> newFv;
+        for (uint32_t v : fv) {
+            if (oldToNew.find(v) == oldToNew.end()) {
+                oldToNew[v] = newMesh->addVertex(vertices[v].position, vertices[v].u, vertices[v].v, vertices[v].normal);
+            }
+            newFv.push_back(oldToNew[v]);
+        }
+        newMesh->addFace(newFv);
+        mesh->removeFace(fIdx);
+    }
+
+    newMesh->rebuildTopology();
+    newMesh->recalculateAllNormals(false);
+
+    mesh->packAndCompact();
+    part->rebuildProceduralMesh();
+    clearSelection();
+
+    // Spawn separate part into workspace
+    auto newPart = std::make_shared<Part>();
+    newPart->name = part->name + "_Sep";
+    newPart->setPosition(part->getPosition());
+    newPart->setEditableMesh(newMesh);
+    if (auto parent = part->getParent()) {
+        newPart->setParent(parent);
+    }
+}
+
+void ModelingContext::executeJoin(std::vector<std::shared_ptr<Instance>> selectedInstances) {
+    std::vector<std::shared_ptr<Part>> parts;
+    for (const auto& inst : selectedInstances) {
+        if (auto p = std::dynamic_pointer_cast<Part>(inst)) {
+            parts.push_back(p);
+        }
+    }
+    if (parts.size() < 2) return;
+
+    auto mainPart = parts[0];
+    mainPart->ensureEditableMesh();
+    auto mainMesh = mainPart->getEditableMesh();
+    if (!mainMesh) return;
+
+    auto before = mainMesh->clone();
+    Engine::Math::Vector3 mainPos = mainPart->getPosition();
+
+    for (size_t i = 1; i < parts.size(); ++i) {
+        auto otherPart = parts[i];
+        otherPart->ensureEditableMesh();
+        auto otherMesh = otherPart->getEditableMesh();
+        if (!otherMesh) continue;
+
+        Engine::Math::Vector3 otherPos = otherPart->getPosition();
+        Engine::Math::Vector3 offset = otherPos - mainPos;
+
+        const auto& otherVerts = otherMesh->getVertices();
+        const auto& otherFaces = otherMesh->getFaces();
+
+        std::map<uint32_t, uint32_t> remap;
+        for (size_t v = 0; v < otherVerts.size(); ++v) {
+            if (otherVerts[v].deleted) continue;
+            remap[static_cast<uint32_t>(v)] = mainMesh->addVertex(otherVerts[v].position + offset, otherVerts[v].u, otherVerts[v].v, otherVerts[v].normal);
+        }
+
+        for (const auto& f : otherFaces) {
+            if (f.deleted) continue;
+            std::vector<uint32_t> newFv;
+            for (uint32_t v : f.vertices) {
+                if (remap.count(v)) newFv.push_back(remap[v]);
+            }
+            if (newFv.size() >= 3) mainMesh->addFace(newFv);
+        }
+
+        otherPart->destroy();
+    }
+
+    mainMesh->rebuildTopology();
+    mainMesh->recalculateAllNormals(false);
+    mainPart->rebuildProceduralMesh();
+
+    auto cmd = std::make_unique<MeshTopologyCommand>(mainPart, before, mainMesh->clone());
+    UndoStack::instance().push(std::move(cmd));
+}
+
 } // namespace Editor::Modeling

@@ -323,6 +323,15 @@ void ViewportPanel::draw(Engine::Renderer::Camera& camera) {
                            (EditorLayout::instance().shadingMode == EditorShadingMode::Edge) ? 2 : 1;
                 mCtx.selectInvert(selPart, mode);
             }
+            // Separate: P
+            if (ImGui::IsKeyPressed(ImGuiKey_P) && !ImGui::IsKeyDown(ImGuiMod_Alt)) {
+                mCtx.executeSeparate(selPart);
+            }
+        }
+
+        // Join Selected Parts: Ctrl + J
+        if (ImGui::IsKeyDown(ImGuiMod_Ctrl) && ImGui::IsKeyPressed(ImGuiKey_J) && !ImGui::IsKeyDown(ImGuiMod_Alt)) {
+            mCtx.executeJoin(SelectionManager::instance().getSelectionList());
         }
 
         // Shift + S: Open Snap Pie Menu
