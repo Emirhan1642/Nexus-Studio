@@ -18,23 +18,32 @@ void UVUnwrapper::boxProject(EditableMesh& mesh, float scale) {
         float absY = std::abs(norm.y);
         float absZ = std::abs(norm.z);
 
-        for (uint32_t vIdx : faces[fIdx].vertices) {
+        auto& face = faces[fIdx];
+        face.uvs.resize(face.vertices.size());
+
+        for (size_t i = 0; i < face.vertices.size(); ++i) {
+            uint32_t vIdx = face.vertices[i];
             if (vIdx >= vertices.size() || vertices[vIdx].deleted) continue;
             const auto& p = vertices[vIdx].position;
 
+            float u = 0.0f, v = 0.0f;
             if (absX >= absY && absX >= absZ) {
                 // Project onto YZ plane (Side X)
-                vertices[vIdx].u = (norm.x > 0 ? p.z : -p.z) * scale;
-                vertices[vIdx].v = p.y * scale;
+                u = (norm.x > 0 ? p.z : -p.z) * scale;
+                v = p.y * scale;
             } else if (absY >= absX && absY >= absZ) {
                 // Project onto XZ plane (Top/Bottom Y)
-                vertices[vIdx].u = p.x * scale;
-                vertices[vIdx].v = (norm.y > 0 ? -p.z : p.z) * scale;
+                u = p.x * scale;
+                v = (norm.y > 0 ? -p.z : p.z) * scale;
             } else {
                 // Project onto XY plane (Front/Back Z)
-                vertices[vIdx].u = (norm.z > 0 ? p.x : -p.x) * scale;
-                vertices[vIdx].v = p.y * scale;
+                u = (norm.z > 0 ? p.x : -p.x) * scale;
+                v = p.y * scale;
             }
+
+            face.uvs[i] = {u, v};
+            vertices[vIdx].u = u;
+            vertices[vIdx].v = v;
         }
     }
 }
@@ -42,6 +51,7 @@ void UVUnwrapper::boxProject(EditableMesh& mesh, float scale) {
 void UVUnwrapper::planarProject(EditableMesh& mesh, const Engine::Math::Vector3& axis, float scale) {
     if (scale <= 0.0001f) scale = 1.0f;
     auto& vertices = mesh.getVertices();
+    auto& faces = mesh.getFaces();
     Engine::Math::Vector3 normAxis = axis.normalized();
 
     // Determine orthogonal basis
@@ -54,34 +64,49 @@ void UVUnwrapper::planarProject(EditableMesh& mesh, const Engine::Math::Vector3&
         v.u = v.position.dot(right) * scale;
         v.v = v.position.dot(up) * scale;
     }
+
+    for (auto& face : faces) {
+        if (face.deleted) continue;
+        face.uvs.resize(face.vertices.size());
+        for (size_t i = 0; i < face.vertices.size(); ++i) {
+            uint32_t vIdx = face.vertices[i];
+            if (vIdx < vertices.size()) {
+                face.uvs[i] = {vertices[vIdx].u, vertices[vIdx].v};
+            }
+        }
+    }
 }
 
 void UVUnwrapper::smartUVProject(EditableMesh& mesh, float angleThresholdDeg, float margin) {
-    // Smart project decomposes by dominant face angle and normalizes to [margin, 1-margin]
     boxProject(mesh, 1.0f);
 
+    auto& faces = mesh.getFaces();
     auto& vertices = mesh.getVertices();
     if (vertices.empty()) return;
 
     float minU = 1e9f, maxU = -1e9f;
     float minV = 1e9f, maxV = -1e9f;
 
-    for (const auto& v : vertices) {
-        if (v.deleted) continue;
-        minU = std::min(minU, v.u);
-        maxU = std::max(maxU, v.u);
-        minV = std::min(minV, v.v);
-        maxV = std::max(maxV, v.v);
+    for (const auto& f : faces) {
+        if (f.deleted) continue;
+        for (const auto& uv : f.uvs) {
+            minU = std::min(minU, uv.first);
+            maxU = std::max(maxU, uv.first);
+            minV = std::min(minV, uv.second);
+            maxV = std::max(maxV, uv.second);
+        }
     }
 
     float rangeU = std::max(0.001f, maxU - minU);
     float rangeV = std::max(0.001f, maxV - minV);
     float scale = (1.0f - margin * 2.0f);
 
-    for (auto& v : vertices) {
-        if (v.deleted) continue;
-        v.u = margin + ((v.u - minU) / rangeU) * scale;
-        v.v = margin + ((v.v - minV) / rangeV) * scale;
+    for (auto& f : faces) {
+        if (f.deleted) continue;
+        for (auto& uv : f.uvs) {
+            uv.first = margin + ((uv.first - minU) / rangeU) * scale;
+            uv.second = margin + ((uv.second - minV) / rangeV) * scale;
+        }
     }
 }
 

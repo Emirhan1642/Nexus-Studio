@@ -20,42 +20,104 @@ std::vector<uint32_t> MeshOperators::extrudeFaces(
     auto& vertices = mesh.getVertices();
     auto& faces = mesh.getFaces();
 
-    for (uint32_t fIdx : faceIndices) {
-        if (fIdx >= faces.size() || faces[fIdx].deleted) continue;
+    std::set<uint32_t> selFaceSet;
+    for (uint32_t f : faceIndices) {
+        if (f < faces.size() && !faces[f].deleted && faces[f].vertices.size() >= 3) {
+            selFaceSet.insert(f);
+        }
+    }
+    if (selFaceSet.empty()) return newFaces;
 
-        auto& face = faces[fIdx];
-        mesh.calculateFaceNormal(fIdx);
+    if (individual) {
+        // Individual Face Extrusion: each face gets isolated copies and all side walls
+        for (uint32_t fIdx : selFaceSet) {
+            auto& face = faces[fIdx];
+            mesh.calculateFaceNormal(fIdx);
 
+            Engine::Math::Vector3 dir = (customDirection.length() > 0.0001f)
+                ? customDirection.normalized()
+                : face.normal;
+            Engine::Math::Vector3 offset = dir * distance;
+
+            size_t vertCount = face.vertices.size();
+            std::vector<uint32_t> originalVerts = face.vertices;
+            std::vector<uint32_t> extrudedVerts(vertCount);
+
+            for (size_t i = 0; i < vertCount; ++i) {
+                uint32_t oldV = originalVerts[i];
+                const auto& srcV = vertices[oldV];
+                extrudedVerts[i] = mesh.addVertex(srcV.position + offset, srcV.u, srcV.v, srcV.normal);
+            }
+
+            face.vertices = extrudedVerts;
+            newFaces.push_back(fIdx);
+
+            for (size_t i = 0; i < vertCount; ++i) {
+                size_t next = (i + 1) % vertCount;
+                uint32_t b0 = originalVerts[i];
+                uint32_t b1 = originalVerts[next];
+                uint32_t t1 = extrudedVerts[next];
+                uint32_t t0 = extrudedVerts[i];
+                mesh.addFace({b0, b1, t1, t0});
+            }
+        }
+    } else {
+        // Region Extrusion: seamless group extrusion without internal dividing walls
+        // 1. Calculate average normal of selected region
+        Engine::Math::Vector3 avgNormal(0, 0, 0);
+        for (uint32_t fIdx : selFaceSet) {
+            mesh.calculateFaceNormal(fIdx);
+            avgNormal += faces[fIdx].normal;
+        }
         Engine::Math::Vector3 dir = (customDirection.length() > 0.0001f)
             ? customDirection.normalized()
-            : face.normal;
-
+            : (avgNormal.length() > 1e-4f ? avgNormal.normalized() : Engine::Math::Vector3(0, 1, 0));
         Engine::Math::Vector3 offset = dir * distance;
 
-        // Create duplicate vertices for the extruded face
-        size_t vertCount = face.vertices.size();
-        std::vector<uint32_t> originalVerts = face.vertices;
-        std::vector<uint32_t> extrudedVerts(vertCount);
+        // 2. Count occurrences of directed edges in the selection
+        // Edges appearing exactly once are boundary edges; edges appearing twice are internal shared edges.
+        std::map<std::pair<uint32_t, uint32_t>, int> directedEdgeCount;
+        std::set<uint32_t> uniqueVerts;
 
-        for (size_t i = 0; i < vertCount; ++i) {
-            uint32_t oldV = originalVerts[i];
-            const auto& srcV = vertices[oldV];
-            extrudedVerts[i] = mesh.addVertex(srcV.position + offset, srcV.u, srcV.v, srcV.normal);
+        for (uint32_t fIdx : selFaceSet) {
+            const auto& fVerts = faces[fIdx].vertices;
+            size_t count = fVerts.size();
+            for (size_t i = 0; i < count; ++i) {
+                uint32_t v0 = fVerts[i];
+                uint32_t v1 = fVerts[(i + 1) % count];
+                directedEdgeCount[{v0, v1}]++;
+                uniqueVerts.insert(v0);
+            }
         }
 
-        // Update original face to use the extruded vertices
-        face.vertices = extrudedVerts;
-        newFaces.push_back(fIdx);
+        // 3. Create a single extruded copy for each unique vertex in the region
+        std::map<uint32_t, uint32_t> oldToNewVertMap;
+        for (uint32_t oldV : uniqueVerts) {
+            const auto& srcV = vertices[oldV];
+            oldToNewVertMap[oldV] = mesh.addVertex(srcV.position + offset, srcV.u, srcV.v, srcV.normal);
+        }
 
-        // Create side Quad walls connecting original base to extruded top
-        for (size_t i = 0; i < vertCount; ++i) {
-            size_t next = (i + 1) % vertCount;
-            uint32_t b0 = originalVerts[i];
-            uint32_t b1 = originalVerts[next];
-            uint32_t t1 = extrudedVerts[next];
-            uint32_t t0 = extrudedVerts[i];
+        // 4. Update the selected faces to use their corresponding new extruded vertices
+        for (uint32_t fIdx : selFaceSet) {
+            auto& face = faces[fIdx];
+            for (auto& v : face.vertices) {
+                v = oldToNewVertMap[v];
+            }
+            newFaces.push_back(fIdx);
+        }
 
-            mesh.addFace({b0, b1, t1, t0});
+        // 5. Create side quad walls ONLY along the true outer boundary edges
+        for (const auto& [edge, count] : directedEdgeCount) {
+            if (count == 1) {
+                // Check if opposite directed edge is present in selection
+                if (directedEdgeCount.find({edge.second, edge.first}) == directedEdgeCount.end()) {
+                    uint32_t b0 = edge.first;
+                    uint32_t b1 = edge.second;
+                    uint32_t t1 = oldToNewVertMap[b1];
+                    uint32_t t0 = oldToNewVertMap[b0];
+                    mesh.addFace({b0, b1, t1, t0});
+                }
+            }
         }
     }
 
@@ -110,20 +172,39 @@ std::vector<uint32_t> MeshOperators::insetFaces(
         auto& face = faces[fIdx];
         mesh.calculateFaceNormal(fIdx);
 
-        Engine::Math::Vector3 center = face.center;
         Engine::Math::Vector3 normal = face.normal;
         size_t count = face.vertices.size();
+        if (count < 3) continue;
+
         std::vector<uint32_t> outerVerts = face.vertices;
         std::vector<uint32_t> innerVerts(count);
 
-        float scaleFactor = std::max(0.01f, 1.0f - thickness);
-
+        // Compute angle-bisector offset directions for each corner
         for (size_t i = 0; i < count; ++i) {
-            uint32_t origV = outerVerts[i];
-            const auto& origPos = vertices[origV].position;
-            // Lerp towards center
-            Engine::Math::Vector3 inPos = center + (origPos - center) * scaleFactor + normal * depth;
-            innerVerts[i] = mesh.addVertex(inPos, vertices[origV].u, vertices[origV].v, normal);
+            size_t prev = (i + count - 1) % count;
+            size_t next = (i + 1) % count;
+
+            uint32_t vPrev = outerVerts[prev];
+            uint32_t vCurr = outerVerts[i];
+            uint32_t vNext = outerVerts[next];
+
+            const auto& pPrev = vertices[vPrev].position;
+            const auto& pCurr = vertices[vCurr].position;
+            const auto& pNext = vertices[vNext].position;
+
+            Engine::Math::Vector3 ePrev = (pCurr - pPrev);
+            Engine::Math::Vector3 eNext = (pNext - pCurr);
+
+            Engine::Math::Vector3 nPrev = normal.cross(ePrev).normalized();
+            Engine::Math::Vector3 nNext = normal.cross(eNext).normalized();
+
+            Engine::Math::Vector3 bisect = (nPrev + nNext);
+            if (bisect.length() < 1e-4f) bisect = nPrev;
+            else bisect = bisect.normalized();
+
+            // Offset inwards by thickness + depth along normal
+            Engine::Math::Vector3 inPos = pCurr + bisect * thickness + normal * depth;
+            innerVerts[i] = mesh.addVertex(inPos, vertices[vCurr].u, vertices[vCurr].v, normal);
         }
 
         // Replace original face with inner face

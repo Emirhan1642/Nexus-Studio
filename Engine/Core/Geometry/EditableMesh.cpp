@@ -32,12 +32,27 @@ int EditableMesh::addEdge(uint32_t v0, uint32_t v1) {
 int EditableMesh::addFace(const std::vector<uint32_t>& vertIndices) {
     if (vertIndices.size() < 3) return -1;
 
-    MeshFace face;
-    face.vertices = vertIndices;
-
+    // Reject duplicate consecutive vertices and check bounds
+    std::vector<uint32_t> cleanVerts;
+    cleanVerts.reserve(vertIndices.size());
     for (size_t i = 0; i < vertIndices.size(); ++i) {
-        uint32_t v0 = vertIndices[i];
-        uint32_t v1 = vertIndices[(i + 1) % vertIndices.size()];
+        uint32_t v = vertIndices[i];
+        if (v >= m_vertices.size() || m_vertices[v].deleted) return -1;
+        if (cleanVerts.empty() || cleanVerts.back() != v) {
+            cleanVerts.push_back(v);
+        }
+    }
+    if (cleanVerts.size() > 1 && cleanVerts.front() == cleanVerts.back()) {
+        cleanVerts.pop_back();
+    }
+    if (cleanVerts.size() < 3) return -1;
+
+    MeshFace face;
+    face.vertices = cleanVerts;
+
+    for (size_t i = 0; i < cleanVerts.size(); ++i) {
+        uint32_t v0 = cleanVerts[i];
+        uint32_t v1 = cleanVerts[(i + 1) % cleanVerts.size()];
         int edgeIdx = addEdge(v0, v1);
         if (edgeIdx >= 0) face.edges.push_back(static_cast<uint32_t>(edgeIdx));
     }
@@ -46,6 +61,19 @@ int EditableMesh::addFace(const std::vector<uint32_t>& vertIndices) {
     int faceIdx = static_cast<int>(m_faces.size() - 1);
     calculateFaceNormal(faceIdx);
     return faceIdx;
+}
+
+int EditableMesh::addFaceWithUVs(
+    const std::vector<uint32_t>& vertIndices,
+    const std::vector<std::pair<float, float>>& cornerUVs,
+    int matId
+) {
+    int fIdx = addFace(vertIndices);
+    if (fIdx >= 0 && fIdx < static_cast<int>(m_faces.size())) {
+        m_faces[fIdx].uvs = cornerUVs;
+        m_faces[fIdx].materialId = matId;
+    }
+    return fIdx;
 }
 
 void EditableMesh::removeVertex(uint32_t index) {
@@ -89,6 +117,34 @@ void EditableMesh::clear() {
     m_edgeMap.clear();
 }
 
+bool EditableMesh::validate() const {
+    // 1. Verify vertices
+    for (size_t i = 0; i < m_vertices.size(); ++i) {
+        if (m_vertices[i].deleted) continue;
+        const auto& p = m_vertices[i].position;
+        if (std::isnan(p.x) || std::isnan(p.y) || std::isnan(p.z) ||
+            std::isinf(p.x) || std::isinf(p.y) || std::isinf(p.z)) {
+            return false;
+        }
+    }
+
+    // 2. Verify faces
+    for (size_t f = 0; f < m_faces.size(); ++f) {
+        if (m_faces[f].deleted) continue;
+        const auto& face = m_faces[f];
+        if (face.vertices.size() < 3) return false;
+
+        std::unordered_set<uint32_t> seen;
+        for (size_t i = 0; i < face.vertices.size(); ++i) {
+            uint32_t v = face.vertices[i];
+            if (v >= m_vertices.size() || m_vertices[v].deleted) return false;
+            if (seen.count(v)) return false; // Duplicate vertex in same face
+            seen.insert(v);
+        }
+    }
+    return true;
+}
+
 void EditableMesh::calculateFaceNormal(uint32_t faceIndex) {
     if (faceIndex >= m_faces.size()) return;
     auto& face = m_faces[faceIndex];
@@ -97,46 +153,62 @@ void EditableMesh::calculateFaceNormal(uint32_t faceIndex) {
     // Newell's method for arbitrary n-gons
     Engine::Math::Vector3 normal(0, 0, 0);
     Engine::Math::Vector3 center(0, 0, 0);
+    size_t count = face.vertices.size();
 
-    for (size_t i = 0; i < face.vertices.size(); ++i) {
+    for (size_t i = 0; i < count; ++i) {
         uint32_t curIdx = face.vertices[i];
-        uint32_t nextIdx = face.vertices[(i + 1) % face.vertices.size()];
+        uint32_t nextIdx = face.vertices[(i + 1) % count];
+        if (curIdx >= m_vertices.size() || nextIdx >= m_vertices.size()) return;
+
         const auto& c = m_vertices[curIdx].position;
         const auto& n = m_vertices[nextIdx].position;
 
         normal.x += (c.y - n.y) * (c.z + n.z);
         normal.y += (c.z - n.z) * (c.x + n.x);
         normal.z += (c.x - n.x) * (c.y + n.y);
-
         center += c;
     }
 
-    face.center = center * (1.0f / static_cast<float>(face.vertices.size()));
-    face.normal = normal.normalized();
+    face.center = center * (1.0f / static_cast<float>(count));
+    float len = normal.length();
+    if (len > 1e-6f) {
+        face.normal = normal * (1.0f / len);
+    } else {
+        face.normal = {0.0f, 1.0f, 0.0f};
+    }
 }
 
 void EditableMesh::recalculateAllNormals(bool smooth, float autoSmoothAngleDeg) {
-    for (size_t i = 0; i < m_faces.size(); ++i) {
-        if (!m_faces[i].deleted) calculateFaceNormal(static_cast<uint32_t>(i));
+    for (size_t f = 0; f < m_faces.size(); ++f) {
+        calculateFaceNormal(static_cast<uint32_t>(f));
     }
 
     if (!smooth) {
-        // Flat shading: Each face keeps its own normal
-        return;
-    }
-
-    float cosThreshold = std::cos(autoSmoothAngleDeg * (3.14159265f / 180.0f));
-
-    for (size_t v = 0; v < m_vertices.size(); ++v) {
-        if (m_vertices[v].deleted) continue;
-        auto connectedFaces = getConnectedFaces(static_cast<uint32_t>(v));
-        Engine::Math::Vector3 avgNormal(0, 0, 0);
-
-        for (uint32_t f : connectedFaces) {
-            avgNormal += m_faces[f].normal;
+        for (auto& v : m_vertices) {
+            v.normal = {0.0f, 1.0f, 0.0f};
+        }
+        for (const auto& f : m_faces) {
+            if (f.deleted) continue;
+            for (uint32_t v : f.vertices) {
+                m_vertices[v].normal = f.normal;
+            }
+        }
+    } else {
+        float cosThreshold = std::cos(autoSmoothAngleDeg * (3.14159265f / 180.0f));
+        std::vector<std::vector<Engine::Math::Vector3>> vertFaceNormals(m_vertices.size());
+        for (const auto& f : m_faces) {
+            if (f.deleted) continue;
+            for (uint32_t v : f.vertices) {
+                vertFaceNormals[v].push_back(f.normal);
+            }
         }
 
-        if (avgNormal.length() > 0.0001f) {
+        for (size_t v = 0; v < m_vertices.size(); ++v) {
+            if (m_vertices[v].deleted || vertFaceNormals[v].empty()) continue;
+            Engine::Math::Vector3 avgNormal(0, 0, 0);
+            for (const auto& fn : vertFaceNormals[v]) {
+                avgNormal += fn;
+            }
             m_vertices[v].normal = avgNormal.normalized();
         }
     }
@@ -224,7 +296,7 @@ void EditableMesh::rebuildTopology() {
     }
 }
 
-void EditableMesh::packAndCompact() {
+void EditableMesh::packAndCompact(std::vector<uint32_t>* outVertMap, std::vector<uint32_t>* outFaceMap) {
     std::vector<MeshVertex> newVertices;
     std::vector<int> vertRemap(m_vertices.size(), -1);
 
@@ -235,7 +307,15 @@ void EditableMesh::packAndCompact() {
         }
     }
 
+    if (outVertMap) {
+        outVertMap->resize(m_vertices.size());
+        for (size_t i = 0; i < m_vertices.size(); ++i) {
+            (*outVertMap)[i] = (vertRemap[i] >= 0) ? static_cast<uint32_t>(vertRemap[i]) : 0xFFFFFFFF;
+        }
+    }
+
     std::vector<MeshFace> newFaces;
+    std::vector<int> faceRemap(m_faces.size(), -1);
     for (size_t f = 0; f < m_faces.size(); ++f) {
         if (m_faces[f].deleted) continue;
         MeshFace face = m_faces[f];
@@ -245,7 +325,15 @@ void EditableMesh::packAndCompact() {
             v = static_cast<uint32_t>(vertRemap[v]);
         }
         if (valid && face.vertices.size() >= 3) {
+            faceRemap[f] = static_cast<int>(newFaces.size());
             newFaces.push_back(face);
+        }
+    }
+
+    if (outFaceMap) {
+        outFaceMap->resize(m_faces.size());
+        for (size_t f = 0; f < m_faces.size(); ++f) {
+            (*outFaceMap)[f] = (faceRemap[f] >= 0) ? static_cast<uint32_t>(faceRemap[f]) : 0xFFFFFFFF;
         }
     }
 
@@ -259,21 +347,22 @@ void EditableMesh::packAndCompact() {
 }
 
 void EditableMesh::computeBounds(Engine::Math::Vector3& outMin, Engine::Math::Vector3& outMax) const {
-    if (m_vertices.empty()) {
-        outMin = {0, 0, 0};
-        outMax = {0, 0, 0};
-        return;
-    }
     outMin = { 1e9f,  1e9f,  1e9f};
     outMax = {-1e9f, -1e9f, -1e9f};
+    bool anyVert = false;
     for (const auto& v : m_vertices) {
         if (v.deleted) continue;
+        anyVert = true;
         outMin.x = std::min(outMin.x, v.position.x);
         outMin.y = std::min(outMin.y, v.position.y);
         outMin.z = std::min(outMin.z, v.position.z);
         outMax.x = std::max(outMax.x, v.position.x);
         outMax.y = std::max(outMax.y, v.position.y);
         outMax.z = std::max(outMax.z, v.position.z);
+    }
+    if (!anyVert) {
+        outMin = {0, 0, 0};
+        outMax = {0, 0, 0};
     }
 }
 
@@ -356,6 +445,7 @@ void EditableMesh::generateRenderBuffers(
         uint32_t baseVertexIdx = static_cast<uint32_t>(outVertices.size());
 
         // Emit vertices for this face
+        bool hasFaceUVs = (face.uvs.size() == face.vertices.size());
         for (size_t i = 0; i < face.vertices.size(); ++i) {
             uint32_t vIdx = face.vertices[i];
             const auto& v = m_vertices[vIdx];
@@ -368,8 +458,8 @@ void EditableMesh::generateRenderBuffers(
             rv.nx = face.normal.x;
             rv.ny = face.normal.y;
             rv.nz = face.normal.z;
-            rv.u = v.u;
-            rv.v = v.v;
+            rv.u = hasFaceUVs ? face.uvs[i].first : v.u;
+            rv.v = hasFaceUVs ? face.uvs[i].second : v.v;
             outVertices.push_back(rv);
         }
 

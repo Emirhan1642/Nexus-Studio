@@ -87,6 +87,8 @@ void Part::ensureEditableMesh() {
     } else {
         m_editableMesh = Engine::Geometry::MeshPrimitives::createCube(size);
     }
+    rebuildProceduralMesh();
+    markRenderDirty();
 }
 
 void Part::ensureCustomVertices() {

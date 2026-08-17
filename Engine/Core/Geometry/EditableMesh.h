@@ -42,6 +42,8 @@ struct MeshEdge {
 struct MeshFace {
     std::vector<uint32_t> vertices; // Vertex indices in CCW order
     std::vector<uint32_t> edges;    // Edge indices
+    std::vector<std::pair<float, float>> uvs; // Face-corner UVs corresponding to vertices
+    int materialId = 0;
     Engine::Math::Vector3 normal{0.0f, 1.0f, 0.0f};
     Engine::Math::Vector3 center{0.0f, 0.0f, 0.0f};
     int firstHalfEdge = -1;
@@ -79,6 +81,7 @@ public:
     uint32_t addVertex(const Engine::Math::Vector3& pos, float u = 0.0f, float v = 0.0f, const Engine::Math::Vector3& normal = {0, 1, 0});
     int addEdge(uint32_t v0, uint32_t v1);
     int addFace(const std::vector<uint32_t>& vertIndices);
+    int addFaceWithUVs(const std::vector<uint32_t>& vertIndices, const std::vector<std::pair<float, float>>& cornerUVs, int matId = 0);
 
     // Deletion
     void removeVertex(uint32_t index);
@@ -86,8 +89,9 @@ public:
     void removeFace(uint32_t index);
 
     // Maintenance & Topology Analysis
+    bool validate() const; // Checks topological invariants and sanity
     void rebuildTopology();
-    void packAndCompact(); // Removes flagged 'deleted' elements and re-indexes
+    void packAndCompact(std::vector<uint32_t>* outVertMap = nullptr, std::vector<uint32_t>* outFaceMap = nullptr); // Removes flagged 'deleted' elements and re-indexes
     void clear();
 
     // Normals & Centers
