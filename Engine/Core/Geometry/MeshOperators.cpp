@@ -277,40 +277,69 @@ void MeshOperators::subdivideFaces(
     float smoothness
 ) {
     if (faceIndices.empty()) return;
-    auto& faces = mesh.getFaces();
-    auto& vertices = mesh.getVertices();
+    cuts = std::max(1, std::min(4, cuts));
 
-    for (uint32_t fIdx : faceIndices) {
-        if (fIdx >= faces.size() || faces[fIdx].deleted) continue;
+    for (int c = 0; c < cuts; ++c) {
+        auto& faces = mesh.getFaces();
+        auto& vertices = mesh.getVertices();
 
-        auto face = faces[fIdx]; // copy
-        mesh.calculateFaceNormal(fIdx);
-        size_t count = face.vertices.size();
-
-        // 1. Add center vertex
-        uint32_t centerVertIdx = mesh.addVertex(face.center, 0.5f, 0.5f, face.normal);
-
-        // 2. Add midpoints for each edge
-        std::vector<uint32_t> edgeMidpoints(count);
-        for (size_t i = 0; i < count; ++i) {
-            uint32_t v0 = face.vertices[i];
-            uint32_t v1 = face.vertices[(i + 1) % count];
-            Engine::Math::Vector3 midPos = (vertices[v0].position + vertices[v1].position) * 0.5f;
-            float midU = (vertices[v0].u + vertices[v1].u) * 0.5f;
-            float midV = (vertices[v0].v + vertices[v1].v) * 0.5f;
-            edgeMidpoints[i] = mesh.addVertex(midPos, midU, midV, face.normal);
+        std::vector<uint32_t> currentFaces;
+        if (c == 0) {
+            currentFaces = faceIndices;
+        } else {
+            for (size_t i = 0; i < faces.size(); ++i) {
+                if (!faces[i].deleted) currentFaces.push_back(static_cast<uint32_t>(i));
+            }
         }
 
-        // 3. Replace original face with sub-quads
-        mesh.removeFace(fIdx);
-        for (size_t i = 0; i < count; ++i) {
-            size_t prev = (i + count - 1) % count;
-            uint32_t corner = face.vertices[i];
-            uint32_t midCur = edgeMidpoints[i];
-            uint32_t midPrev = edgeMidpoints[prev];
+        // Shared edge midpoint map to avoid duplicate split vertices and holes
+        std::map<std::pair<uint32_t, uint32_t>, uint32_t> sharedMidpoints;
+        auto getOrAddMidpoint = [&](uint32_t va, uint32_t vb) -> uint32_t {
+            uint32_t mn = std::min(va, vb);
+            uint32_t mx = std::max(va, vb);
+            auto key = std::make_pair(mn, mx);
+            auto it = sharedMidpoints.find(key);
+            if (it != sharedMidpoints.end()) return it->second;
 
-            mesh.addFace({corner, midCur, centerVertIdx, midPrev});
+            Engine::Math::Vector3 midPos = (mesh.getVertices()[va].position + mesh.getVertices()[vb].position) * 0.5f;
+            float midU = (mesh.getVertices()[va].u + mesh.getVertices()[vb].u) * 0.5f;
+            float midV = (mesh.getVertices()[va].v + mesh.getVertices()[vb].v) * 0.5f;
+            uint32_t midIdx = mesh.addVertex(midPos, midU, midV);
+            sharedMidpoints[key] = midIdx;
+            return midIdx;
+        };
+
+        for (uint32_t fIdx : currentFaces) {
+            if (fIdx >= faces.size() || faces[fIdx].deleted) continue;
+            auto face = faces[fIdx]; // copy
+            size_t count = face.vertices.size();
+            if (count < 3) continue;
+
+            Engine::Math::Vector3 centerPos(0, 0, 0);
+            for (uint32_t v : face.vertices) centerPos += mesh.getVertices()[v].position;
+            centerPos = centerPos * (1.0f / (float)count);
+
+            uint32_t centerVertIdx = mesh.addVertex(centerPos, 0.5f, 0.5f);
+
+            std::vector<uint32_t> edgeMidpoints(count);
+            for (size_t i = 0; i < count; ++i) {
+                uint32_t v0 = face.vertices[i];
+                uint32_t v1 = face.vertices[(i + 1) % count];
+                edgeMidpoints[i] = getOrAddMidpoint(v0, v1);
+            }
+
+            mesh.removeFace(fIdx);
+            for (size_t i = 0; i < count; ++i) {
+                size_t prev = (i + count - 1) % count;
+                uint32_t corner = face.vertices[i];
+                uint32_t midCur = edgeMidpoints[i];
+                uint32_t midPrev = edgeMidpoints[prev];
+
+                mesh.addFace({corner, midCur, centerVertIdx, midPrev});
+            }
         }
+
+        mesh.rebuildTopology();
     }
 
     mesh.packAndCompact();

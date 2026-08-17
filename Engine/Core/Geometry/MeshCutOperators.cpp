@@ -21,37 +21,54 @@ std::vector<uint32_t> MeshCutOperators::findEdgeLoop(
     loop.push_back(startEdgeIdx);
     visitedEdges.insert(startEdgeIdx);
 
-    auto getOppositeEdgeInQuad = [&](uint32_t fIdx, uint32_t inEdgeIdx) -> int {
+    auto getOppositeEdge = [&](uint32_t fIdx, uint32_t inEdgeIdx) -> int {
         if (fIdx >= faces.size() || faces[fIdx].deleted) return -1;
-        const auto& fEdges = faces[fIdx].edges;
-        if (fEdges.size() != 4) return -1; // Only pure quads have unambiguous opposite edges
+        const auto& fVerts = faces[fIdx].vertices;
+        if (fVerts.size() != 4) return -1; // Must be a quad
 
-        for (size_t i = 0; i < 4; ++i) {
-            if (fEdges[i] == inEdgeIdx) {
-                return fEdges[(i + 2) % 4]; // Opposite edge in a 4-gon
-            }
-        }
-        return -1;
-    };
+        uint32_t ev0 = edges[inEdgeIdx].v0;
+        uint32_t ev1 = edges[inEdgeIdx].v1;
 
-    // Traverse in direction 1
-    uint32_t curEdge = startEdgeIdx;
-    while (true) {
-        auto edgeFaces = mesh.getEdgeFaces(curEdge);
-        if (edgeFaces.empty()) break;
-
-        bool advanced = false;
-        for (uint32_t fIdx : edgeFaces) {
-            int oppEdge = getOppositeEdgeInQuad(fIdx, curEdge);
-            if (oppEdge >= 0 && !visitedEdges.count(static_cast<uint32_t>(oppEdge))) {
-                visitedEdges.insert(static_cast<uint32_t>(oppEdge));
-                loop.push_back(static_cast<uint32_t>(oppEdge));
-                curEdge = static_cast<uint32_t>(oppEdge);
-                advanced = true;
+        // Find edge in quad
+        int edgePos = -1;
+        for (int i = 0; i < 4; ++i) {
+            uint32_t vA = fVerts[i];
+            uint32_t vB = fVerts[(i + 1) % 4];
+            if ((vA == ev0 && vB == ev1) || (vA == ev1 && vB == ev0)) {
+                edgePos = i;
                 break;
             }
         }
-        if (!advanced) break;
+        if (edgePos == -1) return -1;
+
+        // Opposite edge in quad is at index (edgePos + 2) % 4
+        int oppPos = (edgePos + 2) % 4;
+        uint32_t oppV0 = fVerts[oppPos];
+        uint32_t oppV1 = fVerts[(oppPos + 1) % 4];
+
+        return mesh.findEdge(oppV0, oppV1);
+    };
+
+    // Traverse in both directions along connected quads
+    for (int dir = 0; dir < 2; ++dir) {
+        uint32_t curEdge = startEdgeIdx;
+        while (true) {
+            auto edgeFaces = mesh.getEdgeFaces(curEdge);
+            if (edgeFaces.empty()) break;
+
+            bool advanced = false;
+            for (uint32_t fIdx : edgeFaces) {
+                int oppEdge = getOppositeEdge(fIdx, curEdge);
+                if (oppEdge >= 0 && !visitedEdges.count(static_cast<uint32_t>(oppEdge))) {
+                    visitedEdges.insert(static_cast<uint32_t>(oppEdge));
+                    loop.push_back(static_cast<uint32_t>(oppEdge));
+                    curEdge = static_cast<uint32_t>(oppEdge);
+                    advanced = true;
+                    break;
+                }
+            }
+            if (!advanced) break;
+        }
     }
 
     return loop;
@@ -70,7 +87,7 @@ std::vector<uint32_t> MeshCutOperators::applyLoopCut(
     auto& vertices = mesh.getVertices();
     auto& faces = mesh.getFaces();
 
-    slideFactor = std::max(-0.95f, std::min(0.95f, slideFactor));
+    slideFactor = std::max(-0.90f, std::min(0.90f, slideFactor));
     float t = 0.5f + slideFactor * 0.45f;
 
     // Map: edgeIdx -> newly created split vertexIdx
@@ -80,6 +97,7 @@ std::vector<uint32_t> MeshCutOperators::applyLoopCut(
         if (eIdx >= edges.size() || edges[eIdx].deleted) continue;
         uint32_t v0 = edges[eIdx].v0;
         uint32_t v1 = edges[eIdx].v1;
+        if (v0 >= vertices.size() || v1 >= vertices.size()) continue;
 
         Engine::Math::Vector3 p = vertices[v0].position + (vertices[v1].position - vertices[v0].position) * t;
         float u = vertices[v0].u + (vertices[v1].u - vertices[v0].u) * t;
@@ -89,7 +107,7 @@ std::vector<uint32_t> MeshCutOperators::applyLoopCut(
         edgeSplitVerts[eIdx] = newV;
     }
 
-    // Now split the faces intersected by the edge loop
+    // Identify all affected quad faces
     std::set<uint32_t> affectedFaces;
     for (uint32_t eIdx : edgeLoop) {
         auto edgeFaces = mesh.getEdgeFaces(eIdx);
@@ -101,47 +119,37 @@ std::vector<uint32_t> MeshCutOperators::applyLoopCut(
         auto face = faces[fIdx];
         if (face.vertices.size() != 4) continue;
 
-        // Check which two edges in this quad were split
-        std::vector<std::pair<size_t, uint32_t>> splitsInFace; // (edge index in face, split vert id)
-        for (size_t i = 0; i < 4; ++i) {
-            uint32_t e = face.edges[i];
-            auto it = edgeSplitVerts.find(e);
-            if (it != edgeSplitVerts.end()) {
-                splitsInFace.push_back({i, it->second});
-            }
-        }
+        uint32_t v0 = face.vertices[0];
+        uint32_t v1 = face.vertices[1];
+        uint32_t v2 = face.vertices[2];
+        uint32_t v3 = face.vertices[3];
 
-        if (splitsInFace.size() == 2) {
-            // Split quad into two quads
-            uint32_t v0 = face.vertices[0];
-            uint32_t v1 = face.vertices[1];
-            uint32_t v2 = face.vertices[2];
-            uint32_t v3 = face.vertices[3];
+        int e0 = mesh.findEdge(v0, v1);
+        int e1 = mesh.findEdge(v1, v2);
+        int e2 = mesh.findEdge(v2, v3);
+        int e3 = mesh.findEdge(v3, v0);
 
-            size_t e0Idx = splitsInFace[0].first;
-            size_t e1Idx = splitsInFace[1].first;
-            uint32_t sv0 = splitsInFace[0].second;
-            uint32_t sv1 = splitsInFace[1].second;
+        bool has0 = (e0 >= 0 && edgeSplitVerts.count((uint32_t)e0));
+        bool has1 = (e1 >= 0 && edgeSplitVerts.count((uint32_t)e1));
+        bool has2 = (e2 >= 0 && edgeSplitVerts.count((uint32_t)e2));
+        bool has3 = (e3 >= 0 && edgeSplitVerts.count((uint32_t)e3));
 
+        if (has0 && has2) {
+            uint32_t sv0 = edgeSplitVerts[(uint32_t)e0];
+            uint32_t sv2 = edgeSplitVerts[(uint32_t)e2];
             mesh.removeFace(fIdx);
-
-            if ((e0Idx == 0 && e1Idx == 2) || (e0Idx == 2 && e1Idx == 0)) {
-                // Horizontal split (edges 0 and 2)
-                uint32_t sTop = (e0Idx == 0) ? sv0 : sv1;
-                uint32_t sBot = (e0Idx == 2) ? sv0 : sv1;
-                mesh.addFace({v0, sTop, sBot, v3});
-                mesh.addFace({sTop, v1, v2, sBot});
-            } else if ((e0Idx == 1 && e1Idx == 3) || (e0Idx == 3 && e1Idx == 1)) {
-                // Vertical split (edges 1 and 3)
-                uint32_t sRight = (e0Idx == 1) ? sv0 : sv1;
-                uint32_t sLeft  = (e0Idx == 3) ? sv0 : sv1;
-                mesh.addFace({v0, v1, sRight, sLeft});
-                mesh.addFace({sLeft, sRight, v2, v3});
-            }
+            mesh.addFace({v0, sv0, sv2, v3});
+            mesh.addFace({sv0, v1, v2, sv2});
+        } else if (has1 && has3) {
+            uint32_t sv1 = edgeSplitVerts[(uint32_t)e1];
+            uint32_t sv3 = edgeSplitVerts[(uint32_t)e3];
+            mesh.removeFace(fIdx);
+            mesh.addFace({v0, v1, sv1, sv3});
+            mesh.addFace({sv3, sv1, v2, v3});
         }
     }
 
-    mesh.packAndCompact();
+    mesh.rebuildTopology();
     mesh.recalculateAllNormals(false);
     return newEdges;
 }

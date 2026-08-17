@@ -293,9 +293,9 @@ void LeftToolbar::draw() {
         auto selPart = std::dynamic_pointer_cast<Part>(SelectionManager::instance().getSelected());
         auto& mCtx = Editor::Modeling::ModelingContext::instance();
 
-        // 1. Extrude (E)
+        // 1. Extrude (Ctrl+E)
         bool dummyExtrude = (mCtx.activeModal == Editor::Modeling::ModalTool::Extrude);
-        drawShortcut("##tool_extrude", "icon_mesh", DrawIcon_Folder, dummyExtrude, "Extrude Region (E)");
+        drawShortcut("##tool_extrude", "icon_mesh", DrawIcon_Folder, dummyExtrude, "Extrude Region (Ctrl+E)");
         if (ImGui::IsItemClicked() && selPart) mCtx.startExtrude(selPart);
 
         // 2. Inset (I)

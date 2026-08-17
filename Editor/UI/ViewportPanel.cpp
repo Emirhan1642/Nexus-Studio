@@ -198,7 +198,7 @@ void ViewportPanel::draw(Engine::Renderer::Camera& camera) {
     ImVec2 mousePos = ImGui::GetIO().MousePos;
     auto& mCtx = Editor::Modeling::ModelingContext::instance();
 
-    // ── Blender Shortcuts: Tab (Edit/Object), 1/2/3, E, I, Ctrl+B, Ctrl+R, K, M, X, F, Alt+Z ──
+    // ── Blender / Nexus Modeling Shortcuts (Guarded against Camera WASDEQ) ──
     if (!ImGui::GetIO().WantTextInput && !ImGui::IsMouseDown(ImGuiMouseButton_Right)) {
         auto selPart = std::dynamic_pointer_cast<Part>(SelectionManager::instance().getSelected());
 
@@ -232,52 +232,54 @@ void ViewportPanel::draw(Engine::Renderer::Camera& camera) {
             s_wireframe = !s_wireframe;
         }
 
-        // A: Select All (Only when Ctrl/Alt not held and hovering viewport), Alt + A: Deselect All
-        if (ImGui::IsKeyDown(ImGuiMod_Alt) && ImGui::IsKeyPressed(ImGuiKey_A)) {
-            mCtx.clearSelection();
-        } else if (!ImGui::IsKeyDown(ImGuiMod_Ctrl) && !ImGui::IsKeyDown(ImGuiMod_Alt) && ImGui::IsKeyPressed(ImGuiKey_A) && isHovered && mCtx.activeModal == Editor::Modeling::ModalTool::None) {
-            // In Object mode, don't hijack 'A' unless intended; in edit mode select all sub-elements
+        // Alt + A or Ctrl + A: Select All (or Deselect All if already selected)
+        if ((ImGui::IsKeyDown(ImGuiMod_Alt) || ImGui::IsKeyDown(ImGuiMod_Ctrl)) && ImGui::IsKeyPressed(ImGuiKey_A) && isHovered) {
             if (EditorLayout::instance().shadingMode != EditorShadingMode::Object && selPart) {
-                int mode = (EditorLayout::instance().shadingMode == EditorShadingMode::Face) ? 3 :
-                           (EditorLayout::instance().shadingMode == EditorShadingMode::Edge) ? 2 : 1;
-                mCtx.selectAll(selPart, mode);
+                bool hasSelection = !mCtx.selectedFaces.empty() || !mCtx.selectedEdges.empty() || !mCtx.selectedVertices.empty();
+                if (hasSelection) {
+                    mCtx.clearSelection();
+                } else {
+                    int mode = (EditorLayout::instance().shadingMode == EditorShadingMode::Face) ? 3 :
+                               (EditorLayout::instance().shadingMode == EditorShadingMode::Edge) ? 2 : 1;
+                    mCtx.selectAll(selPart, mode);
+                }
             }
         }
 
         // Modeling Operator Shortcuts:
         if (EditorLayout::instance().shadingMode != EditorShadingMode::Object && selPart) {
-            // E: Extrude
-            if (ImGui::IsKeyPressed(ImGuiKey_E) && mCtx.activeModal == Editor::Modeling::ModalTool::None) {
+            // Extrude: Ctrl + E or Alt + E (Does not conflict with camera E key)
+            if ((ImGui::IsKeyDown(ImGuiMod_Ctrl) || ImGui::IsKeyDown(ImGuiMod_Alt)) && ImGui::IsKeyPressed(ImGuiKey_E) && mCtx.activeModal == Editor::Modeling::ModalTool::None) {
                 mCtx.startExtrude(selPart);
             }
-            // I: Inset
+            // Inset: I or Ctrl + I
             if (ImGui::IsKeyPressed(ImGuiKey_I) && mCtx.activeModal == Editor::Modeling::ModalTool::None) {
                 mCtx.startInset(selPart);
             }
-            // Ctrl + B: Bevel
+            // Bevel: Ctrl + B
             if (ImGui::IsKeyDown(ImGuiMod_Ctrl) && ImGui::IsKeyPressed(ImGuiKey_B) && mCtx.activeModal == Editor::Modeling::ModalTool::None) {
                 mCtx.startBevel(selPart);
             }
-            // Ctrl + R: Loop Cut
+            // Loop Cut: Ctrl + R
             if (ImGui::IsKeyDown(ImGuiMod_Ctrl) && ImGui::IsKeyPressed(ImGuiKey_R) && mCtx.activeModal == Editor::Modeling::ModalTool::None) {
                 mCtx.startLoopCut(selPart);
             }
-            // K: Knife
+            // Knife: K
             if (ImGui::IsKeyPressed(ImGuiKey_K) && mCtx.activeModal == Editor::Modeling::ModalTool::None) {
                 mCtx.startKnife(selPart);
             }
-            // M: Merge
+            // Merge: M
             if (ImGui::IsKeyPressed(ImGuiKey_M)) {
                 mCtx.executeMerge(selPart, Engine::Geometry::MergeMode::Center);
             }
-            // X / Delete: Delete selected sub-elements
+            // Delete / Dissolve: X or Delete
             if (ImGui::IsKeyPressed(ImGuiKey_X) || ImGui::IsKeyPressed(ImGuiKey_Delete)) {
                 auto subType = (EditorLayout::instance().shadingMode == EditorShadingMode::Face) ? Engine::Geometry::SubElementType::Face :
                                (EditorLayout::instance().shadingMode == EditorShadingMode::Edge) ? Engine::Geometry::SubElementType::Edge :
                                Engine::Geometry::SubElementType::Vertex;
                 mCtx.executeDelete(selPart, subType);
             }
-            // F: Fill Face
+            // Fill Face: F
             if (ImGui::IsKeyPressed(ImGuiKey_F)) {
                 mCtx.executeFill(selPart);
             }
@@ -323,27 +325,41 @@ void ViewportPanel::draw(Engine::Renderer::Camera& camera) {
         bool ctrlHeld  = ImGui::GetIO().KeyCtrl;
         mCtx.updateModal(mousePos, shiftHeld, ctrlHeld);
 
-        // Confirm with Left Click
-        if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
-            mCtx.confirmModal();
-        }
-        // Cancel with Right Click or Escape
-        else if (ImGui::IsMouseClicked(ImGuiMouseButton_Right) || ImGui::IsKeyPressed(ImGuiKey_Escape)) {
-            mCtx.cancelModal();
+        if (mCtx.activeModal == Editor::Modeling::ModalTool::Knife) {
+            // Knife Tool: Left Click adds cut point, Enter / Space confirms, Right Click / Esc cancels
+            if (isHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+                mCtx.knifePoints.push_back(Engine::Math::Vector3(mousePos.x, mousePos.y, 0.0f));
+            }
+            if (ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_Space)) {
+                mCtx.confirmModal();
+            } else if (ImGui::IsMouseClicked(ImGuiMouseButton_Right) || ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+                mCtx.cancelModal();
+            }
+        } else {
+            // Standard Modal: Left Click confirms, Right Click / Esc cancels
+            if (isHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+                mCtx.confirmModal();
+            } else if (ImGui::IsMouseClicked(ImGuiMouseButton_Right) || ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+                mCtx.cancelModal();
+            }
         }
 
         // Draw On-Screen Modal Tool HUD
         const char* modalName = "MODAL TOOL";
-        if (mCtx.activeModal == Editor::Modeling::ModalTool::Extrude) modalName = "EXTRUDE (E)";
+        const char* modalHelp = "[Left Click: Confirm | Right Click/ESC: Cancel]";
+        if (mCtx.activeModal == Editor::Modeling::ModalTool::Extrude) modalName = "EXTRUDE (Ctrl+E)";
         else if (mCtx.activeModal == Editor::Modeling::ModalTool::Inset) modalName = "INSET FACES (I)";
         else if (mCtx.activeModal == Editor::Modeling::ModalTool::Bevel) modalName = "BEVEL (Ctrl+B)";
         else if (mCtx.activeModal == Editor::Modeling::ModalTool::LoopCut) modalName = "LOOP CUT (Ctrl+R)";
-        else if (mCtx.activeModal == Editor::Modeling::ModalTool::Knife) modalName = "KNIFE CUT (K)";
+        else if (mCtx.activeModal == Editor::Modeling::ModalTool::Knife) {
+            modalName = "KNIFE CUT (K)";
+            modalHelp = "[Click: Add Point | Enter/Space: Confirm Cut | ESC: Cancel]";
+        }
 
         char hudText[256];
-        std::snprintf(hudText, sizeof(hudText), "%s | [Left Click: Confirm | Right Click/ESC: Cancel]", modalName);
-        dl->AddRectFilled(ImVec2(screenPos.x + 20, screenPos.y + 40), ImVec2(screenPos.x + 480, screenPos.y + 70), COLA(0x101520, 0.90f), 6.0f);
-        dl->AddRect(ImVec2(screenPos.x + 20, screenPos.y + 40), ImVec2(screenPos.x + 480, screenPos.y + 70), IM_COL32(0, 200, 255, 200), 6.0f);
+        std::snprintf(hudText, sizeof(hudText), "%s | %s", modalName, modalHelp);
+        dl->AddRectFilled(ImVec2(screenPos.x + 20, screenPos.y + 40), ImVec2(screenPos.x + 520, screenPos.y + 70), COLA(0x0a1018, 0.92f), 6.0f);
+        dl->AddRect(ImVec2(screenPos.x + 20, screenPos.y + 40), ImVec2(screenPos.x + 520, screenPos.y + 70), IM_COL32(0, 200, 255, 220), 6.0f);
         dl->AddText(ImVec2(screenPos.x + 32, screenPos.y + 46), IM_COL32(255, 255, 255, 255), hudText);
     }
 
@@ -484,8 +500,9 @@ void ViewportPanel::draw(Engine::Renderer::Camera& camera) {
                     }
                 }
 
-                // Render Loop Cut Preview Line and Dots
+                // Render Loop Cut Preview Continuous Line and Dots
                 if (mCtx.activeModal == Editor::Modeling::ModalTool::LoopCut && isSelected && !mCtx.previewLoopEdges.empty()) {
+                    std::vector<ImVec2> loopMidpoints;
                     for (uint32_t e : mCtx.previewLoopEdges) {
                         if (e < edges.size() && !edges[e].deleted) {
                             uint32_t i0 = edges[e].v0, i1 = edges[e].v1;
@@ -493,10 +510,36 @@ void ViewportPanel::draw(Engine::Renderer::Camera& camera) {
                                 float t = 0.5f + mCtx.opSlide * 0.45f;
                                 ImVec2 pMid(sPts[i0].x + (sPts[i1].x - sPts[i0].x) * t,
                                             sPts[i0].y + (sPts[i1].y - sPts[i0].y) * t);
-                                dl->AddCircleFilled(pMid, 5.5f, IM_COL32(255, 200, 0, 255));
-                                dl->AddCircle(pMid, 7.5f, IM_COL32(255, 255, 255, 255), 0, 1.8f);
+                                loopMidpoints.push_back(pMid);
+                                dl->AddCircleFilled(pMid, 6.0f, IM_COL32(255, 200, 0, 255));
+                                dl->AddCircle(pMid, 8.0f, IM_COL32(255, 255, 255, 255), 0, 1.8f);
                             }
                         }
+                    }
+                    // Connect loop midpoints with thick glowing yellow lines
+                    if (loopMidpoints.size() >= 2) {
+                        for (size_t i = 0; i < loopMidpoints.size(); ++i) {
+                            size_t next = (i + 1) % loopMidpoints.size();
+                            dl->AddLine(loopMidpoints[i], loopMidpoints[next], IM_COL32(255, 200, 0, 255), 3.5f);
+                            dl->AddLine(loopMidpoints[i], loopMidpoints[next], IM_COL32(255, 255, 255, 200), 1.5f);
+                        }
+                    }
+                }
+
+                // Render Knife Tool Preview Path
+                if (mCtx.activeModal == Editor::Modeling::ModalTool::Knife && isSelected) {
+                    for (size_t i = 0; i < mCtx.knifePoints.size(); ++i) {
+                        ImVec2 pt(mCtx.knifePoints[i].x, mCtx.knifePoints[i].y);
+                        dl->AddCircleFilled(pt, 6.0f, IM_COL32(255, 60, 60, 255));
+                        dl->AddCircle(pt, 8.0f, IM_COL32(255, 255, 255, 255), 0, 1.5f);
+                        if (i > 0) {
+                            ImVec2 prevPt(mCtx.knifePoints[i-1].x, mCtx.knifePoints[i-1].y);
+                            dl->AddLine(prevPt, pt, IM_COL32(255, 60, 60, 255), 3.0f);
+                        }
+                    }
+                    if (!mCtx.knifePoints.empty()) {
+                        ImVec2 lastPt(mCtx.knifePoints.back().x, mCtx.knifePoints.back().y);
+                        dl->AddLine(lastPt, mousePos, IM_COL32(0, 255, 120, 255), 2.0f);
                     }
                 }
 
@@ -605,6 +648,7 @@ void ViewportPanel::draw(Engine::Renderer::Camera& camera) {
         // Handle Click Selection & Loop Selection (Alt + Left Click)
         if (canPick && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
             bool altHeld = ImGui::GetIO().KeyAlt;
+            mCtx.lastOp = Editor::Modeling::LastOpType::None;
 
             if (isVertexMode) {
                 if (hoveredVertex != -1) {
