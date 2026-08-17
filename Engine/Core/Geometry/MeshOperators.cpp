@@ -1,10 +1,39 @@
 #include "MeshOperators.h"
+#include <array>
 #include <cmath>
 #include <algorithm>
+#include <limits>
 #include <map>
 #include <set>
 
 namespace Engine::Geometry {
+
+namespace {
+
+int addFaceWithAttributes(
+    EditableMesh& mesh,
+    const std::vector<uint32_t>& vertices,
+    const MeshFace& source,
+    const std::vector<size_t>& sourceCorners = {}
+) {
+    const int faceIndex = mesh.addFace(vertices);
+    if (faceIndex < 0 || faceIndex >= static_cast<int>(mesh.getFaces().size())) return faceIndex;
+
+    auto& destination = mesh.getFaces()[faceIndex];
+    destination.materialId = source.materialId;
+    if (source.uvs.size() == source.vertices.size()) {
+        destination.uvs.reserve(vertices.size());
+        for (size_t i = 0; i < vertices.size(); ++i) {
+            const size_t sourceIndex = sourceCorners.empty()
+                ? std::min(i, source.uvs.size() - 1)
+                : std::min(sourceCorners[i], source.uvs.size() - 1);
+            destination.uvs.push_back(source.uvs[sourceIndex]);
+        }
+    }
+    return faceIndex;
+}
+
+} // namespace
 
 // ── 1. Extrude Faces ────────────────────────────────────────────────────────
 std::vector<uint32_t> MeshOperators::extrudeFaces(
@@ -32,6 +61,7 @@ std::vector<uint32_t> MeshOperators::extrudeFaces(
         // Individual Face Extrusion: each face gets isolated copies and all side walls
         for (uint32_t fIdx : selFaceSet) {
             auto& face = faces[fIdx];
+            const MeshFace sourceFace = face;
             mesh.calculateFaceNormal(fIdx);
 
             Engine::Math::Vector3 dir = (customDirection.length() > 0.0001f)
@@ -58,7 +88,7 @@ std::vector<uint32_t> MeshOperators::extrudeFaces(
                 uint32_t b1 = originalVerts[next];
                 uint32_t t1 = extrudedVerts[next];
                 uint32_t t0 = extrudedVerts[i];
-                mesh.addFace({b0, b1, t1, t0});
+                addFaceWithAttributes(mesh, {b0, b1, t1, t0}, sourceFace, {i, next, next, i});
             }
         }
     } else {
@@ -77,6 +107,7 @@ std::vector<uint32_t> MeshOperators::extrudeFaces(
         // 2. Count occurrences of directed edges in the selection
         // Edges appearing exactly once are boundary edges; edges appearing twice are internal shared edges.
         std::map<std::pair<uint32_t, uint32_t>, int> directedEdgeCount;
+        std::map<std::pair<uint32_t, uint32_t>, std::pair<uint32_t, size_t>> edgeOwners;
         std::set<uint32_t> uniqueVerts;
 
         for (uint32_t fIdx : selFaceSet) {
@@ -86,6 +117,7 @@ std::vector<uint32_t> MeshOperators::extrudeFaces(
                 uint32_t v0 = fVerts[i];
                 uint32_t v1 = fVerts[(i + 1) % count];
                 directedEdgeCount[{v0, v1}]++;
+                edgeOwners[{v0, v1}] = {fIdx, i};
                 uniqueVerts.insert(v0);
             }
         }
@@ -115,7 +147,16 @@ std::vector<uint32_t> MeshOperators::extrudeFaces(
                     uint32_t b1 = edge.second;
                     uint32_t t1 = oldToNewVertMap[b1];
                     uint32_t t0 = oldToNewVertMap[b0];
-                    mesh.addFace({b1, b0, t0, t1});
+                    const auto ownerIt = edgeOwners.find(edge);
+                    if (ownerIt != edgeOwners.end()) {
+                        const auto sourceFace = faces[ownerIt->second.first];
+                        const size_t corner = ownerIt->second.second;
+                        const size_t next = (corner + 1) % sourceFace.vertices.size();
+                        addFaceWithAttributes(mesh, {b1, b0, t0, t1}, sourceFace,
+                                              {next, corner, corner, next});
+                    } else {
+                        mesh.addFace({b1, b0, t0, t1});
+                    }
                 }
             }
         }
@@ -140,6 +181,7 @@ std::vector<uint32_t> MeshOperators::extrudeEdges(
 
     std::set<uint32_t> uniqueVerts;
     std::vector<uint32_t> validEdges;
+    std::map<uint32_t, MeshFace> edgeSourceFaces;
 
     for (uint32_t eIdx : edgeIndices) {
         if (eIdx >= edges.size() || edges[eIdx].deleted) continue;
@@ -150,6 +192,10 @@ std::vector<uint32_t> MeshOperators::extrudeEdges(
         uniqueVerts.insert(v0);
         uniqueVerts.insert(v1);
         validEdges.push_back(eIdx);
+        const auto edgeFaces = mesh.getEdgeFaces(eIdx);
+        if (!edgeFaces.empty() && edgeFaces.front() < mesh.getFaces().size()) {
+            edgeSourceFaces.emplace(eIdx, mesh.getFaces()[edgeFaces.front()]);
+        }
     }
 
     if (validEdges.empty()) return newFaces;
@@ -168,7 +214,20 @@ std::vector<uint32_t> MeshOperators::extrudeEdges(
         uint32_t newV0 = oldToNew[v0];
         uint32_t newV1 = oldToNew[v1];
 
-        int f = mesh.addFace({v0, v1, newV1, newV0});
+        int f = -1;
+        const auto sourceIt = edgeSourceFaces.find(eIdx);
+        if (sourceIt != edgeSourceFaces.end()) {
+            size_t cornerV0 = 0;
+            size_t cornerV1 = 0;
+            for (size_t i = 0; i < sourceIt->second.vertices.size(); ++i) {
+                if (sourceIt->second.vertices[i] == v0) cornerV0 = i;
+                if (sourceIt->second.vertices[i] == v1) cornerV1 = i;
+            }
+            f = addFaceWithAttributes(mesh, {v0, v1, newV1, newV0}, sourceIt->second,
+                                      {cornerV0, cornerV1, cornerV1, cornerV0});
+        } else {
+            f = mesh.addFace({v0, v1, newV1, newV0});
+        }
         if (f >= 0) newFaces.push_back(static_cast<uint32_t>(f));
     }
 
@@ -269,6 +328,7 @@ std::vector<uint32_t> MeshOperators::insetFaces(
     } else {
         // Region Inset: seamless group inset without internal dividing walls
         std::map<std::pair<uint32_t, uint32_t>, int> directedEdgeCount;
+        std::map<std::pair<uint32_t, uint32_t>, std::pair<uint32_t, size_t>> edgeOwners;
         for (uint32_t fIdx : selFaceSet) {
             const auto& fVerts = faces[fIdx].vertices;
             size_t count = fVerts.size();
@@ -276,6 +336,7 @@ std::vector<uint32_t> MeshOperators::insetFaces(
                 uint32_t v0 = fVerts[i];
                 uint32_t v1 = fVerts[(i + 1) % count];
                 directedEdgeCount[{v0, v1}]++;
+                edgeOwners[{v0, v1}] = {fIdx, i};
             }
         }
 
@@ -290,6 +351,16 @@ std::vector<uint32_t> MeshOperators::insetFaces(
             }
         }
 
+        float minBoundaryEdgeLength = std::numeric_limits<float>::max();
+        for (const auto& [b0, b1] : boundaryEdges) {
+            minBoundaryEdgeLength = std::min(minBoundaryEdgeLength,
+                (vertices[b1].position - vertices[b0].position).length());
+        }
+        const float safeThickness = std::clamp(
+            thickness,
+            -minBoundaryEdgeLength * 0.48f,
+            minBoundaryEdgeLength * 0.48f);
+
         // Map boundary vertices to new offset inner vertices
         std::map<uint32_t, uint32_t> oldToNewBoundaryVert;
         for (uint32_t vIdx : boundaryVerts) {
@@ -297,21 +368,17 @@ std::vector<uint32_t> MeshOperators::insetFaces(
             // Find average normal and inward miter across incident boundary edges
             Engine::Math::Vector3 avgInward(0, 0, 0);
             Engine::Math::Vector3 avgNorm(0, 0, 0);
-            int incidentCount = 0;
-
             for (const auto& [e0, e1] : boundaryEdges) {
                 if (e0 == vIdx || e1 == vIdx) {
-                    uint32_t other = (e0 == vIdx) ? e1 : e0;
                     Engine::Math::Vector3 edgeVec = (e0 == vIdx) ? (vertices[e1].position - vertices[e0].position) : (vertices[e0].position - vertices[e1].position);
                     if (edgeVec.length() > 1e-4f) {
-                        for (uint32_t f : selFaceSet) {
-                            mesh.calculateFaceNormal(f);
-                            Engine::Math::Vector3 fn = faces[f].normal;
-                            Engine::Math::Vector3 inward = fn.cross(edgeVec.normalized()).normalized();
-                            avgInward += inward;
-                            avgNorm += fn;
-                            incidentCount++;
-                        }
+                        const auto owner = edgeOwners.find({e0, e1});
+                        if (owner == edgeOwners.end()) continue;
+                        const uint32_t ownerFace = owner->second.first;
+                        mesh.calculateFaceNormal(ownerFace);
+                        const Engine::Math::Vector3 fn = faces[ownerFace].normal;
+                        avgInward += fn.cross(edgeVec.normalized()).normalized();
+                        avgNorm += fn;
                     }
                 }
             }
@@ -319,7 +386,7 @@ std::vector<uint32_t> MeshOperators::insetFaces(
             Engine::Math::Vector3 inwardDir = (avgInward.length() > 1e-4f) ? avgInward.normalized() : Engine::Math::Vector3(0, 0, 0);
             Engine::Math::Vector3 normDir = (avgNorm.length() > 1e-4f) ? avgNorm.normalized() : Engine::Math::Vector3(0, 1, 0);
 
-            Engine::Math::Vector3 inPos = srcV.position + inwardDir * thickness + normDir * depth;
+            Engine::Math::Vector3 inPos = srcV.position + inwardDir * safeThickness + normDir * depth;
             oldToNewBoundaryVert[vIdx] = mesh.addVertex(inPos, srcV.u, srcV.v, normDir);
         }
 
@@ -338,7 +405,16 @@ std::vector<uint32_t> MeshOperators::insetFaces(
         for (const auto& [b0, b1] : boundaryEdges) {
             uint32_t i0 = oldToNewBoundaryVert[b0];
             uint32_t i1 = oldToNewBoundaryVert[b1];
-            mesh.addFace({b0, b1, i1, i0});
+            const auto owner = edgeOwners.find({b0, b1});
+            if (owner != edgeOwners.end()) {
+                const MeshFace sourceFace = faces[owner->second.first];
+                const size_t corner = owner->second.second;
+                const size_t next = (corner + 1) % sourceFace.vertices.size();
+                addFaceWithAttributes(mesh, {b0, b1, i1, i0}, sourceFace,
+                                      {corner, next, next, corner});
+            } else {
+                mesh.addFace({b0, b1, i1, i0});
+            }
         }
     }
 
@@ -348,7 +424,7 @@ std::vector<uint32_t> MeshOperators::insetFaces(
 }
 
 // ── 3. Bevel / Chamfer ──────────────────────────────────────────────────────
-void MeshOperators::bevelFaces(
+std::vector<uint32_t> MeshOperators::bevelFaces(
     EditableMesh& mesh,
     const std::vector<uint32_t>& faceIndices,
     float width,
@@ -356,7 +432,8 @@ void MeshOperators::bevelFaces(
     float profile,
     float depth
 ) {
-    if (faceIndices.empty() || width <= 0.0001f) return;
+    std::vector<uint32_t> newFaces;
+    if (faceIndices.empty() || width <= 0.0001f) return newFaces;
     auto& faces = mesh.getFaces();
     auto& vertices = mesh.getVertices();
 
@@ -366,11 +443,11 @@ void MeshOperators::bevelFaces(
     for (uint32_t fIdx : faceIndices) {
         if (fIdx >= faces.size() || faces[fIdx].deleted) continue;
 
-        auto face = faces[fIdx]; // copy
+        mesh.calculateFaceNormal(fIdx);
+        auto face = faces[fIdx]; // copy after normal calculation
         size_t count = face.vertices.size();
         if (count < 3) continue;
 
-        mesh.calculateFaceNormal(fIdx);
         Engine::Math::Vector3 normal = face.normal;
 
         Engine::Math::Vector3 center(0, 0, 0);
@@ -378,12 +455,18 @@ void MeshOperators::bevelFaces(
         center = center * (1.0f / (float)count);
 
         float maxRadius = 0.0f;
+        float minEdgeLength = std::numeric_limits<float>::max();
         for (uint32_t v : face.vertices) {
             float dist = (vertices[v].position - center).length();
             if (dist > maxRadius) maxRadius = dist;
         }
+        for (size_t i = 0; i < count; ++i) {
+            const size_t next = (i + 1) % count;
+            minEdgeLength = std::min(minEdgeLength,
+                (vertices[face.vertices[next]].position - vertices[face.vertices[i]].position).length());
+        }
 
-        float actualWidth = std::min(width, maxRadius * 0.45f);
+        float actualWidth = std::min(width, std::min(maxRadius * 0.45f, minEdgeLength * 0.45f));
         float shrinkRatio = (maxRadius > 0.0001f) ? (1.0f - (actualWidth / maxRadius)) : 0.8f;
         shrinkRatio = std::max(0.05f, std::min(0.95f, shrinkRatio));
 
@@ -404,14 +487,21 @@ void MeshOperators::bevelFaces(
                 float wSide = (1.0f - std::sin(rad)) * (1.0f - profile) + (1.0f - u) * profile;
                 float wTop = (1.0f - std::cos(rad)) * (1.0f - profile) + u * profile;
 
-                Engine::Math::Vector3 ringPos = origPos - normal * (actualWidth * wSide) + (topPos - origPos) * wTop;
-                rings[s][i] = mesh.addVertex(ringPos, vertices[origV].u, vertices[origV].v, normal);
+                if (s == 0) {
+                    // Keep the original boundary vertex shared with neighboring faces.
+                    // This prevents open seams when beveling a single face.
+                    rings[s][i] = origV;
+                } else {
+                    Engine::Math::Vector3 ringPos = origPos - normal * (actualWidth * wSide) + (topPos - origPos) * wTop;
+                    rings[s][i] = mesh.addVertex(ringPos, vertices[origV].u, vertices[origV].v, normal);
+                }
             }
         }
 
         // Replace original top face with innermost elevated ring
         mesh.removeFace(fIdx);
-        mesh.addFace(rings[segments]);
+        const int topFace = addFaceWithAttributes(mesh, rings[segments], face);
+        if (topFace >= 0) newFaces.push_back(static_cast<uint32_t>(topFace));
 
         // Add 4-sided sloping ramp quads connecting consecutive rings for all segments and all edges
         for (int s = 0; s < segments; ++s) {
@@ -422,46 +512,65 @@ void MeshOperators::bevelFaces(
                 uint32_t t1 = rings[s + 1][next];
                 uint32_t t0 = rings[s + 1][i];
 
-                mesh.addFace({ s0, s1, t1, t0 });
+                const int rampFace = addFaceWithAttributes(mesh, {s0, s1, t1, t0}, face, {i, next, next, i});
+                if (rampFace >= 0) newFaces.push_back(static_cast<uint32_t>(rampFace));
             }
         }
 
-        // Update all neighboring side faces that shared original corners to use the outermost ring 0
-        for (size_t i = 0; i < count; ++i) {
-            uint32_t origV = face.vertices[i];
-            uint32_t newSideV = rings[0][i];
-
-            for (size_t otherF = 0; otherF < faces.size(); ++otherF) {
-                if (otherF == fIdx || faces[otherF].deleted) continue;
-                for (auto& v : faces[otherF].vertices) {
-                    if (v == origV) {
-                        v = newSideV;
-                    }
-                }
-            }
-        }
     }
 
     mesh.rebuildTopology();
     mesh.recalculateAllNormals(false);
+    return newFaces;
 }
 
-void MeshOperators::bevelEdges(
+std::vector<uint32_t> MeshOperators::bevelEdges(
     EditableMesh& mesh,
     const std::vector<uint32_t>& edgeIndices,
     float width,
     int segments,
     float profile
 ) {
-    if (edgeIndices.empty() || width <= 0.0001f) return;
+    std::vector<uint32_t> newEdges;
+    if (edgeIndices.empty() || width <= 0.0001f) return newEdges;
     auto& edges = mesh.getEdges();
     auto& faces = mesh.getFaces();
     auto& vertices = mesh.getVertices();
 
     segments = std::max(1, std::min(8, segments));
     profile = std::max(0.0f, std::min(1.0f, profile));
+    std::set<uint32_t> generatedVertices;
 
+    // The implementation edits the two incident face loops in place. Build a
+    // non-overlapping work set first so an edge sharing an endpoint or face
+    // with an earlier bevel cannot be processed against stale topology.
+    // Such edges are left untouched for this invocation rather than producing
+    // a partially bevelled, invalid mesh.
+    std::set<uint32_t> reservedVertices;
+    std::set<uint32_t> reservedFaces;
+    std::vector<uint32_t> workEdges;
     for (uint32_t eIdx : edgeIndices) {
+        if (eIdx >= edges.size() || edges[eIdx].deleted) continue;
+        const uint32_t candidateV0 = edges[eIdx].v0;
+        const uint32_t candidateV1 = edges[eIdx].v1;
+        const auto candidateFaces = mesh.getEdgeFaces(eIdx);
+        if (candidateFaces.size() < 2) continue;
+        if (reservedVertices.count(candidateV0) || reservedVertices.count(candidateV1) ||
+            reservedFaces.count(candidateFaces[0]) || reservedFaces.count(candidateFaces[1])) {
+            continue;
+        }
+        reservedVertices.insert(candidateV0);
+        reservedVertices.insert(candidateV1);
+        reservedFaces.insert(candidateFaces[0]);
+        reservedFaces.insert(candidateFaces[1]);
+        workEdges.push_back(eIdx);
+    }
+
+    const size_t reserveEdgeCount = workEdges.size();
+    vertices.reserve(vertices.size() + reserveEdgeCount * static_cast<size_t>(2 * (segments + 1) + 4));
+    faces.reserve(faces.size() + reserveEdgeCount * static_cast<size_t>(segments + 14));
+
+    for (uint32_t eIdx : workEdges) {
         if (eIdx >= edges.size() || edges[eIdx].deleted) continue;
 
         uint32_t v0 = edges[eIdx].v0;
@@ -484,8 +593,13 @@ void MeshOperators::bevelEdges(
         uint32_t fB_idx = connectedFaces[1];
         if (fA_idx >= faces.size() || fB_idx >= faces.size()) continue;
 
+        const bool capV0 = mesh.getConnectedFaces(v0).size() > 2;
+        const bool capV1 = mesh.getConnectedFaces(v1).size() > 2;
+
         mesh.calculateFaceNormal(fA_idx);
         mesh.calculateFaceNormal(fB_idx);
+        const MeshFace sourceFaceA = faces[fA_idx];
+        const MeshFace sourceFaceB = faces[fB_idx];
         auto nA = faces[fA_idx].normal;
         auto nB = faces[fB_idx].normal;
 
@@ -520,6 +634,15 @@ void MeshOperators::bevelEdges(
 
             splitA0[s] = mesh.addVertex(pt0, vertices[v0].u, vertices[v0].v);
             splitA1[s] = mesh.addVertex(pt1, vertices[v1].u, vertices[v1].v);
+            generatedVertices.insert(splitA0[s]);
+            generatedVertices.insert(splitA1[s]);
+        }
+
+        size_t sourceCornerV0 = 0;
+        size_t sourceCornerV1 = 0;
+        for (size_t i = 0; i < sourceFaceA.vertices.size(); ++i) {
+            if (sourceFaceA.vertices[i] == v0) sourceCornerV0 = i;
+            if (sourceFaceA.vertices[i] == v1) sourceCornerV1 = i;
         }
 
         // Replace v0, v1 in Face A with splitA0[0], splitA1[0]
@@ -536,8 +659,6 @@ void MeshOperators::bevelEdges(
             else if (v == v1) v = splitA1[segments];
         }
 
-        int matIdA = fA.materialId;
-
         // Connect intermediate segments with quads and preserve materialId
         for (int s = 0; s < segments; ++s) {
             uint32_t p0_s  = splitA0[s];
@@ -545,42 +666,93 @@ void MeshOperators::bevelEdges(
             uint32_t p0_s1 = splitA0[s + 1];
             uint32_t p1_s1 = splitA1[s + 1];
 
-            int bf = mesh.addFace({ p0_s, p1_s, p1_s1, p0_s1 });
-            if (bf >= 0 && bf < static_cast<int>(faces.size())) {
-                faces[bf].materialId = matIdA;
-            }
+            addFaceWithAttributes(mesh, { p0_s, p1_s, p1_s1, p0_s1 }, sourceFaceA,
+                                  {sourceCornerV0, sourceCornerV1, sourceCornerV1, sourceCornerV0});
         }
 
-        // Corner mitigation: check other faces sharing endpoints v0 and v1
-        // to prevent open boundary tears/cracks at junctions
-        auto facesV0 = mesh.getConnectedFaces(v0);
-        if (facesV0.size() > 2) {
-            int cf0 = mesh.addFace({ v0, splitA0[0], splitA0[segments] });
-            if (cf0 >= 0 && cf0 < static_cast<int>(faces.size())) {
-                faces[cf0].materialId = matIdA;
+        // Close the two endpoint wedges opened in the neighboring faces. The
+        // selected faces now use a per-face split vertex, while the remaining
+        // incident faces still use the original endpoint. A small triangle on
+        // each non-selected incident edge makes both sides share an edge and
+        // keeps the result manifold at ordinary closed-mesh vertices.
+        const auto addEndpointWedges = [&](uint32_t endpoint,
+                                            uint32_t otherEndpoint,
+                                            uint32_t splitForA,
+                                            uint32_t splitForB) {
+            std::set<std::pair<uint32_t, uint32_t>> added;
+            const std::array<std::pair<const MeshFace*, uint32_t>, 2> cases = {
+                std::pair<const MeshFace*, uint32_t>{&sourceFaceA, splitForA},
+                std::pair<const MeshFace*, uint32_t>{&sourceFaceB, splitForB}
+            };
+            for (const auto& [sourceFacePtr, splitVertex] : cases) {
+                if (sourceFacePtr == nullptr) continue;
+                const MeshFace& sourceFace = *sourceFacePtr;
+                const auto cornerIt = std::find(sourceFace.vertices.begin(), sourceFace.vertices.end(), endpoint);
+                if (cornerIt == sourceFace.vertices.end() || sourceFace.vertices.size() < 3) continue;
+                const size_t corner = static_cast<size_t>(cornerIt - sourceFace.vertices.begin());
+                const size_t prev = (corner + sourceFace.vertices.size() - 1) % sourceFace.vertices.size();
+                const size_t next = (corner + 1) % sourceFace.vertices.size();
+                for (const uint32_t neighbor : {sourceFace.vertices[prev], sourceFace.vertices[next]}) {
+                    if (neighbor == otherEndpoint || neighbor >= vertices.size()) continue;
+                    const auto key = std::minmax(endpoint, neighbor);
+                    if (!added.insert(key).second) continue;
+                    const auto endpointPos = mesh.getVertices()[endpoint].position;
+                    const auto splitPos = mesh.getVertices()[splitVertex].position;
+                    const auto neighborPos = mesh.getVertices()[neighbor].position;
+                    const auto wedgeNormal = sourceFace.normal.length() > 1e-4f
+                        ? sourceFace.normal
+                        : Engine::Math::Vector3(0.0f, 1.0f, 0.0f);
+                    if ((splitPos - endpointPos).cross(neighborPos - endpointPos).length() > 1e-6f) {
+                        addFaceWithAttributes(mesh, {endpoint, splitVertex, neighbor}, sourceFace);
+                    } else {
+                        // The ideal wedge is occasionally collinear on a
+                        // box-like face. Use a tiny fan point so the closing
+                        // patch remains a valid renderable surface.
+                        const float fanOffset = std::max(0.001f,
+                            (splitPos - endpointPos).length() * 0.05f);
+                        const uint32_t fanVertex = mesh.addVertex(
+                            (endpointPos + splitPos + neighborPos) * (1.0f / 3.0f) + wedgeNormal * fanOffset);
+                        addFaceWithAttributes(mesh, {endpoint, splitVertex, fanVertex}, sourceFace);
+                        addFaceWithAttributes(mesh, {splitVertex, neighbor, fanVertex}, sourceFace);
+                        addFaceWithAttributes(mesh, {neighbor, endpoint, fanVertex}, sourceFace);
+                    }
+                }
             }
+        };
+
+        addEndpointWedges(v0, v1, splitA0[0], splitA0[segments]);
+        addEndpointWedges(v1, v0, splitA1[0], splitA1[segments]);
+
+        // Endpoint caps complete the remaining hole between the two selected
+        // face offsets. They are now connected to the wedge triangles above.
+        if (capV0) {
+            addFaceWithAttributes(mesh, {v0, splitA0[0], splitA0[segments]}, sourceFaceA);
         }
 
-        auto facesV1 = mesh.getConnectedFaces(v1);
-        if (facesV1.size() > 2) {
-            int cf1 = mesh.addFace({ v1, splitA1[segments], splitA1[0] });
-            if (cf1 >= 0 && cf1 < static_cast<int>(faces.size())) {
-                faces[cf1].materialId = matIdA;
-            }
+        if (capV1) {
+            addFaceWithAttributes(mesh, {v1, splitA1[segments], splitA1[0]}, sourceFaceA);
         }
     }
 
     mesh.rebuildTopology();
     mesh.recalculateAllNormals(false);
+    for (size_t e = 0; e < mesh.getEdges().size(); ++e) {
+        const auto& edge = mesh.getEdges()[e];
+        if (!edge.deleted && (generatedVertices.count(edge.v0) || generatedVertices.count(edge.v1))) {
+            newEdges.push_back(static_cast<uint32_t>(e));
+        }
+    }
+    return newEdges;
 }
 
-void MeshOperators::bevelVertices(
+std::vector<uint32_t> MeshOperators::bevelVertices(
     EditableMesh& mesh,
     const std::vector<uint32_t>& vertIndices,
     float width,
     int segments
 ) {
-    if (vertIndices.empty() || width <= 0.0001f) return;
+    std::vector<uint32_t> newVertices;
+    if (vertIndices.empty() || width <= 0.0001f) return newVertices;
     auto& vertices = mesh.getVertices();
     segments = std::clamp(segments, 1, 8);
 
@@ -591,6 +763,19 @@ void MeshOperators::bevelVertices(
         auto connectedFaces = mesh.getConnectedFaces(vIdx);
         if (connectedFaces.size() < 3) continue;
 
+        struct CornerCut {
+            MeshFace sourceFace;
+            uint32_t prevVertex = 0;
+            uint32_t nextVertex = 0;
+            uint32_t prevCut = 0;
+            uint32_t nextCut = 0;
+            std::vector<uint32_t> arc;
+        };
+        std::vector<CornerCut> cuts;
+        cuts.reserve(connectedFaces.size());
+        vertices.reserve(vertices.size() + connectedFaces.size() * static_cast<size_t>(segments + 2));
+        mesh.getFaces().reserve(mesh.getFaces().size() + connectedFaces.size() * 4 + 1);
+
         Engine::Math::Vector3 avgNormal(0, 0, 0);
         for (uint32_t fIdx : connectedFaces) {
             mesh.calculateFaceNormal(fIdx);
@@ -599,17 +784,16 @@ void MeshOperators::bevelVertices(
         if (avgNormal.length() < 1e-4f) continue;
         avgNormal = avgNormal.normalized();
 
-        std::vector<uint32_t> capVerts;
         for (uint32_t fIdx : connectedFaces) {
             if (fIdx >= mesh.getFaces().size() || mesh.getFaces()[fIdx].deleted) continue;
-            auto& face = mesh.getFaces()[fIdx];
-            auto it = std::find(face.vertices.begin(), face.vertices.end(), vIdx);
-            if (it == face.vertices.end()) continue;
-            const size_t corner = static_cast<size_t>(it - face.vertices.begin());
-            const size_t prev = (corner + face.vertices.size() - 1) % face.vertices.size();
-            const size_t next = (corner + 1) % face.vertices.size();
-            const uint32_t prevV = face.vertices[prev];
-            const uint32_t nextV = face.vertices[next];
+            const MeshFace sourceFace = mesh.getFaces()[fIdx];
+            const auto it = std::find(sourceFace.vertices.begin(), sourceFace.vertices.end(), vIdx);
+            if (it == sourceFace.vertices.end()) continue;
+            const size_t corner = static_cast<size_t>(it - sourceFace.vertices.begin());
+            const size_t prev = (corner + sourceFace.vertices.size() - 1) % sourceFace.vertices.size();
+            const size_t next = (corner + 1) % sourceFace.vertices.size();
+            const uint32_t prevV = sourceFace.vertices[prev];
+            const uint32_t nextV = sourceFace.vertices[next];
             if (prevV >= vertices.size() || nextV >= vertices.size()) continue;
 
             const float prevLen = (vertices[prevV].position - centerPos).length();
@@ -621,7 +805,7 @@ void MeshOperators::bevelVertices(
             const auto nextDir = (vertices[nextV].position - centerPos).normalized();
             const float cornerU = vertices[vIdx].u;
             const float cornerV = vertices[vIdx].v;
-            const auto faceNormal = face.normal;
+            const auto faceNormal = sourceFace.normal;
             std::vector<uint32_t> arc;
             arc.reserve(static_cast<size_t>(segments) + 1);
             for (int s = 0; s <= segments; ++s) {
@@ -637,45 +821,143 @@ void MeshOperators::bevelVertices(
             const uint32_t nextCut = arc.back();
 
             // Replace the corner by the two cut points, preserving the face loop.
+            auto& face = mesh.getFaces()[fIdx];
             face.vertices.erase(face.vertices.begin() + static_cast<std::ptrdiff_t>(corner));
             face.vertices.insert(face.vertices.begin() + static_cast<std::ptrdiff_t>(corner),
-                                 {prevCut, nextCut});
-            capVerts.insert(capVerts.end(), arc.begin(), arc.end());
+                                 arc.begin(), arc.end());
+            newVertices.insert(newVertices.end(), arc.begin(), arc.end());
+            cuts.push_back({sourceFace, prevV, nextV, prevCut, nextCut, std::move(arc)});
         }
 
-        if (capVerts.size() >= 3) {
-            // Order the cap points around the averaged corner normal.
-            Engine::Math::Vector3 axis = (std::abs(avgNormal.y) < 0.9f)
-                ? Engine::Math::Vector3(0, 1, 0)
-                : Engine::Math::Vector3(1, 0, 0);
-            Engine::Math::Vector3 uAxis = avgNormal.cross(axis).normalized();
-            Engine::Math::Vector3 vAxis = avgNormal.cross(uAxis).normalized();
-            std::sort(capVerts.begin(), capVerts.end(), [&](uint32_t a, uint32_t b) {
-                const auto da = mesh.getVertices()[a].position - centerPos;
-                const auto db = mesh.getVertices()[b].position - centerPos;
-                const float aa = std::atan2(da.dot(vAxis), da.dot(uAxis));
-                const float ab = std::atan2(db.dot(vAxis), db.dot(uAxis));
-                return aa < ab;
-            });
-            mesh.addFace(capVerts);
+        // Each original edge incident to the bevelled vertex borders two
+        // corner cuts. A triangle through the original neighbor closes the
+        // gap between those two cut points.
+        std::set<uint32_t> incidentNeighbors;
+        for (const auto& cut : cuts) {
+            incidentNeighbors.insert(cut.prevVertex);
+            incidentNeighbors.insert(cut.nextVertex);
+        }
+        for (uint32_t neighbor : incidentNeighbors) {
+            std::vector<uint32_t> edgeCuts;
+            for (const auto& cut : cuts) {
+                if (cut.prevVertex == neighbor) edgeCuts.push_back(cut.prevCut);
+                if (cut.nextVertex == neighbor) edgeCuts.push_back(cut.nextCut);
+            }
+            if (edgeCuts.size() == 2 && edgeCuts[0] != edgeCuts[1]) {
+                const auto cut0Pos = mesh.getVertices()[edgeCuts[0]].position;
+                auto cut1Pos = mesh.getVertices()[edgeCuts[1]].position;
+                const auto neighborPos = mesh.getVertices()[neighbor].position;
+                const auto sideNormal = cuts.front().sourceFace.normal.length() > 1e-4f
+                    ? cuts.front().sourceFace.normal
+                    : Engine::Math::Vector3(0.0f, 1.0f, 0.0f);
+                if ((neighborPos - cut0Pos).cross(cut1Pos - cut0Pos).length() > 1e-6f) {
+                    addFaceWithAttributes(mesh, {edgeCuts[0], neighbor, edgeCuts[1]}, cuts.front().sourceFace);
+                } else {
+                    const float fanOffset = std::max(0.001f, (cut0Pos - neighborPos).length() * 0.05f);
+                    if ((cut1Pos - cut0Pos).length() <= 1e-6f) {
+                        auto separation = sideNormal - (neighborPos - cut0Pos).normalized() *
+                            sideNormal.dot((neighborPos - cut0Pos).normalized());
+                        if (separation.length() <= 1e-4f) {
+                            separation = (neighborPos - cut0Pos).normalized().cross(
+                                std::abs((neighborPos - cut0Pos).normalized().x) < 0.9f
+                                    ? Engine::Math::Vector3(1.0f, 0.0f, 0.0f)
+                                    : Engine::Math::Vector3(0.0f, 1.0f, 0.0f));
+                        }
+                        mesh.getVertices()[edgeCuts[1]].position += separation.normalized() * fanOffset;
+                        cut1Pos = mesh.getVertices()[edgeCuts[1]].position;
+                    }
+                    if ((neighborPos - cut0Pos).cross(cut1Pos - cut0Pos).length() > 1e-6f) {
+                        addFaceWithAttributes(mesh, {edgeCuts[0], neighbor, edgeCuts[1]}, cuts.front().sourceFace);
+                        continue;
+                    }
+
+                    const auto edgeDirection = (cut1Pos - cut0Pos).normalized();
+                    auto fanDirection = sideNormal - edgeDirection * sideNormal.dot(edgeDirection);
+                    if (fanDirection.length() <= 1e-4f) {
+                        const auto fallbackAxis = (std::abs(edgeDirection.x) < 0.9f)
+                            ? Engine::Math::Vector3(1.0f, 0.0f, 0.0f)
+                            : Engine::Math::Vector3(0.0f, 1.0f, 0.0f);
+                        fanDirection = edgeDirection.cross(fallbackAxis).normalized();
+                    } else {
+                        fanDirection = fanDirection.normalized();
+                    }
+                    const uint32_t fanVertex = mesh.addVertex(
+                        (cut0Pos + cut1Pos + neighborPos) * (1.0f / 3.0f) + fanDirection * fanOffset);
+                    newVertices.push_back(fanVertex);
+                    addFaceWithAttributes(mesh, {edgeCuts[0], neighbor, fanVertex}, cuts.front().sourceFace);
+                    addFaceWithAttributes(mesh, {neighbor, edgeCuts[1], fanVertex}, cuts.front().sourceFace);
+                    addFaceWithAttributes(mesh, {edgeCuts[1], edgeCuts[0], fanVertex}, cuts.front().sourceFace);
+                }
+            }
+        }
+
+        // Follow the actual boundary graph to build the cap. Sorting points
+        // by angle is unreliable for multi-segment arcs and can leave the
+        // intermediate arc vertices disconnected.
+        std::map<uint32_t, std::vector<uint32_t>> capAdjacency;
+        const auto addCapEdge = [&](uint32_t a, uint32_t b) {
+            if (a == b) return;
+            capAdjacency[a].push_back(b);
+            capAdjacency[b].push_back(a);
+        };
+        for (const auto& cut : cuts) {
+            for (size_t i = 1; i < cut.arc.size(); ++i) {
+                addCapEdge(cut.arc[i - 1], cut.arc[i]);
+            }
+        }
+        for (uint32_t neighbor : incidentNeighbors) {
+            std::vector<uint32_t> edgeCuts;
+            for (const auto& cut : cuts) {
+                if (cut.prevVertex == neighbor) edgeCuts.push_back(cut.prevCut);
+                if (cut.nextVertex == neighbor) edgeCuts.push_back(cut.nextCut);
+            }
+            if (edgeCuts.size() == 2) addCapEdge(edgeCuts[0], edgeCuts[1]);
+        }
+
+        std::vector<uint32_t> capVerts;
+        if (!cuts.empty()) {
+            const uint32_t start = cuts.front().arc.front();
+            uint32_t previous = 0xFFFFFFFFu;
+            uint32_t current = start;
+            do {
+                capVerts.push_back(current);
+                const auto neighborsIt = capAdjacency.find(current);
+                if (neighborsIt == capAdjacency.end() || neighborsIt->second.empty()) break;
+                uint32_t next = neighborsIt->second.front();
+                if (next == previous && neighborsIt->second.size() > 1) next = neighborsIt->second[1];
+                previous = current;
+                current = next;
+            } while (current != start && capVerts.size() <= capAdjacency.size() + 1);
+
+            if (current == start && capVerts.size() >= 3) {
+                addFaceWithAttributes(mesh, capVerts, cuts.front().sourceFace);
+            }
         }
 
         vertices[vIdx].deleted = true;
         mesh.rebuildTopology();
     }
 
-    mesh.packAndCompact();
+    std::vector<uint32_t> vertRemap;
+    mesh.packAndCompact(&vertRemap);
+    for (auto& v : newVertices) {
+        v = (v < vertRemap.size()) ? vertRemap[v] : 0xFFFFFFFFu;
+    }
+    newVertices.erase(
+        std::remove(newVertices.begin(), newVertices.end(), 0xFFFFFFFFu),
+        newVertices.end());
     mesh.recalculateAllNormals(false);
+    return newVertices;
 }
 
 // ── 4. Subdivide ────────────────────────────────────────────────────────────
-void MeshOperators::subdivideFaces(
+std::vector<uint32_t> MeshOperators::subdivideFaces(
     EditableMesh& mesh,
     const std::vector<uint32_t>& faceIndices,
     int cuts,
     float smoothness
 ) {
-    if (faceIndices.empty()) return;
+    if (faceIndices.empty()) return {};
     cuts = std::max(1, std::min(4, cuts));
 
     std::vector<uint32_t> currentFaces = faceIndices;
@@ -683,6 +965,17 @@ void MeshOperators::subdivideFaces(
     for (int c = 0; c < cuts; ++c) {
         auto& faces = mesh.getFaces();
         std::vector<uint32_t> nextFaces;
+
+        size_t estimatedFaces = 0;
+        size_t estimatedVertices = 0;
+        for (uint32_t fIdx : currentFaces) {
+            if (fIdx < faces.size() && !faces[fIdx].deleted && faces[fIdx].vertices.size() >= 3) {
+                estimatedFaces += faces[fIdx].vertices.size();
+                estimatedVertices += faces[fIdx].vertices.size() + 1;
+            }
+        }
+        faces.reserve(faces.size() + estimatedFaces);
+        mesh.getVertices().reserve(mesh.getVertices().size() + estimatedVertices);
 
         // Shared edge midpoint map to avoid duplicate split vertices and holes
         std::map<std::pair<uint32_t, uint32_t>, uint32_t> sharedMidpoints;
@@ -720,6 +1013,25 @@ void MeshOperators::subdivideFaces(
                 edgeMidpoints[i] = getOrAddMidpoint(v0, v1);
             }
 
+            const auto cornerUV = [&](size_t corner) {
+                if (face.uvs.size() == count) return face.uvs[corner];
+                const auto& vertex = mesh.getVertices()[face.vertices[corner]];
+                return std::pair<float, float>{vertex.u, vertex.v};
+            };
+            const auto midpointUV = [&](size_t edge) {
+                const auto a = cornerUV(edge);
+                const auto b = cornerUV((edge + 1) % count);
+                return std::pair<float, float>{(a.first + b.first) * 0.5f, (a.second + b.second) * 0.5f};
+            };
+            std::pair<float, float> centerUV{0.0f, 0.0f};
+            for (size_t i = 0; i < count; ++i) {
+                const auto uv = cornerUV(i);
+                centerUV.first += uv.first;
+                centerUV.second += uv.second;
+            }
+            centerUV.first /= static_cast<float>(count);
+            centerUV.second /= static_cast<float>(count);
+
             mesh.removeFace(fIdx);
             for (size_t i = 0; i < count; ++i) {
                 size_t prev = (i + count - 1) % count;
@@ -727,8 +1039,13 @@ void MeshOperators::subdivideFaces(
                 uint32_t midCur = edgeMidpoints[i];
                 uint32_t midPrev = edgeMidpoints[prev];
 
-                int newFIdx = mesh.addFace({corner, midCur, centerVertIdx, midPrev});
-                if (newFIdx >= 0) nextFaces.push_back(static_cast<uint32_t>(newFIdx));
+                int newFIdx = mesh.addFaceWithUVs(
+                    {corner, midCur, centerVertIdx, midPrev},
+                    {cornerUV(i), midpointUV(i), centerUV, midpointUV(prev)},
+                    face.materialId);
+                if (newFIdx >= 0) {
+                    nextFaces.push_back(static_cast<uint32_t>(newFIdx));
+                }
             }
         }
 
@@ -736,8 +1053,16 @@ void MeshOperators::subdivideFaces(
         mesh.rebuildTopology();
     }
 
-    mesh.packAndCompact();
+    std::vector<uint32_t> faceRemap;
+    mesh.packAndCompact(nullptr, &faceRemap);
+    for (auto& fIdx : currentFaces) {
+        fIdx = (fIdx < faceRemap.size()) ? faceRemap[fIdx] : 0xFFFFFFFFu;
+    }
+    currentFaces.erase(
+        std::remove(currentFaces.begin(), currentFaces.end(), 0xFFFFFFFFu),
+        currentFaces.end());
     mesh.recalculateAllNormals(smoothness > 0.0f);
+    return currentFaces;
 }
 
 // ── 5. Merge / Weld ─────────────────────────────────────────────────────────
@@ -747,31 +1072,36 @@ void MeshOperators::mergeVertices(
     MergeMode mode,
     const Engine::Math::Vector3& targetPos
 ) {
-    if (vertIndices.size() < 2) return;
     auto& vertices = mesh.getVertices();
+    std::vector<uint32_t> validVertices;
+    std::set<uint32_t> uniqueVertices;
+    for (uint32_t v : vertIndices) {
+        if (v < vertices.size() && !vertices[v].deleted && uniqueVertices.insert(v).second) {
+            validVertices.push_back(v);
+        }
+    }
+    if (validVertices.size() < 2) return;
 
     Engine::Math::Vector3 finalPos(0, 0, 0);
 
     if (mode == MergeMode::Center || mode == MergeMode::Collapse) {
-        for (uint32_t v : vertIndices) {
-            if (v < vertices.size() && !vertices[v].deleted) {
-                finalPos += vertices[v].position;
-            }
+        for (uint32_t v : validVertices) {
+            finalPos += vertices[v].position;
         }
-        finalPos = finalPos * (1.0f / static_cast<float>(vertIndices.size()));
+        finalPos = finalPos * (1.0f / static_cast<float>(validVertices.size()));
     } else if (mode == MergeMode::First) {
-        finalPos = vertices[vertIndices.front()].position;
+        finalPos = vertices[validVertices.front()].position;
     } else if (mode == MergeMode::Last) {
-        finalPos = vertices[vertIndices.back()].position;
+        finalPos = vertices[validVertices.back()].position;
     } else if (mode == MergeMode::Cursor) {
         finalPos = targetPos;
     }
 
-    uint32_t survivingVert = vertIndices[0];
+    uint32_t survivingVert = validVertices[0];
     vertices[survivingVert].position = finalPos;
 
     // Remap all faces referencing merged vertices to the surviving one
-    std::set<uint32_t> mergeSet(vertIndices.begin() + 1, vertIndices.end());
+    std::set<uint32_t> mergeSet(validVertices.begin() + 1, validVertices.end());
     auto& faces = mesh.getFaces();
 
     for (size_t f = 0; f < faces.size(); ++f) {
@@ -802,6 +1132,7 @@ void MeshOperators::mergeVertices(
 void MeshOperators::weldVerticesByDistance(EditableMesh& mesh, float distanceThreshold) {
     auto& vertices = mesh.getVertices();
     if (vertices.empty()) return;
+    distanceThreshold = std::max(0.0f, distanceThreshold);
     float threshSq = distanceThreshold * distanceThreshold;
 
     // Disjoint-Set (Union-Find) structure

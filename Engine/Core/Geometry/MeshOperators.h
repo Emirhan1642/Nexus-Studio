@@ -48,7 +48,7 @@ public:
     );
 
     // ── 3. Bevel / Chamfer ──────────────────────────────────────────────────
-    static void bevelFaces(
+    static std::vector<uint32_t> bevelFaces(
         EditableMesh& mesh,
         const std::vector<uint32_t>& faceIndices,
         float width = 0.2f,
@@ -57,7 +57,7 @@ public:
         float depth = 0.0f
     );
 
-    static void bevelEdges(
+    static std::vector<uint32_t> bevelEdges(
         EditableMesh& mesh,
         const std::vector<uint32_t>& edgeIndices,
         float width = 0.2f,
@@ -65,7 +65,7 @@ public:
         float profile = 0.5f // 0.0 = concave, 0.5 = round, 1.0 = straight/chamfer
     );
 
-    static void bevelVertices(
+    static std::vector<uint32_t> bevelVertices(
         EditableMesh& mesh,
         const std::vector<uint32_t>& vertIndices,
         float width = 0.2f,
@@ -73,7 +73,7 @@ public:
     );
 
     // ── 4. Subdivide ────────────────────────────────────────────────────────
-    static void subdivideFaces(
+    static std::vector<uint32_t> subdivideFaces(
         EditableMesh& mesh,
         const std::vector<uint32_t>& faceIndices,
         int cuts = 1,

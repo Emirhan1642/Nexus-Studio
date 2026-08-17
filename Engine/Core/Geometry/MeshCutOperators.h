@@ -44,7 +44,8 @@ public:
         EditableMesh& mesh,
         uint32_t faceIndex,
         const Engine::Math::Vector3& p0,
-        const Engine::Math::Vector3& p1
+        const Engine::Math::Vector3& p1,
+        bool compactResult = true
     );
 
     // ── Mirror & Symmetry ───────────────────────────────────────────────────

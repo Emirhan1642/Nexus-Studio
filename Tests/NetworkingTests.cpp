@@ -31,7 +31,6 @@ protected:
         NetworkServer::instance().stop();
         NetworkClient::instance().disconnect();
         InstanceRegistry::instance().clear();
-        GameNetworkingSockets_Kill();
     }
 };
 

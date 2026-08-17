@@ -29,6 +29,8 @@ public:
         const std::vector<uint32_t>& afterSelFaces = {}
     );
 
+    bool targetsPart(const std::shared_ptr<Part>& part) const { return m_part == part; }
+
 private:
     std::shared_ptr<Part> m_part;
     std::shared_ptr<Engine::Geometry::EditableMesh> m_beforeState;

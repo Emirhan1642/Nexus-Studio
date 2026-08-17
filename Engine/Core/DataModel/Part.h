@@ -8,6 +8,9 @@
 
 class Part : public Instance {
 public:
+    Part() = default;
+    virtual ~Part() override { onRemovedFromWorkspace(); }
+
     std::string getClassName() const override { return "Part"; }
 
     Engine::Signal Touched;

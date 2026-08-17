@@ -1,4 +1,5 @@
 #include "Humanoid.h"
+#include <iostream>
 #include "../../Physics/PhysicsWorld.h"
 #include "../../Physics/PhysicsConversions.h"
 #include "../Reflection/ClassBuilder.h"
@@ -8,6 +9,7 @@
 #include <Jolt/Physics/Body/BodyFilter.h>
 #include <Jolt/Physics/Constraints/PointConstraint.h>
 #include <Jolt/Physics/Body/BodyLock.h>
+#include <Jolt/Physics/Body/BodyLockMulti.h>
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
 #include <Jolt/Physics/Character/CharacterVirtual.h>
 #include "../../Animation/IK/TwoBoneIK.h"
@@ -273,13 +275,7 @@ void Humanoid::enterRagdoll() {
 
     if (!physicsAsset || skeleton.bones.empty()) return;
 
-    // Use a temporary local pose at time=0 (or current frame) to find world positions
-    std::vector<Math::Matrix4> localPose(skeleton.bones.size());
-    for (size_t i = 0; i < skeleton.bones.size(); ++i) {
-        localPose[i] = skeleton.bones[i].bindPoseLocalTransform;
-    }
-    // Alternatively, use current animation pose so ragdoll starts from current frame
-    localPose = animationPlayer.evaluate(skeleton, 0.0f); // Or use cached last frame localPose
+    std::vector<Math::Matrix4> localPose = animationPlayer.evaluate(skeleton, 0.0f);
     std::vector<Math::Matrix4> worldPose = skeleton.computeWorldTransforms(localPose);
 
     for (size_t i = 0; i < skeleton.bones.size(); ++i) {
@@ -288,7 +284,6 @@ void Humanoid::enterRagdoll() {
         if (!shapeDef) continue;
 
         Math::Vector3 worldPos = worldPose[i].getTranslation();
-        // Compute world rotation from matrix
         Math::Vector3 scale;
         Math::Quaternion worldRot;
         worldPose[i].decompose(worldPos, worldRot, scale);
@@ -300,6 +295,7 @@ void Humanoid::enterRagdoll() {
             JPH::EMotionType::Dynamic, 
             Physics::Layers::RAGDOLL
         );
+        settings.mUserData = 0;
         
         RagdollLimb limb;
         limb.boneIndex = (int)i;
@@ -307,13 +303,11 @@ void Humanoid::enterRagdoll() {
         ragdollLimbs.push_back(limb);
     }
 
-    // Create constraints between connected bones
     for (size_t i = 0; i < ragdollLimbs.size(); ++i) {
         int boneIdx = ragdollLimbs[i].boneIndex;
         int parentIdx = skeleton.bones[boneIdx].parentIndex;
         
         if (parentIdx >= 0) {
-            // Find parent limb if it has a body
             JPH::BodyID parentBodyId;
             bool foundParent = false;
             for (const auto& plimb : ragdollLimbs) {
@@ -325,14 +319,21 @@ void Humanoid::enterRagdoll() {
             }
 
             if (foundParent) {
-                JPH::BodyLockWrite lock1(physicsWorld.getPhysicsSystem().GetBodyLockInterface(), ragdollLimbs[i].bodyId);
-                JPH::BodyLockWrite lock2(physicsWorld.getPhysicsSystem().GetBodyLockInterface(), parentBodyId);
-                if (lock1.Succeeded() && lock2.Succeeded()) {
-                    Math::Vector3 pivot = worldPose[boneIdx].getTranslation();
-                    JPH::PointConstraintSettings settings;
-                    settings.mPoint1 = Physics::toJoltVec3(pivot);
-                    settings.mPoint2 = Physics::toJoltVec3(pivot);
-                    JPH::Constraint* joint = settings.Create(lock1.GetBody(), lock2.GetBody());
+                JPH::Constraint* joint = nullptr;
+                {
+                    JPH::BodyID bodyIds[2] = { parentBodyId, ragdollLimbs[i].bodyId };
+                    JPH::BodyLockMultiWrite multiLock(physicsWorld.getPhysicsSystem().GetBodyLockInterface(), bodyIds, 2);
+                    JPH::Body* b1 = multiLock.GetBody(0);
+                    JPH::Body* b2 = multiLock.GetBody(1);
+                    if (b1 && b2) {
+                        Math::Vector3 pivot = worldPose[boneIdx].getTranslation();
+                        JPH::PointConstraintSettings settings;
+                        settings.mPoint1 = Physics::toJoltVec3(pivot);
+                        settings.mPoint2 = Physics::toJoltVec3(pivot);
+                        joint = settings.Create(*b1, *b2);
+                    }
+                }
+                if (joint) {
                     physicsWorld.addConstraint(joint);
                     ragdollJoints.push_back(joint);
                 }

@@ -349,6 +349,13 @@ TEST_F(GeometryTests, BevelEdgesManifoldIntegrity) {
             EXPECT_GE(f.vertices.size(), 3u);
         }
     }
+    size_t boundaryEdges = 0;
+    for (size_t e = 0; e < cube->getEdges().size(); ++e) {
+        if (!cube->getEdges()[e].deleted && cube->getEdgeFaces(static_cast<uint32_t>(e)).size() == 1) {
+            ++boundaryEdges;
+        }
+    }
+    EXPECT_EQ(boundaryEdges, 0u);
 }
 
 // 15. Dual-Mode Inset: Region Inset vs Individual Inset
@@ -370,6 +377,13 @@ TEST_F(GeometryTests, RegionInsetVsIndividualInset) {
     EXPECT_EQ(insetsRegion.size(), 2u);
     // Region boundary has 6 edges -> creates exactly 6 rim quads -> 6 + 6 = 12 faces
     EXPECT_EQ(cubeRegion->getFaces().size(), 12u);
+    size_t regionBoundaryEdges = 0;
+    for (size_t e = 0; e < cubeRegion->getEdges().size(); ++e) {
+        if (!cubeRegion->getEdges()[e].deleted && cubeRegion->getEdgeFaces(static_cast<uint32_t>(e)).size() == 1) {
+            ++regionBoundaryEdges;
+        }
+    }
+    EXPECT_EQ(regionBoundaryEdges, 0u);
 }
 
 // 16. Extrude connected edge chain: must produce continuous quad strip sharing vertices
@@ -403,6 +417,7 @@ TEST_F(GeometryTests, KnifeMultiSegmentPolylineCut) {
     // Cut straight across face 0 (+Z face with X from -1 to 1, Y from -1 to 1, Z = 1)
     std::vector<Vector3> knifePath = {
         Vector3(-1.0f, 0.0f, 1.0f),
+        Vector3(0.0f, 1.0f, 1.0f),
         Vector3(1.0f, 0.0f, 1.0f)
     };
 
@@ -410,7 +425,7 @@ TEST_F(GeometryTests, KnifeMultiSegmentPolylineCut) {
     EXPECT_TRUE(cutSuccess);
     EXPECT_TRUE(cube->validate());
     // Face was split by the knife cut
-    EXPECT_GT(cube->getFaces().size(), 6u);
+    EXPECT_GE(cube->getFaces().size(), 8u);
 }
 
 // 18. Operator Panel Parameter Sync with Undo/Redo
@@ -431,6 +446,11 @@ TEST_F(GeometryTests, OperatorPanelUndoRedoSync) {
     ctx.opCuts = 2;
     ctx.reapplyLastOperation();
     EXPECT_EQ(part->getEditableMesh()->getFaces().size(), 96u);
+    EXPECT_FALSE(ctx.selectedFaces.empty());
+    for (uint32_t f : ctx.selectedFaces) {
+        ASSERT_LT(f, part->getEditableMesh()->getFaces().size());
+        EXPECT_FALSE(part->getEditableMesh()->getFaces()[f].deleted);
+    }
 
     // Undo should restore initial 6-face cube
     UndoStack::instance().undo();
@@ -448,8 +468,10 @@ TEST_F(GeometryTests, UVAndMaterialPreservation) {
     // Assign material ID 42 to face 0
     cube->getFaces()[0].materialId = 42;
 
-    // Loop Cut on edge 0
-    auto newEdges = MeshCutOperators::applyLoopCut(*cube, {0}, 0.0f, 1);
+    // Loop Cut on the front bottom edge
+    const int edge = cube->findEdge(4, 5);
+    ASSERT_GE(edge, 0);
+    auto newEdges = MeshCutOperators::applyLoopCut(*cube, {static_cast<uint32_t>(edge)}, 0.0f, 1);
     EXPECT_TRUE(cube->validate());
     ASSERT_FALSE(newEdges.empty());
 
@@ -459,4 +481,15 @@ TEST_F(GeometryTests, UVAndMaterialPreservation) {
         if (!f.deleted && f.materialId == 42) foundMat = true;
     }
     EXPECT_TRUE(foundMat);
+
+    bool foundInterpolatedUV = false;
+    for (const auto& v : cube->getVertices()) {
+        if (std::abs(v.position.x) < 0.01f &&
+            std::abs(v.position.y + 2.0f) < 0.01f &&
+            std::abs(v.position.z - 2.0f) < 0.01f &&
+            std::abs(v.u - 0.5f) < 0.01f) {
+            foundInterpolatedUV = true;
+        }
+    }
+    EXPECT_TRUE(foundInterpolatedUV);
 }

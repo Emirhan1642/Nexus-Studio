@@ -50,10 +50,11 @@ public:
 
     // Getters for internal mechanics
     Math::Vector3 getCurrentMoveDirection() const { return currentMoveDirection; }
-    std::shared_ptr<Part> getRootPart() const { return rootPart.lock(); }
+    std::shared_ptr<Part> getRootPart() const {
+        if (auto rp = rootPart.lock()) return rp;
+        return std::dynamic_pointer_cast<Part>(getParent());
+    }
     JPH::CharacterVirtual* getCharacter() const { return character.GetPtr(); }
-    
-    // Animation API
     Animation::AnimationPlayer& getAnimationPlayer() { return animationPlayer; }
     Animation::Skeleton& getSkeleton() { return skeleton; }
     bool ikEnabled = true;

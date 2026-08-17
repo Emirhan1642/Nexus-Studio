@@ -95,6 +95,12 @@ std::vector<uint32_t> MeshCutOperators::applyLoopCut(
     numCuts = std::max(1, std::min(6, numCuts));
     slideFactor = std::max(-0.90f, std::min(0.90f, slideFactor));
 
+    // Split vertices and replacement faces are appended below. Reserve the
+    // worst-case working set so references used while processing the original
+    // faces remain stable across addVertex/addFace calls.
+    vertices.reserve(vertices.size() + edgeLoop.size() * static_cast<size_t>(numCuts * 3));
+    faces.reserve(faces.size() + edgeLoop.size() * static_cast<size_t>((numCuts + 2) * 4));
+
     // 1. Pre-generate shared split vertices for every edge in edgeLoop
     // Map: edgeIdx -> vector of split vertex IDs (ordered from edge.v0 to edge.v1)
     std::map<uint32_t, std::vector<uint32_t>> edgeSplitMap;
@@ -140,6 +146,24 @@ std::vector<uint32_t> MeshCutOperators::applyLoopCut(
         if (face.vertices.size() != 4) continue;
         int origMatId = face.materialId;
 
+        const auto addCutFace = [&](const std::vector<uint32_t>& faceVertices) {
+            std::vector<std::pair<float, float>> cornerUVs;
+            if (face.uvs.size() == face.vertices.size()) {
+                cornerUVs.reserve(faceVertices.size());
+                for (uint32_t vertex : faceVertices) {
+                    auto sourceCorner = std::find(face.vertices.begin(), face.vertices.end(), vertex);
+                    if (sourceCorner != face.vertices.end()) {
+                        cornerUVs.push_back(face.uvs[static_cast<size_t>(sourceCorner - face.vertices.begin())]);
+                    } else if (vertex < vertices.size()) {
+                        cornerUVs.emplace_back(vertices[vertex].u, vertices[vertex].v);
+                    } else {
+                        cornerUVs.emplace_back(0.0f, 0.0f);
+                    }
+                }
+            }
+            return mesh.addFaceWithUVs(faceVertices, cornerUVs, origMatId);
+        };
+
         uint32_t v0 = face.vertices[0];
         uint32_t v1 = face.vertices[1];
         uint32_t v2 = face.vertices[2];
@@ -181,15 +205,12 @@ std::vector<uint32_t> MeshCutOperators::applyLoopCut(
             }
 
             mesh.removeFace(fIdx);
-            int nf0 = mesh.addFace({ v0, sv0[0], sv2[0], v3 });
-            if (nf0 >= 0 && nf0 < (int)faces.size()) faces[nf0].materialId = origMatId;
+            addCutFace({ v0, sv0[0], sv2[0], v3 });
 
             for (int k = 0; k + 1 < numCuts; ++k) {
-                int nfk = mesh.addFace({ sv0[k], sv0[k + 1], sv2[k + 1], sv2[k] });
-                if (nfk >= 0 && nfk < (int)faces.size()) faces[nfk].materialId = origMatId;
+                addCutFace({ sv0[k], sv0[k + 1], sv2[k + 1], sv2[k] });
             }
-            int nfLast = mesh.addFace({ sv0[numCuts - 1], v1, v2, sv2[numCuts - 1] });
-            if (nfLast >= 0 && nfLast < (int)faces.size()) faces[nfLast].materialId = origMatId;
+            addCutFace({ sv0[numCuts - 1], v1, v2, sv2[numCuts - 1] });
 
             for (int k = 0; k < numCuts; ++k) {
                 int ne = mesh.addEdge(sv0[k], sv2[k]);
@@ -222,15 +243,12 @@ std::vector<uint32_t> MeshCutOperators::applyLoopCut(
             }
 
             mesh.removeFace(fIdx);
-            int nf0 = mesh.addFace({ v0, v1, sv1[0], sv3[0] });
-            if (nf0 >= 0 && nf0 < (int)faces.size()) faces[nf0].materialId = origMatId;
+            addCutFace({ v0, v1, sv1[0], sv3[0] });
 
             for (int k = 0; k + 1 < numCuts; ++k) {
-                int nfk = mesh.addFace({ sv3[k], sv1[k], sv1[k + 1], sv3[k + 1] });
-                if (nfk >= 0 && nfk < (int)faces.size()) faces[nfk].materialId = origMatId;
+                addCutFace({ sv3[k], sv1[k], sv1[k + 1], sv3[k + 1] });
             }
-            int nfLast = mesh.addFace({ sv3[numCuts - 1], sv1[numCuts - 1], v2, v3 });
-            if (nfLast >= 0 && nfLast < (int)faces.size()) faces[nfLast].materialId = origMatId;
+            addCutFace({ sv3[numCuts - 1], sv1[numCuts - 1], v2, v3 });
 
             for (int k = 0; k < numCuts; ++k) {
                 int ne = mesh.addEdge(sv3[k], sv1[k]);
@@ -267,34 +285,46 @@ bool MeshCutOperators::cutMeshWithKnifePolyline(
     if (localPoints.size() < 2) return false;
 
     bool anyCut = false;
+    std::vector<uint32_t> candidateFaces;
+    auto collectLiveFaces = [&]() {
+        std::vector<uint32_t> live;
+        for (size_t f = 0; f < mesh.getFaces().size(); ++f) {
+            if (!mesh.getFaces()[f].deleted && mesh.getFaces()[f].vertices.size() >= 3) {
+                live.push_back(static_cast<uint32_t>(f));
+            }
+        }
+        return live;
+    };
+
+    if (!cutThrough && !targetFaces.empty()) {
+        std::set<uint32_t> uniqueTargets(targetFaces.begin(), targetFaces.end());
+        for (uint32_t f : uniqueTargets) {
+            if (f < mesh.getFaces().size() && !mesh.getFaces()[f].deleted) candidateFaces.push_back(f);
+        }
+    } else {
+        candidateFaces = collectLiveFaces();
+    }
+
     for (size_t i = 0; i + 1 < localPoints.size(); ++i) {
         const auto& p0 = localPoints[i];
         const auto& p1 = localPoints[i + 1];
         Engine::Math::Vector3 segDir = (p1 - p0);
         if (segDir.length() < 1e-4f) continue;
 
-        // Dynamically gather candidate faces on the current live mesh to prevent stale indices
-        std::vector<uint32_t> candidateFaces;
-        if (!cutThrough && !targetFaces.empty() && i == 0) {
-            std::set<uint32_t> uniqueTargets(targetFaces.begin(), targetFaces.end());
-            for (uint32_t f : uniqueTargets) {
-                if (f < mesh.getFaces().size() && !mesh.getFaces()[f].deleted) {
-                    candidateFaces.push_back(f);
-                }
-            }
-        } else {
-            for (size_t f = 0; f < mesh.getFaces().size(); ++f) {
-                if (!mesh.getFaces()[f].deleted && mesh.getFaces()[f].vertices.size() >= 3) {
-                    candidateFaces.push_back(static_cast<uint32_t>(f));
-                }
-            }
-        }
+        if (cutThrough || targetFaces.empty()) candidateFaces = collectLiveFaces();
+        std::vector<uint32_t> nextTargetFaces;
 
         for (uint32_t fIdx : candidateFaces) {
             if (fIdx >= mesh.getFaces().size() || mesh.getFaces()[fIdx].deleted) continue;
 
-            if (cutFaceWithRaySegment(mesh, fIdx, p0, p1)) {
+            const size_t faceCountBefore = mesh.getFaces().size();
+            if (cutFaceWithRaySegment(mesh, fIdx, p0, p1, false)) {
                 anyCut = true;
+                if (!cutThrough && !targetFaces.empty()) {
+                    for (size_t f = faceCountBefore; f < mesh.getFaces().size(); ++f) {
+                        if (!mesh.getFaces()[f].deleted) nextTargetFaces.push_back(static_cast<uint32_t>(f));
+                    }
+                }
             } else if (cutThrough) {
                 // Cut-through projection: find intersections of the cutting plane with this face's edges
                 auto face = mesh.getFaces()[fIdx];
@@ -328,11 +358,18 @@ bool MeshCutOperators::cutMeshWithKnifePolyline(
                 }
 
                 if (edgeHits.size() == 2) {
-                    if (cutFaceWithRaySegment(mesh, fIdx, edgeHits[0], edgeHits[1])) {
+                    if (cutFaceWithRaySegment(mesh, fIdx, edgeHits[0], edgeHits[1], false)) {
                         anyCut = true;
                     }
                 }
             }
+        }
+
+        if (!cutThrough && !targetFaces.empty()) {
+            for (uint32_t f : candidateFaces) {
+                if (f < mesh.getFaces().size() && !mesh.getFaces()[f].deleted) nextTargetFaces.push_back(f);
+            }
+            candidateFaces = std::move(nextTargetFaces);
         }
     }
 
@@ -348,7 +385,8 @@ bool MeshCutOperators::cutFaceWithRaySegment(
     EditableMesh& mesh,
     uint32_t faceIndex,
     const Engine::Math::Vector3& p0,
-    const Engine::Math::Vector3& p1
+    const Engine::Math::Vector3& p1,
+    bool compactResult
 ) {
     auto& faces = mesh.getFaces();
     auto& vertices = mesh.getVertices();
@@ -452,9 +490,9 @@ bool MeshCutOperators::cutFaceWithRaySegment(
     mesh.removeFace(faceIndex);
     mesh.addFace(first);
     mesh.addFace(second);
-    mesh.packAndCompact();
     mesh.rebuildTopology();
     mesh.recalculateAllNormals(false);
+    if (compactResult) mesh.packAndCompact();
     return true;
 }
 

@@ -4,6 +4,7 @@
 #include <set>
 #include <map>
 #include <algorithm>
+#include <utility>
 
 namespace Editor::Modeling {
 
@@ -192,10 +193,44 @@ void ModelingContext::confirmModal() {
             auto workingMesh = preModalMesh->clone();
             Engine::Geometry::MeshCutOperators::cutMeshWithKnifePolyline(*workingMesh, knifePoints, knifeTargetFaces, opCutThrough);
             part->setEditableMesh(workingMesh);
+            clearSelection();
         } else if (activeModal == ModalTool::LoopCut && !previewLoopEdges.empty()) {
             opTargetEdges = previewLoopEdges;
             auto workingMesh = baseSnapshotMesh ? baseSnapshotMesh->clone() : preModalMesh->clone();
-            Engine::Geometry::MeshCutOperators::applyLoopCut(*workingMesh, previewLoopEdges, opSlide, opCuts);
+            auto newEdges = Engine::Geometry::MeshCutOperators::applyLoopCut(*workingMesh, previewLoopEdges, opSlide, opCuts);
+            part->setEditableMesh(workingMesh);
+            selectedVertices.clear();
+            selectedFaces.clear();
+            selectedEdges = std::move(newEdges);
+        } else if (activeModal == ModalTool::Extrude) {
+            auto workingMesh = baseSnapshotMesh->clone();
+            auto newFaces = Engine::Geometry::MeshOperators::extrudeFaces(*workingMesh, opTargetFaces, opDistance);
+            part->setEditableMesh(workingMesh);
+            selectedVertices.clear();
+            selectedEdges.clear();
+            selectedFaces = std::move(newFaces);
+        } else if (activeModal == ModalTool::Inset) {
+            auto workingMesh = baseSnapshotMesh->clone();
+            auto newFaces = Engine::Geometry::MeshOperators::insetFaces(*workingMesh, opTargetFaces, opThickness, opDepth);
+            part->setEditableMesh(workingMesh);
+            selectedVertices.clear();
+            selectedEdges.clear();
+            selectedFaces = std::move(newFaces);
+        } else if (activeModal == ModalTool::Bevel) {
+            auto workingMesh = baseSnapshotMesh->clone();
+            selectedVertices.clear();
+            selectedEdges.clear();
+            selectedFaces.clear();
+            if (!opTargetFaces.empty()) {
+                selectedFaces = Engine::Geometry::MeshOperators::bevelFaces(
+                    *workingMesh, opTargetFaces, opWidth, opSegments, opProfile, opDepth);
+            } else if (!opTargetEdges.empty()) {
+                selectedEdges = Engine::Geometry::MeshOperators::bevelEdges(
+                    *workingMesh, opTargetEdges, opWidth, opSegments, opProfile);
+            } else if (!opTargetVertices.empty()) {
+                selectedVertices = Engine::Geometry::MeshOperators::bevelVertices(
+                    *workingMesh, opTargetVertices, opWidth, opSegments);
+            }
             part->setEditableMesh(workingMesh);
         }
 
@@ -234,30 +269,41 @@ void ModelingContext::reapplyLastOperation() {
     auto workingMesh = baseSnapshotMesh->clone();
 
     if (lastOp == LastOpType::Extrude) {
-        Engine::Geometry::MeshOperators::extrudeFaces(*workingMesh, opTargetFaces, opDistance);
+        selectedVertices.clear();
+        selectedEdges.clear();
+        selectedFaces = Engine::Geometry::MeshOperators::extrudeFaces(*workingMesh, opTargetFaces, opDistance);
     } else if (lastOp == LastOpType::Inset) {
-        Engine::Geometry::MeshOperators::insetFaces(*workingMesh, opTargetFaces, opThickness, opDepth);
+        selectedVertices.clear();
+        selectedEdges.clear();
+        selectedFaces = Engine::Geometry::MeshOperators::insetFaces(*workingMesh, opTargetFaces, opThickness, opDepth);
     } else if (lastOp == LastOpType::Bevel) {
+        selectedVertices.clear();
+        selectedEdges.clear();
+        selectedFaces.clear();
         if (!opTargetFaces.empty()) {
-            Engine::Geometry::MeshOperators::bevelFaces(*workingMesh, opTargetFaces, opWidth, opSegments, opProfile, opDepth);
+            selectedFaces = Engine::Geometry::MeshOperators::bevelFaces(*workingMesh, opTargetFaces, opWidth, opSegments, opProfile, opDepth);
         } else if (!opTargetEdges.empty()) {
-            Engine::Geometry::MeshOperators::bevelEdges(*workingMesh, opTargetEdges, opWidth, opSegments, opProfile);
+            selectedEdges = Engine::Geometry::MeshOperators::bevelEdges(*workingMesh, opTargetEdges, opWidth, opSegments, opProfile);
         } else if (!opTargetVertices.empty()) {
-            Engine::Geometry::MeshOperators::bevelVertices(*workingMesh, opTargetVertices, opWidth, opSegments);
+            selectedVertices = Engine::Geometry::MeshOperators::bevelVertices(*workingMesh, opTargetVertices, opWidth, opSegments);
         }
     } else if (lastOp == LastOpType::LoopCut) {
         if (!opTargetEdges.empty()) {
-            Engine::Geometry::MeshCutOperators::applyLoopCut(*workingMesh, opTargetEdges, opSlide, opCuts);
+            selectedVertices.clear();
+            selectedFaces.clear();
+            selectedEdges = Engine::Geometry::MeshCutOperators::applyLoopCut(*workingMesh, opTargetEdges, opSlide, opCuts);
         }
     } else if (lastOp == LastOpType::Subdivide) {
-        Engine::Geometry::MeshOperators::subdivideFaces(*workingMesh, opTargetFaces, opCuts, opSmoothness);
+        selectedVertices.clear();
+        selectedEdges.clear();
+        selectedFaces = Engine::Geometry::MeshOperators::subdivideFaces(*workingMesh, opTargetFaces, opCuts, opSmoothness);
     }
 
     part->setEditableMesh(workingMesh);
     part->rebuildProceduralMesh();
 
     auto cmd = dynamic_cast<MeshTopologyCommand*>(UndoStack::instance().getTopUndoCommand());
-    if (cmd) {
+    if (cmd && cmd->targetsPart(part)) {
         cmd->updateAfterState(workingMesh->clone(), selectedVertices, selectedEdges, selectedFaces);
     }
 }
@@ -289,7 +335,7 @@ void ModelingContext::executeSubdivide(std::shared_ptr<Part> part, int cuts, flo
     lastOp = LastOpType::Subdivide;
     activePart = part;
 
-    Engine::Geometry::MeshOperators::subdivideFaces(*mesh, selectedFaces, cuts, smoothness);
+    selectedFaces = Engine::Geometry::MeshOperators::subdivideFaces(*mesh, selectedFaces, cuts, smoothness);
     part->rebuildProceduralMesh();
 
     auto cmd = std::make_unique<MeshTopologyCommand>(

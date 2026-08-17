@@ -540,6 +540,15 @@ void EditableMesh::generateRenderBuffers(
         const auto& face = m_faces[f];
         if (face.deleted || face.vertices.size() < 3) continue;
 
+        bool validFace = true;
+        for (uint32_t vIdx : face.vertices) {
+            if (vIdx >= m_vertices.size() || m_vertices[vIdx].deleted) {
+                validFace = false;
+                break;
+            }
+        }
+        if (!validFace) continue;
+
         uint32_t baseVertexIdx = static_cast<uint32_t>(outVertices.size());
 
         // Emit vertices for this face
@@ -548,7 +557,6 @@ void EditableMesh::generateRenderBuffers(
 
         for (size_t i = 0; i < face.vertices.size(); ++i) {
             uint32_t vIdx = face.vertices[i];
-            if (vIdx >= m_vertices.size()) continue;
             const auto& v = m_vertices[vIdx];
 
             RenderVertex rv;

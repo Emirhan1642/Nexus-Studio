@@ -37,7 +37,7 @@ public:
 
 private:
     std::vector<Connection> connections;
-    uint32_t nextId = 0;
+    uint32_t nextId = 1;
 };
 
 } // namespace Engine

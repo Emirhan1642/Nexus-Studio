@@ -205,9 +205,6 @@ TEST_F(HumanoidTest, RagdollSimulation) {
     Math::Matrix4 rootWorld = boneTransforms[0] * rootBone.bindPoseLocalTransform;
     Vector3 rootPos = rootWorld.getTranslation();
     
-    // It should have fallen slightly down from Y=0 (relative to rootPart, or world, depending on how we set it up)
-    // Actually, Jolt bodies were created at worldPos = rootPart->pos + localPos
-    // Let's just check that it's not (0,0,0) anymore, or that Y is less than initial
     EXPECT_NE(rootPos.y, 0.0f);
 
     // 7. Cleanup
