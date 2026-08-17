@@ -110,7 +110,9 @@ std::vector<uint32_t> MeshCutOperators::applyLoopCut(
             float t = std::clamp(baseT + slideFactor * (0.40f / (float)(numCuts + 1)), 0.02f, 0.98f);
 
             Engine::Math::Vector3 p = vertices[v0].position + (vertices[v1].position - vertices[v0].position) * t;
-            splits[k] = mesh.addVertex(p, vertices[v0].u, vertices[v0].v);
+            float u = vertices[v0].u + (vertices[v1].u - vertices[v0].u) * t;
+            float v = vertices[v0].v + (vertices[v1].v - vertices[v0].v) * t;
+            splits[k] = mesh.addVertex(p, u, v);
         }
         edgeSplitMap[eIdx] = splits;
     }
@@ -136,6 +138,7 @@ std::vector<uint32_t> MeshCutOperators::applyLoopCut(
         if (fIdx >= faces.size() || faces[fIdx].deleted) continue;
         auto face = faces[fIdx];
         if (face.vertices.size() != 4) continue;
+        int origMatId = face.materialId;
 
         uint32_t v0 = face.vertices[0];
         uint32_t v1 = face.vertices[1];
@@ -164,21 +167,29 @@ std::vector<uint32_t> MeshCutOperators::applyLoopCut(
                     float t = std::clamp(baseT + slideFactor * (0.40f / (float)(numCuts + 1)), 0.02f, 0.98f);
                     if (!has0) {
                         Engine::Math::Vector3 pA = vertices[v0].position + (vertices[v1].position - vertices[v0].position) * t;
-                        sv0[k] = mesh.addVertex(pA, vertices[v0].u, vertices[v0].v);
+                        float u = vertices[v0].u + (vertices[v1].u - vertices[v0].u) * t;
+                        float v = vertices[v0].v + (vertices[v1].v - vertices[v0].v) * t;
+                        sv0[k] = mesh.addVertex(pA, u, v);
                     }
                     if (!has2) {
                         Engine::Math::Vector3 pB = vertices[v3].position + (vertices[v2].position - vertices[v3].position) * t;
-                        sv2[k] = mesh.addVertex(pB, vertices[v3].u, vertices[v3].v);
+                        float u = vertices[v3].u + (vertices[v2].u - vertices[v3].u) * t;
+                        float v = vertices[v3].v + (vertices[v2].v - vertices[v3].v) * t;
+                        sv2[k] = mesh.addVertex(pB, u, v);
                     }
                 }
             }
 
             mesh.removeFace(fIdx);
-            mesh.addFace({ v0, sv0[0], sv2[0], v3 });
+            int nf0 = mesh.addFace({ v0, sv0[0], sv2[0], v3 });
+            if (nf0 >= 0 && nf0 < (int)faces.size()) faces[nf0].materialId = origMatId;
+
             for (int k = 0; k + 1 < numCuts; ++k) {
-                mesh.addFace({ sv0[k], sv0[k + 1], sv2[k + 1], sv2[k] });
+                int nfk = mesh.addFace({ sv0[k], sv0[k + 1], sv2[k + 1], sv2[k] });
+                if (nfk >= 0 && nfk < (int)faces.size()) faces[nfk].materialId = origMatId;
             }
-            mesh.addFace({ sv0[numCuts - 1], v1, v2, sv2[numCuts - 1] });
+            int nfLast = mesh.addFace({ sv0[numCuts - 1], v1, v2, sv2[numCuts - 1] });
+            if (nfLast >= 0 && nfLast < (int)faces.size()) faces[nfLast].materialId = origMatId;
 
             for (int k = 0; k < numCuts; ++k) {
                 int ne = mesh.addEdge(sv0[k], sv2[k]);
@@ -197,21 +208,29 @@ std::vector<uint32_t> MeshCutOperators::applyLoopCut(
                     float t = std::clamp(baseT + slideFactor * (0.40f / (float)(numCuts + 1)), 0.02f, 0.98f);
                     if (!has1) {
                         Engine::Math::Vector3 pA = vertices[v1].position + (vertices[v2].position - vertices[v1].position) * t;
-                        sv1[k] = mesh.addVertex(pA, vertices[v1].u, vertices[v1].v);
+                        float u = vertices[v1].u + (vertices[v2].u - vertices[v1].u) * t;
+                        float v = vertices[v1].v + (vertices[v2].v - vertices[v1].v) * t;
+                        sv1[k] = mesh.addVertex(pA, u, v);
                     }
                     if (!has3) {
                         Engine::Math::Vector3 pB = vertices[v0].position + (vertices[v3].position - vertices[v0].position) * t;
-                        sv3[k] = mesh.addVertex(pB, vertices[v0].u, vertices[v0].v);
+                        float u = vertices[v0].u + (vertices[v3].u - vertices[v0].u) * t;
+                        float v = vertices[v0].v + (vertices[v3].v - vertices[v0].v) * t;
+                        sv3[k] = mesh.addVertex(pB, u, v);
                     }
                 }
             }
 
             mesh.removeFace(fIdx);
-            mesh.addFace({ v0, v1, sv1[0], sv3[0] });
+            int nf0 = mesh.addFace({ v0, v1, sv1[0], sv3[0] });
+            if (nf0 >= 0 && nf0 < (int)faces.size()) faces[nf0].materialId = origMatId;
+
             for (int k = 0; k + 1 < numCuts; ++k) {
-                mesh.addFace({ sv3[k], sv1[k], sv1[k + 1], sv3[k + 1] });
+                int nfk = mesh.addFace({ sv3[k], sv1[k], sv1[k + 1], sv3[k + 1] });
+                if (nfk >= 0 && nfk < (int)faces.size()) faces[nfk].materialId = origMatId;
             }
-            mesh.addFace({ sv3[numCuts - 1], sv1[numCuts - 1], v2, v3 });
+            int nfLast = mesh.addFace({ sv3[numCuts - 1], sv1[numCuts - 1], v2, v3 });
+            if (nfLast >= 0 && nfLast < (int)faces.size()) faces[nfLast].materialId = origMatId;
 
             for (int k = 0; k < numCuts; ++k) {
                 int ne = mesh.addEdge(sv3[k], sv1[k]);
@@ -247,24 +266,6 @@ bool MeshCutOperators::cutMeshWithKnifePolyline(
 ) {
     if (localPoints.size() < 2) return false;
 
-    // Determine candidate faces
-    std::vector<uint32_t> initialFaceIndices;
-    if (!cutThrough && !targetFaces.empty()) {
-        std::set<uint32_t> uniqueTargets(targetFaces.begin(), targetFaces.end());
-        for (uint32_t f : uniqueTargets) {
-            if (f < mesh.getFaces().size() && !mesh.getFaces()[f].deleted) {
-                initialFaceIndices.push_back(f);
-            }
-        }
-    } else {
-        // Cut through mode: check all faces in mesh
-        for (size_t f = 0; f < mesh.getFaces().size(); ++f) {
-            if (!mesh.getFaces()[f].deleted) {
-                initialFaceIndices.push_back((uint32_t)f);
-            }
-        }
-    }
-
     bool anyCut = false;
     for (size_t i = 0; i + 1 < localPoints.size(); ++i) {
         const auto& p0 = localPoints[i];
@@ -272,7 +273,24 @@ bool MeshCutOperators::cutMeshWithKnifePolyline(
         Engine::Math::Vector3 segDir = (p1 - p0);
         if (segDir.length() < 1e-4f) continue;
 
-        for (uint32_t fIdx : initialFaceIndices) {
+        // Dynamically gather candidate faces on the current live mesh to prevent stale indices
+        std::vector<uint32_t> candidateFaces;
+        if (!cutThrough && !targetFaces.empty() && i == 0) {
+            std::set<uint32_t> uniqueTargets(targetFaces.begin(), targetFaces.end());
+            for (uint32_t f : uniqueTargets) {
+                if (f < mesh.getFaces().size() && !mesh.getFaces()[f].deleted) {
+                    candidateFaces.push_back(f);
+                }
+            }
+        } else {
+            for (size_t f = 0; f < mesh.getFaces().size(); ++f) {
+                if (!mesh.getFaces()[f].deleted && mesh.getFaces()[f].vertices.size() >= 3) {
+                    candidateFaces.push_back(static_cast<uint32_t>(f));
+                }
+            }
+        }
+
+        for (uint32_t fIdx : candidateFaces) {
             if (fIdx >= mesh.getFaces().size() || mesh.getFaces()[fIdx].deleted) continue;
 
             if (cutFaceWithRaySegment(mesh, fIdx, p0, p1)) {
@@ -609,10 +627,15 @@ public:
     std::vector<BspPolygon> clipPolygons(const std::vector<BspPolygon>& input) const {
         if (!plane) return input;
         std::vector<BspPolygon> f, b, cf, cb;
-        for (const auto& p : input) { cf.clear(); cb.clear(); splitPolygon(*plane, p, cf, cb, f, b); }
+        for (const auto& p : input) {
+            splitPolygon(*plane, p, cf, cb, f, b);
+        }
+        f.insert(f.end(), cf.begin(), cf.end());
         if (front) f = front->clipPolygons(f);
-        if (back) b = back->clipPolygons(b); else b.clear();
-        f.insert(f.end(), b.begin(), b.end()); return f;
+        if (back) b = back->clipPolygons(b);
+        else b.clear();
+        f.insert(f.end(), b.begin(), b.end());
+        return f;
     }
     void clipTo(const BspNode& other) { polygons = other.clipPolygons(polygons); if (front) front->clipTo(other); if (back) back->clipTo(other); }
 };

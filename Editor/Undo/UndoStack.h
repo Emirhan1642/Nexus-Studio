@@ -18,6 +18,7 @@ public:
     void undo();
     void redo();
     void clear() { undoList.clear(); redoList.clear(); }
+    ICommand* getTopUndoCommand() { return undoList.empty() ? nullptr : undoList.back().get(); }
 
 private:
     UndoStack() = default;

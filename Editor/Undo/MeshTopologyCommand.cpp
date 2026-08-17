@@ -43,3 +43,15 @@ void MeshTopologyCommand::undo() {
         ctx.selectedFaces = m_beforeSelFaces;
     }
 }
+
+void MeshTopologyCommand::updateAfterState(
+    std::shared_ptr<Engine::Geometry::EditableMesh> afterState,
+    const std::vector<uint32_t>& afterSelVerts,
+    const std::vector<uint32_t>& afterSelEdges,
+    const std::vector<uint32_t>& afterSelFaces
+) {
+    m_afterState = afterState;
+    m_afterSelVerts = afterSelVerts;
+    m_afterSelEdges = afterSelEdges;
+    m_afterSelFaces = afterSelFaces;
+}

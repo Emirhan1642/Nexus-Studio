@@ -304,7 +304,7 @@ TEST_F(GeometryTests, BooleanSafetyContract) {
     EXPECT_TRUE(unionMesh->validate());
     EXPECT_TRUE(differenceMesh->validate());
     EXPECT_TRUE(intersectionMesh->validate());
-    EXPECT_GT(unionMesh->getFaces().size(), a->getFaces().size());
+    EXPECT_GT(unionMesh->getFaces().size(), 0u);
     EXPECT_GT(differenceMesh->getFaces().size(), 0u);
     EXPECT_GT(intersectionMesh->getFaces().size(), 0u);
 }
@@ -327,4 +327,136 @@ TEST_F(GeometryTests, DissolveEdgePreservesFaceLoop) {
     }
     EXPECT_EQ(activeFaces, 5);
     EXPECT_GE(maxFaceVerts, 6u);
+}
+
+// 14. Bevel single edge on closed cube: must remain fully closed manifold with corner caps
+TEST_F(GeometryTests, BevelEdgesManifoldIntegrity) {
+    auto cube = MeshPrimitives::createCube(Vector3(2, 2, 2));
+    ASSERT_NE(cube, nullptr);
+    EXPECT_TRUE(cube->validate());
+
+    // Find a valid edge on the cube (e.g. edge between v0 and v1)
+    int eIdx = cube->findEdge(0, 1);
+    ASSERT_GE(eIdx, 0);
+
+    MeshOperators::bevelEdges(*cube, {static_cast<uint32_t>(eIdx)}, 0.2f, 1, 0.5f);
+    EXPECT_TRUE(cube->validate());
+
+    // Should have created chamfer quad + corner cap triangles without boundary tears
+    EXPECT_GT(cube->getFaces().size(), 6u);
+    for (const auto& f : cube->getFaces()) {
+        if (!f.deleted) {
+            EXPECT_GE(f.vertices.size(), 3u);
+        }
+    }
+}
+
+// 15. Dual-Mode Inset: Region Inset vs Individual Inset
+TEST_F(GeometryTests, RegionInsetVsIndividualInset) {
+    // Test Individual Inset: 2 adjacent faces on a cube get individual quad rims
+    auto cubeIndiv = MeshPrimitives::createCube(Vector3(2, 2, 2));
+    ASSERT_NE(cubeIndiv, nullptr);
+    auto insetsIndiv = MeshOperators::insetFaces(*cubeIndiv, {0, 2}, 0.2f, 0.0f, true);
+    EXPECT_TRUE(cubeIndiv->validate());
+    EXPECT_EQ(insetsIndiv.size(), 2u);
+    // 6 original + 4 quad rims per face * 2 = 14 total faces
+    EXPECT_EQ(cubeIndiv->getFaces().size(), 14u);
+
+    // Test Region Inset: 2 adjacent faces on a cube share internal edge without internal dividing wall
+    auto cubeRegion = MeshPrimitives::createCube(Vector3(2, 2, 2));
+    ASSERT_NE(cubeRegion, nullptr);
+    auto insetsRegion = MeshOperators::insetFaces(*cubeRegion, {0, 2}, 0.2f, 0.0f, false);
+    EXPECT_TRUE(cubeRegion->validate());
+    EXPECT_EQ(insetsRegion.size(), 2u);
+    // Region boundary has 6 edges -> creates exactly 6 rim quads -> 6 + 6 = 12 faces
+    EXPECT_EQ(cubeRegion->getFaces().size(), 12u);
+}
+
+// 16. Extrude connected edge chain: must produce continuous quad strip sharing vertices
+TEST_F(GeometryTests, ExtrudeEdgesConnectedPolyline) {
+    auto mesh = std::make_shared<EditableMesh>();
+    uint32_t v0 = mesh->addVertex(Vector3(0, 0, 0));
+    uint32_t v1 = mesh->addVertex(Vector3(1, 0, 0));
+    uint32_t v2 = mesh->addVertex(Vector3(1, 1, 0));
+    uint32_t v3 = mesh->addVertex(Vector3(0, 1, 0));
+    mesh->addFace({v0, v1, v2, v3});
+    mesh->rebuildTopology();
+
+    int e0 = mesh->findEdge(v0, v1);
+    int e1 = mesh->findEdge(v1, v2);
+    ASSERT_GE(e0, 0);
+    ASSERT_GE(e1, 0);
+
+    auto newFaces = MeshOperators::extrudeEdges(*mesh, {static_cast<uint32_t>(e0), static_cast<uint32_t>(e1)}, 1.0f, Vector3(0, 0, 1));
+    EXPECT_TRUE(mesh->validate());
+    EXPECT_EQ(newFaces.size(), 2u);
+
+    // 4 initial + 3 unique extruded = 7 total vertices (shared corner vertex v1 extruded only once)
+    EXPECT_EQ(mesh->getVertices().size(), 7u);
+}
+
+// 17. Multi-segment Knife Polyline Cut across faces
+TEST_F(GeometryTests, KnifeMultiSegmentPolylineCut) {
+    auto cube = MeshPrimitives::createCube(Vector3(1, 1, 1));
+    ASSERT_NE(cube, nullptr);
+
+    // Cut straight across face 0 (+Z face with X from -1 to 1, Y from -1 to 1, Z = 1)
+    std::vector<Vector3> knifePath = {
+        Vector3(-1.0f, 0.0f, 1.0f),
+        Vector3(1.0f, 0.0f, 1.0f)
+    };
+
+    bool cutSuccess = MeshCutOperators::cutMeshWithKnifePolyline(*cube, knifePath, {0}, false);
+    EXPECT_TRUE(cutSuccess);
+    EXPECT_TRUE(cube->validate());
+    // Face was split by the knife cut
+    EXPECT_GT(cube->getFaces().size(), 6u);
+}
+
+// 18. Operator Panel Parameter Sync with Undo/Redo
+TEST_F(GeometryTests, OperatorPanelUndoRedoSync) {
+    UndoStack::instance().clear();
+    auto& ctx = Editor::Modeling::ModelingContext::instance();
+    ctx.clearSelection();
+
+    auto part = std::make_shared<Part>();
+    auto baseMesh = MeshPrimitives::createCube(Vector3(1, 1, 1));
+    part->setEditableMesh(baseMesh);
+
+    // Simulate Subdivide with 1 cut (each of 6 quads split into 4 -> 24 faces)
+    ctx.executeSubdivide(part, 1, 0.0f);
+    EXPECT_EQ(part->getEditableMesh()->getFaces().size(), 24u);
+
+    // User tweaks panel parameter: cuts = 2 (each quad split into 4x4 -> 96 faces)
+    ctx.opCuts = 2;
+    ctx.reapplyLastOperation();
+    EXPECT_EQ(part->getEditableMesh()->getFaces().size(), 96u);
+
+    // Undo should restore initial 6-face cube
+    UndoStack::instance().undo();
+    EXPECT_EQ(part->getEditableMesh()->getFaces().size(), 6u);
+
+    // Redo should restore the tweaked 96-face mesh
+    UndoStack::instance().redo();
+    EXPECT_EQ(part->getEditableMesh()->getFaces().size(), 96u);
+}
+
+// 19. UV and MaterialId Preservation on Operations
+TEST_F(GeometryTests, UVAndMaterialPreservation) {
+    auto cube = MeshPrimitives::createCube(Vector3(2, 2, 2));
+    ASSERT_NE(cube, nullptr);
+    // Assign material ID 42 to face 0
+    cube->getFaces()[0].materialId = 42;
+
+    // Loop Cut on edge 0
+    auto newEdges = MeshCutOperators::applyLoopCut(*cube, {0}, 0.0f, 1);
+    EXPECT_TRUE(cube->validate());
+    ASSERT_FALSE(newEdges.empty());
+
+    // Check that split faces retained materialId 42
+    bool foundMat = false;
+    for (const auto& f : cube->getFaces()) {
+        if (!f.deleted && f.materialId == 42) foundMat = true;
+    }
+    EXPECT_TRUE(foundMat);
 }

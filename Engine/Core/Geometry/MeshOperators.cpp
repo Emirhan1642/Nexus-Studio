@@ -135,15 +135,38 @@ std::vector<uint32_t> MeshOperators::extrudeEdges(
     std::vector<uint32_t> newFaces;
     auto& edges = mesh.getEdges();
     auto& vertices = mesh.getVertices();
-    Engine::Math::Vector3 offset = direction.normalized() * distance;
+    Engine::Math::Vector3 dir = (direction.length() > 1e-4f) ? direction.normalized() : Engine::Math::Vector3(0, 1, 0);
+    Engine::Math::Vector3 offset = dir * distance;
+
+    std::set<uint32_t> uniqueVerts;
+    std::vector<uint32_t> validEdges;
 
     for (uint32_t eIdx : edgeIndices) {
         if (eIdx >= edges.size() || edges[eIdx].deleted) continue;
         uint32_t v0 = edges[eIdx].v0;
         uint32_t v1 = edges[eIdx].v1;
+        if (v0 >= vertices.size() || v1 >= vertices.size()) continue;
 
-        uint32_t newV0 = mesh.addVertex(vertices[v0].position + offset, vertices[v0].u, vertices[v0].v);
-        uint32_t newV1 = mesh.addVertex(vertices[v1].position + offset, vertices[v1].u, vertices[v1].v);
+        uniqueVerts.insert(v0);
+        uniqueVerts.insert(v1);
+        validEdges.push_back(eIdx);
+    }
+
+    if (validEdges.empty()) return newFaces;
+
+    // Create a single extruded counterpart for each unique vertex in the selection
+    std::map<uint32_t, uint32_t> oldToNew;
+    for (uint32_t v : uniqueVerts) {
+        const auto& srcV = vertices[v];
+        oldToNew[v] = mesh.addVertex(srcV.position + offset, srcV.u, srcV.v, srcV.normal);
+    }
+
+    // Build connected quad ribbon
+    for (uint32_t eIdx : validEdges) {
+        uint32_t v0 = edges[eIdx].v0;
+        uint32_t v1 = edges[eIdx].v1;
+        uint32_t newV0 = oldToNew[v0];
+        uint32_t newV1 = oldToNew[v1];
 
         int f = mesh.addFace({v0, v1, newV1, newV0});
         if (f >= 0) newFaces.push_back(static_cast<uint32_t>(f));
@@ -166,64 +189,156 @@ std::vector<uint32_t> MeshOperators::insetFaces(
     auto& vertices = mesh.getVertices();
     auto& faces = mesh.getFaces();
 
-    for (uint32_t fIdx : faceIndices) {
-        if (fIdx >= faces.size() || faces[fIdx].deleted) continue;
+    std::set<uint32_t> selFaceSet;
+    for (uint32_t f : faceIndices) {
+        if (f < faces.size() && !faces[f].deleted && faces[f].vertices.size() >= 3) {
+            selFaceSet.insert(f);
+        }
+    }
+    if (selFaceSet.empty()) return innerFaces;
 
-        auto& face = faces[fIdx];
-        mesh.calculateFaceNormal(fIdx);
+    if (individual || selFaceSet.size() == 1) {
+        // Individual Inset: Inset each face independently with its own quad rim
+        for (uint32_t fIdx : selFaceSet) {
+            auto& face = faces[fIdx];
+            mesh.calculateFaceNormal(fIdx);
 
-        Engine::Math::Vector3 normal = face.normal;
-        size_t count = face.vertices.size();
-        if (count < 3) continue;
+            Engine::Math::Vector3 normal = face.normal;
+            size_t count = face.vertices.size();
+            std::vector<uint32_t> outerVerts = face.vertices;
+            std::vector<uint32_t> innerVerts(count);
+            int origMatId = face.materialId;
 
-        std::vector<uint32_t> outerVerts = face.vertices;
-        std::vector<uint32_t> innerVerts(count);
+            // Compute minimum edge length to safely clamp thickness
+            float minEdgeLen = 1e9f;
+            for (size_t i = 0; i < count; ++i) {
+                size_t next = (i + 1) % count;
+                float len = (vertices[outerVerts[next]].position - vertices[outerVerts[i]].position).length();
+                if (len < minEdgeLen) minEdgeLen = len;
+            }
+            float safeThickness = std::max(0.0f, std::min(thickness, minEdgeLen * 0.48f));
 
-        // Compute angle-bisector offset directions for each corner
-        for (size_t i = 0; i < count; ++i) {
-            size_t prev = (i + count - 1) % count;
-            size_t next = (i + 1) % count;
+            // Compute angle-bisector offset directions for each corner
+            for (size_t i = 0; i < count; ++i) {
+                size_t prev = (i + count - 1) % count;
+                size_t next = (i + 1) % count;
 
-            uint32_t vPrev = outerVerts[prev];
-            uint32_t vCurr = outerVerts[i];
-            uint32_t vNext = outerVerts[next];
+                uint32_t vPrev = outerVerts[prev];
+                uint32_t vCurr = outerVerts[i];
+                uint32_t vNext = outerVerts[next];
 
-            const auto& pPrev = vertices[vPrev].position;
-            const auto& pCurr = vertices[vCurr].position;
-            const auto& pNext = vertices[vNext].position;
+                const auto& pPrev = vertices[vPrev].position;
+                const auto& pCurr = vertices[vCurr].position;
+                const auto& pNext = vertices[vNext].position;
 
-            Engine::Math::Vector3 ePrev = (pCurr - pPrev).normalized();
-            Engine::Math::Vector3 eNext = (pNext - pCurr).normalized();
+                Engine::Math::Vector3 ePrev = (pCurr - pPrev).normalized();
+                Engine::Math::Vector3 eNext = (pNext - pCurr).normalized();
 
-            Engine::Math::Vector3 nPrev = normal.cross(ePrev).normalized();
-            Engine::Math::Vector3 nNext = normal.cross(eNext).normalized();
+                Engine::Math::Vector3 nPrev = normal.cross(ePrev).normalized();
+                Engine::Math::Vector3 nNext = normal.cross(eNext).normalized();
 
-            float dotNorm = nPrev.dot(nNext);
-            Engine::Math::Vector3 miterBisect = (nPrev + nNext);
-            if (dotNorm > -0.999f && (1.0f + dotNorm) > 1e-4f) {
-                miterBisect = miterBisect * (1.0f / (1.0f + dotNorm));
-            } else {
-                miterBisect = nPrev;
+                float dotNorm = nPrev.dot(nNext);
+                Engine::Math::Vector3 miterBisect = (nPrev + nNext);
+                if (dotNorm > -0.999f && (1.0f + dotNorm) > 1e-4f) {
+                    miterBisect = miterBisect * (1.0f / (1.0f + dotNorm));
+                } else {
+                    miterBisect = nPrev;
+                }
+
+                Engine::Math::Vector3 inPos = pCurr + miterBisect * safeThickness + normal * depth;
+                innerVerts[i] = mesh.addVertex(inPos, vertices[vCurr].u, vertices[vCurr].v, normal);
             }
 
-            // Offset inwards by thickness + depth along normal
-            Engine::Math::Vector3 inPos = pCurr + miterBisect * thickness + normal * depth;
-            innerVerts[i] = mesh.addVertex(inPos, vertices[vCurr].u, vertices[vCurr].v, normal);
+            face.vertices = innerVerts;
+            innerFaces.push_back(fIdx);
+
+            // Build outer quad ring and assign parent face materialId
+            for (size_t i = 0; i < count; ++i) {
+                size_t next = (i + 1) % count;
+                uint32_t o0 = outerVerts[i];
+                uint32_t o1 = outerVerts[next];
+                uint32_t i1 = innerVerts[next];
+                uint32_t i0 = innerVerts[i];
+
+                int rimFaceIdx = mesh.addFace({o0, o1, i1, i0});
+                if (rimFaceIdx >= 0 && rimFaceIdx < static_cast<int>(faces.size())) {
+                    faces[rimFaceIdx].materialId = origMatId;
+                }
+            }
+        }
+    } else {
+        // Region Inset: seamless group inset without internal dividing walls
+        std::map<std::pair<uint32_t, uint32_t>, int> directedEdgeCount;
+        for (uint32_t fIdx : selFaceSet) {
+            const auto& fVerts = faces[fIdx].vertices;
+            size_t count = fVerts.size();
+            for (size_t i = 0; i < count; ++i) {
+                uint32_t v0 = fVerts[i];
+                uint32_t v1 = fVerts[(i + 1) % count];
+                directedEdgeCount[{v0, v1}]++;
+            }
         }
 
-        // Replace original face with inner face
-        face.vertices = innerVerts;
-        innerFaces.push_back(fIdx);
+        // Identify boundary edges (appearing once and no reverse)
+        std::set<std::pair<uint32_t, uint32_t>> boundaryEdges;
+        std::set<uint32_t> boundaryVerts;
+        for (const auto& [edge, count] : directedEdgeCount) {
+            if (count == 1 && directedEdgeCount.find({edge.second, edge.first}) == directedEdgeCount.end()) {
+                boundaryEdges.insert(edge);
+                boundaryVerts.insert(edge.first);
+                boundaryVerts.insert(edge.second);
+            }
+        }
 
-        // Build outer quad ring
-        for (size_t i = 0; i < count; ++i) {
-            size_t next = (i + 1) % count;
-            uint32_t o0 = outerVerts[i];
-            uint32_t o1 = outerVerts[next];
-            uint32_t i1 = innerVerts[next];
-            uint32_t i0 = innerVerts[i];
+        // Map boundary vertices to new offset inner vertices
+        std::map<uint32_t, uint32_t> oldToNewBoundaryVert;
+        for (uint32_t vIdx : boundaryVerts) {
+            const auto& srcV = vertices[vIdx];
+            // Find average normal and inward miter across incident boundary edges
+            Engine::Math::Vector3 avgInward(0, 0, 0);
+            Engine::Math::Vector3 avgNorm(0, 0, 0);
+            int incidentCount = 0;
 
-            mesh.addFace({o0, o1, i1, i0});
+            for (const auto& [e0, e1] : boundaryEdges) {
+                if (e0 == vIdx || e1 == vIdx) {
+                    uint32_t other = (e0 == vIdx) ? e1 : e0;
+                    Engine::Math::Vector3 edgeVec = (e0 == vIdx) ? (vertices[e1].position - vertices[e0].position) : (vertices[e0].position - vertices[e1].position);
+                    if (edgeVec.length() > 1e-4f) {
+                        for (uint32_t f : selFaceSet) {
+                            mesh.calculateFaceNormal(f);
+                            Engine::Math::Vector3 fn = faces[f].normal;
+                            Engine::Math::Vector3 inward = fn.cross(edgeVec.normalized()).normalized();
+                            avgInward += inward;
+                            avgNorm += fn;
+                            incidentCount++;
+                        }
+                    }
+                }
+            }
+
+            Engine::Math::Vector3 inwardDir = (avgInward.length() > 1e-4f) ? avgInward.normalized() : Engine::Math::Vector3(0, 0, 0);
+            Engine::Math::Vector3 normDir = (avgNorm.length() > 1e-4f) ? avgNorm.normalized() : Engine::Math::Vector3(0, 1, 0);
+
+            Engine::Math::Vector3 inPos = srcV.position + inwardDir * thickness + normDir * depth;
+            oldToNewBoundaryVert[vIdx] = mesh.addVertex(inPos, srcV.u, srcV.v, normDir);
+        }
+
+        // Update selected faces with their new inner vertices
+        for (uint32_t fIdx : selFaceSet) {
+            auto& face = faces[fIdx];
+            for (auto& v : face.vertices) {
+                if (oldToNewBoundaryVert.find(v) != oldToNewBoundaryVert.end()) {
+                    v = oldToNewBoundaryVert[v];
+                }
+            }
+            innerFaces.push_back(fIdx);
+        }
+
+        // Create side rim quad walls along boundary edges only
+        for (const auto& [b0, b1] : boundaryEdges) {
+            uint32_t i0 = oldToNewBoundaryVert[b0];
+            uint32_t i1 = oldToNewBoundaryVert[b1];
+            mesh.addFace({b0, b1, i1, i0});
         }
     }
 
@@ -421,14 +536,37 @@ void MeshOperators::bevelEdges(
             else if (v == v1) v = splitA1[segments];
         }
 
-        // Connect intermediate segments with quads
+        int matIdA = fA.materialId;
+
+        // Connect intermediate segments with quads and preserve materialId
         for (int s = 0; s < segments; ++s) {
             uint32_t p0_s  = splitA0[s];
             uint32_t p1_s  = splitA1[s];
             uint32_t p0_s1 = splitA0[s + 1];
             uint32_t p1_s1 = splitA1[s + 1];
 
-            mesh.addFace({ p0_s, p1_s, p1_s1, p0_s1 });
+            int bf = mesh.addFace({ p0_s, p1_s, p1_s1, p0_s1 });
+            if (bf >= 0 && bf < static_cast<int>(faces.size())) {
+                faces[bf].materialId = matIdA;
+            }
+        }
+
+        // Corner mitigation: check other faces sharing endpoints v0 and v1
+        // to prevent open boundary tears/cracks at junctions
+        auto facesV0 = mesh.getConnectedFaces(v0);
+        if (facesV0.size() > 2) {
+            int cf0 = mesh.addFace({ v0, splitA0[0], splitA0[segments] });
+            if (cf0 >= 0 && cf0 < static_cast<int>(faces.size())) {
+                faces[cf0].materialId = matIdA;
+            }
+        }
+
+        auto facesV1 = mesh.getConnectedFaces(v1);
+        if (facesV1.size() > 2) {
+            int cf1 = mesh.addFace({ v1, splitA1[segments], splitA1[0] });
+            if (cf1 >= 0 && cf1 < static_cast<int>(faces.size())) {
+                faces[cf1].materialId = matIdA;
+            }
         }
     }
 

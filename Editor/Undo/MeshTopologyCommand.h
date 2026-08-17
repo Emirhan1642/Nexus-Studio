@@ -22,6 +22,13 @@ public:
     void execute() override;
     void undo() override;
 
+    void updateAfterState(
+        std::shared_ptr<Engine::Geometry::EditableMesh> afterState,
+        const std::vector<uint32_t>& afterSelVerts = {},
+        const std::vector<uint32_t>& afterSelEdges = {},
+        const std::vector<uint32_t>& afterSelFaces = {}
+    );
+
 private:
     std::shared_ptr<Part> m_part;
     std::shared_ptr<Engine::Geometry::EditableMesh> m_beforeState;

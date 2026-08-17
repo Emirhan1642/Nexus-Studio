@@ -255,13 +255,27 @@ void ModelingContext::reapplyLastOperation() {
 
     part->setEditableMesh(workingMesh);
     part->rebuildProceduralMesh();
+
+    auto cmd = dynamic_cast<MeshTopologyCommand*>(UndoStack::instance().getTopUndoCommand());
+    if (cmd) {
+        cmd->updateAfterState(workingMesh->clone(), selectedVertices, selectedEdges, selectedFaces);
+    }
 }
 
 void ModelingContext::executeSubdivide(std::shared_ptr<Part> part, int cuts, float smoothness) {
-    if (!part || selectedFaces.empty()) return;
+    if (!part) return;
     part->ensureEditableMesh();
     auto mesh = part->getEditableMesh();
     if (!mesh) return;
+
+    if (selectedFaces.empty()) {
+        for (size_t f = 0; f < mesh->getFaces().size(); ++f) {
+            if (!mesh->getFaces()[f].deleted && mesh->getFaces()[f].vertices.size() >= 3) {
+                selectedFaces.push_back(static_cast<uint32_t>(f));
+            }
+        }
+    }
+    if (selectedFaces.empty()) return;
 
     auto before = mesh->clone();
     auto beforeVerts = selectedVertices;
