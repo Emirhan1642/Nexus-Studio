@@ -463,11 +463,97 @@ void EditableMesh::generateRenderBuffers(
             outVertices.push_back(rv);
         }
 
-        // Fan triangulation for n-gon/quad
-        for (size_t i = 1; i + 1 < face.vertices.size(); ++i) {
+        // Robust Ear Clipping / Fan Triangulation
+        size_t vCount = face.vertices.size();
+        if (vCount == 3) {
             outIndices.push_back(baseVertexIdx);
-            outIndices.push_back(baseVertexIdx + static_cast<uint32_t>(i));
-            outIndices.push_back(baseVertexIdx + static_cast<uint32_t>(i + 1));
+            outIndices.push_back(baseVertexIdx + 1);
+            outIndices.push_back(baseVertexIdx + 2);
+        } else if (vCount == 4) {
+            outIndices.push_back(baseVertexIdx);
+            outIndices.push_back(baseVertexIdx + 1);
+            outIndices.push_back(baseVertexIdx + 2);
+
+            outIndices.push_back(baseVertexIdx);
+            outIndices.push_back(baseVertexIdx + 2);
+            outIndices.push_back(baseVertexIdx + 3);
+        } else {
+            // Project polygon to 2D for ear clipping
+            Engine::Math::Vector3 normal = face.normal;
+            Engine::Math::Vector3 axisX = (std::abs(normal.x) > 0.9f) ? Engine::Math::Vector3(0, 1, 0) : Engine::Math::Vector3(1, 0, 0);
+            Engine::Math::Vector3 uAxis = normal.cross(axisX).normalized();
+            Engine::Math::Vector3 vAxis = normal.cross(uAxis).normalized();
+
+            std::vector<std::pair<float, float>> poly2D(vCount);
+            std::vector<int> polyIndices(vCount);
+            for (size_t i = 0; i < vCount; ++i) {
+                const auto& p = m_vertices[face.vertices[i]].position;
+                poly2D[i] = { p.dot(uAxis), p.dot(vAxis) };
+                polyIndices[i] = static_cast<int>(i);
+            }
+
+            auto isConvex = [&](int prev, int curr, int next) -> bool {
+                float x1 = poly2D[curr].first - poly2D[prev].first;
+                float y1 = poly2D[curr].second - poly2D[prev].second;
+                float x2 = poly2D[next].first - poly2D[curr].first;
+                float y2 = poly2D[next].second - poly2D[curr].second;
+                return (x1 * y2 - y1 * x2) >= 0.0f;
+            };
+
+            auto pointInTriangle2D = [](float px, float py, float ax, float ay, float bx, float by, float cx, float cy) -> bool {
+                float d1 = (px - bx) * (ay - by) - (ax - bx) * (py - by);
+                float d2 = (px - cx) * (by - cy) - (bx - cx) * (py - cy);
+                float d3 = (px - ax) * (cy - ay) - (cx - ax) * (py - ay);
+                bool has_neg = (d1 < 0) || (d2 < 0) || (d3 < 0);
+                bool has_pos = (d1 > 0) || (d2 > 0) || (d3 > 0);
+                return !(has_neg && has_pos);
+            };
+
+            int maxIters = static_cast<int>(vCount * 3);
+            while (polyIndices.size() > 2 && maxIters-- > 0) {
+                size_t n = polyIndices.size();
+                bool earFound = false;
+
+                for (size_t i = 0; i < n; ++i) {
+                    int prevIdx = polyIndices[(i + n - 1) % n];
+                    int currIdx = polyIndices[i];
+                    int nextIdx = polyIndices[(i + 1) % n];
+
+                    if (isConvex(prevIdx, currIdx, nextIdx)) {
+                        bool containsOther = false;
+                        for (size_t j = 0; j < n; ++j) {
+                            int checkIdx = polyIndices[j];
+                            if (checkIdx == prevIdx || checkIdx == currIdx || checkIdx == nextIdx) continue;
+                            if (pointInTriangle2D(poly2D[checkIdx].first, poly2D[checkIdx].second,
+                                                  poly2D[prevIdx].first, poly2D[prevIdx].second,
+                                                  poly2D[currIdx].first, poly2D[currIdx].second,
+                                                  poly2D[nextIdx].first, poly2D[nextIdx].second)) {
+                                containsOther = true;
+                                break;
+                            }
+                        }
+
+                        if (!containsOther) {
+                            outIndices.push_back(baseVertexIdx + prevIdx);
+                            outIndices.push_back(baseVertexIdx + currIdx);
+                            outIndices.push_back(baseVertexIdx + nextIdx);
+                            polyIndices.erase(polyIndices.begin() + i);
+                            earFound = true;
+                            break;
+                        }
+                    }
+                }
+
+                if (!earFound) {
+                    // Fallback to fan if ear clipping fails on degenerate geometry
+                    for (size_t i = 1; i + 1 < polyIndices.size(); ++i) {
+                        outIndices.push_back(baseVertexIdx + polyIndices[0]);
+                        outIndices.push_back(baseVertexIdx + polyIndices[i]);
+                        outIndices.push_back(baseVertexIdx + polyIndices[i + 1]);
+                    }
+                    break;
+                }
+            }
         }
     }
 

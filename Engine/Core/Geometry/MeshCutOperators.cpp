@@ -466,44 +466,28 @@ std::shared_ptr<EditableMesh> MeshCutOperators::applyBoolean(
 ) {
     auto result = std::make_shared<EditableMesh>(meshA);
 
-    // Combine meshB into result based on operation
-    size_t baseVertIdx = result->getVertices().size();
+    std::map<uint32_t, uint32_t> bVertRemap;
+    for (size_t i = 0; i < meshB.getVertices().size(); ++i) {
+        const auto& v = meshB.getVertices()[i];
+        if (!v.deleted) {
+            Engine::Math::Vector3 norm = (op == BooleanOperation::Difference) ? v.normal * -1.0f : v.normal;
+            bVertRemap[static_cast<uint32_t>(i)] = result->addVertex(v.position, v.u, v.v, norm);
+        }
+    }
 
-    if (op == BooleanOperation::Union) {
-        // Append all vertices and faces of B
-        for (const auto& v : meshB.getVertices()) {
-            if (!v.deleted) result->addVertex(v.position, v.u, v.v, v.normal);
-        }
-        for (const auto& f : meshB.getFaces()) {
-            if (!f.deleted) {
-                std::vector<uint32_t> remapped = f.vertices;
-                for (auto& v : remapped) v += static_cast<uint32_t>(baseVertIdx);
-                result->addFace(remapped);
+    for (const auto& f : meshB.getFaces()) {
+        if (f.deleted) continue;
+        std::vector<uint32_t> remapped;
+        for (uint32_t v : f.vertices) {
+            if (bVertRemap.count(v)) {
+                remapped.push_back(bVertRemap[v]);
             }
         }
-    } else if (op == BooleanOperation::Difference) {
-        // Subtract B from A: Invert B's normals and merge
-        for (const auto& v : meshB.getVertices()) {
-            if (!v.deleted) result->addVertex(v.position, v.u, v.v, v.normal * -1.0f);
-        }
-        for (const auto& f : meshB.getFaces()) {
-            if (!f.deleted) {
-                std::vector<uint32_t> remapped = f.vertices;
+        if (remapped.size() >= 3) {
+            if (op == BooleanOperation::Difference) {
                 std::reverse(remapped.begin(), remapped.end()); // Invert winding
-                for (auto& v : remapped) v += static_cast<uint32_t>(baseVertIdx);
-                result->addFace(remapped);
             }
-        }
-    } else if (op == BooleanOperation::Intersect) {
-        for (const auto& v : meshB.getVertices()) {
-            if (!v.deleted) result->addVertex(v.position, v.u, v.v, v.normal);
-        }
-        for (const auto& f : meshB.getFaces()) {
-            if (!f.deleted) {
-                std::vector<uint32_t> remapped = f.vertices;
-                for (auto& v : remapped) v += static_cast<uint32_t>(baseVertIdx);
-                result->addFace(remapped);
-            }
+            result->addFace(remapped);
         }
     }
 
