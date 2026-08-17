@@ -604,26 +604,57 @@ void MeshOperators::mergeVertices(
 
 void MeshOperators::weldVerticesByDistance(EditableMesh& mesh, float distanceThreshold) {
     auto& vertices = mesh.getVertices();
+    if (vertices.empty()) return;
     float threshSq = distanceThreshold * distanceThreshold;
+
+    // Disjoint-Set (Union-Find) structure
+    std::vector<uint32_t> parent(vertices.size());
+    for (size_t i = 0; i < parent.size(); ++i) parent[i] = static_cast<uint32_t>(i);
+
+    auto findRoot = [&](uint32_t i, auto& self) -> uint32_t {
+        if (parent[i] == i) return i;
+        return parent[i] = self(parent[i], self);
+    };
 
     for (size_t i = 0; i < vertices.size(); ++i) {
         if (vertices[i].deleted) continue;
-        std::vector<uint32_t> toMerge;
-        toMerge.push_back(static_cast<uint32_t>(i));
-
         for (size_t j = i + 1; j < vertices.size(); ++j) {
             if (vertices[j].deleted) continue;
             auto delta = vertices[i].position - vertices[j].position;
             float distSq = delta.x * delta.x + delta.y * delta.y + delta.z * delta.z;
             if (distSq <= threshSq) {
-                toMerge.push_back(static_cast<uint32_t>(j));
+                uint32_t rootI = findRoot(static_cast<uint32_t>(i), findRoot);
+                uint32_t rootJ = findRoot(static_cast<uint32_t>(j), findRoot);
+                if (rootI != rootJ) {
+                    parent[rootJ] = rootI;
+                }
             }
         }
+    }
 
-        if (toMerge.size() > 1) {
-            mergeVertices(mesh, toMerge, MergeMode::First);
+    // Remap faces
+    auto& faces = mesh.getFaces();
+    for (size_t f = 0; f < faces.size(); ++f) {
+        if (faces[f].deleted) continue;
+        for (auto& v : faces[f].vertices) {
+            v = findRoot(v, findRoot);
+        }
+        // Remove duplicate consecutive vertices in face
+        auto& fVerts = faces[f].vertices;
+        fVerts.erase(std::unique(fVerts.begin(), fVerts.end()), fVerts.end());
+        if (fVerts.size() > 1 && fVerts.front() == fVerts.back()) fVerts.pop_back();
+        if (fVerts.size() < 3) faces[f].deleted = true;
+    }
+
+    for (size_t i = 0; i < vertices.size(); ++i) {
+        if (parent[i] != static_cast<uint32_t>(i)) {
+            mesh.removeVertex(static_cast<uint32_t>(i));
         }
     }
+
+    mesh.packAndCompact();
+    mesh.rebuildTopology();
+    mesh.recalculateAllNormals(false);
 }
 
 // ── 6. Delete & Dissolve ────────────────────────────────────────────────────
@@ -771,6 +802,7 @@ void MeshOperators::triangulateFaces(
     const std::vector<uint32_t>& faceIndices
 ) {
     auto& faces = mesh.getFaces();
+    const auto& vertices = mesh.getVertices();
 
     for (uint32_t fIdx : faceIndices) {
         if (fIdx >= faces.size() || faces[fIdx].deleted) continue;
@@ -779,12 +811,86 @@ void MeshOperators::triangulateFaces(
         if (count <= 3) continue;
 
         mesh.removeFace(fIdx);
-        // Fan triangulation into triangles
-        for (size_t i = 1; i + 1 < count; ++i) {
-            mesh.addFace({face.vertices[0], face.vertices[i], face.vertices[i + 1]});
+
+        if (count == 4) {
+            mesh.addFace({face.vertices[0], face.vertices[1], face.vertices[2]});
+            mesh.addFace({face.vertices[0], face.vertices[2], face.vertices[3]});
+        } else {
+            // Robust Ear Clipping in 2D
+            Engine::Math::Vector3 normal = face.normal;
+            Engine::Math::Vector3 axisX = (std::abs(normal.x) > 0.9f) ? Engine::Math::Vector3(0, 1, 0) : Engine::Math::Vector3(1, 0, 0);
+            Engine::Math::Vector3 uAxis = normal.cross(axisX).normalized();
+            Engine::Math::Vector3 vAxis = normal.cross(uAxis).normalized();
+
+            std::vector<std::pair<float, float>> poly2D(count);
+            std::vector<uint32_t> polyIndices(count);
+            for (size_t i = 0; i < count; ++i) {
+                const auto& p = vertices[face.vertices[i]].position;
+                poly2D[i] = { p.dot(uAxis), p.dot(vAxis) };
+                polyIndices[i] = face.vertices[i];
+            }
+
+            auto isConvex = [&](size_t prev, size_t curr, size_t next) -> bool {
+                float x1 = poly2D[curr].first - poly2D[prev].first;
+                float y1 = poly2D[curr].second - poly2D[prev].second;
+                float x2 = poly2D[next].first - poly2D[curr].first;
+                float y2 = poly2D[next].second - poly2D[curr].second;
+                return (x1 * y2 - y1 * x2) >= 0.0f;
+            };
+
+            auto pointInTri = [](float px, float py, float ax, float ay, float bx, float by, float cx, float cy) -> bool {
+                float d1 = (px - bx) * (ay - by) - (ax - bx) * (py - by);
+                float d2 = (px - cx) * (by - cy) - (bx - cx) * (py - cy);
+                float d3 = (px - ax) * (cy - ay) - (cx - ax) * (py - ay);
+                bool has_neg = (d1 < 0) || (d2 < 0) || (d3 < 0);
+                bool has_pos = (d1 > 0) || (d2 > 0) || (d3 > 0);
+                return !(has_neg && has_pos);
+            };
+
+            int maxIters = static_cast<int>(count * 3);
+            while (polyIndices.size() > 2 && maxIters-- > 0) {
+                size_t n = polyIndices.size();
+                bool earFound = false;
+
+                for (size_t i = 0; i < n; ++i) {
+                    size_t prev = (i + n - 1) % n;
+                    size_t curr = i;
+                    size_t next = (i + 1) % n;
+
+                    if (isConvex(prev, curr, next)) {
+                        bool inside = false;
+                        for (size_t j = 0; j < n; ++j) {
+                            if (j == prev || j == curr || j == next) continue;
+                            if (pointInTri(poly2D[j].first, poly2D[j].second,
+                                           poly2D[prev].first, poly2D[prev].second,
+                                           poly2D[curr].first, poly2D[curr].second,
+                                           poly2D[next].first, poly2D[next].second)) {
+                                inside = true;
+                                break;
+                            }
+                        }
+
+                        if (!inside) {
+                            mesh.addFace({polyIndices[prev], polyIndices[curr], polyIndices[next]});
+                            polyIndices.erase(polyIndices.begin() + i);
+                            poly2D.erase(poly2D.begin() + i);
+                            earFound = true;
+                            break;
+                        }
+                    }
+                }
+
+                if (!earFound) {
+                    for (size_t i = 1; i + 1 < polyIndices.size(); ++i) {
+                        mesh.addFace({polyIndices[0], polyIndices[i], polyIndices[i + 1]});
+                    }
+                    break;
+                }
+            }
         }
     }
 
+    mesh.packAndCompact();
     mesh.rebuildTopology();
     mesh.recalculateAllNormals(false);
 }

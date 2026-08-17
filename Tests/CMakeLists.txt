@@ -13,6 +13,7 @@ set(TEST_SOURCES
     EditorStateTests.cpp
     SelectionManagerTests.cpp
     TransformTests.cpp
+    GeometryTests.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../Editor/UI/SelectionManager.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../Editor/Undo/UndoStack.cpp
 )

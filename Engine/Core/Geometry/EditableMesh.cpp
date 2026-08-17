@@ -142,6 +142,20 @@ bool EditableMesh::validate() const {
             seen.insert(v);
         }
     }
+
+    // 3. Verify half-edges
+    for (size_t i = 0; i < m_halfEdges.size(); ++i) {
+        const auto& he = m_halfEdges[i];
+        if (he.twin != -1) {
+            if (he.twin < 0 || he.twin >= static_cast<int>(m_halfEdges.size())) return false;
+            if (m_halfEdges[he.twin].twin != static_cast<int>(i)) return false; // Twin symmetry broken
+        }
+        if (he.next != -1) {
+            if (he.next < 0 || he.next >= static_cast<int>(m_halfEdges.size())) return false;
+            if (m_halfEdges[he.next].prev != static_cast<int>(i)) return false; // Next/Prev cycle broken
+        }
+    }
+
     return true;
 }
 
@@ -205,11 +219,23 @@ void EditableMesh::recalculateAllNormals(bool smooth, float autoSmoothAngleDeg) 
 
         for (size_t v = 0; v < m_vertices.size(); ++v) {
             if (m_vertices[v].deleted || vertFaceNormals[v].empty()) continue;
+            
+            // Cluster normals within auto-smooth angle threshold
+            const auto& fnList = vertFaceNormals[v];
             Engine::Math::Vector3 avgNormal(0, 0, 0);
-            for (const auto& fn : vertFaceNormals[v]) {
-                avgNormal += fn;
+            Engine::Math::Vector3 refNormal = fnList[0];
+
+            for (const auto& fn : fnList) {
+                if (fn.dot(refNormal) >= cosThreshold) {
+                    avgNormal += fn;
+                }
             }
-            m_vertices[v].normal = avgNormal.normalized();
+
+            if (avgNormal.length() > 1e-3f) {
+                m_vertices[v].normal = avgNormal.normalized();
+            } else {
+                m_vertices[v].normal = refNormal;
+            }
         }
     }
 }

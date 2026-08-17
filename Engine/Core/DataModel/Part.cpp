@@ -8,6 +8,7 @@
 #include "../../Assets/AssetDependencyTracker.h"
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
+#include <Jolt/Physics/Collision/Shape/ConvexHullShape.h>
 
 void Part::setPosition(const Engine::Math::Vector3& newPos) {
     position = newPos;
@@ -173,6 +174,7 @@ void Part::rebuildProceduralMesh() {
                 lineIndices.data(), static_cast<uint32_t>(lineIndices.size())
             );
         }
+        resetPhysics();
         return;
     }
 
@@ -182,6 +184,7 @@ void Part::rebuildProceduralMesh() {
     } else {
         Engine::Renderer::RendererSystem::instance().updateDeformedCubeMesh(customMeshHandle, customVertices);
     }
+    resetPhysics();
 }
 
 void Part::markRenderDirty() {
@@ -218,6 +221,33 @@ void Part::markRenderDirty() {
     }
 }
 
+namespace {
+    JPH::RefConst<JPH::Shape> createPartShape(Part& part) {
+        if (auto mesh = part.getEditableMesh()) {
+            JPH::Array<JPH::Vec3> points;
+            for (const auto& v : mesh->getVertices()) {
+                if (!v.deleted) {
+                    points.push_back(Engine::Physics::toJoltVec3(v.position));
+                }
+            }
+            if (points.size() >= 4) {
+                JPH::ConvexHullShapeSettings settings(points);
+                auto result = settings.Create();
+                if (result.IsValid()) return result.Get();
+            }
+        } else if (part.getCustomVertices().size() >= 4) {
+            JPH::Array<JPH::Vec3> points;
+            for (const auto& p : part.getCustomVertices()) {
+                points.push_back(Engine::Physics::toJoltVec3(p));
+            }
+            JPH::ConvexHullShapeSettings settings(points);
+            auto result = settings.Create();
+            if (result.IsValid()) return result.Get();
+        }
+        return new JPH::BoxShape(Engine::Physics::toJoltVec3(part.size * 0.5f));
+    }
+}
+
 void Part::onAddedToWorkspace() {
     Engine::Math::Matrix4 transform;
     if (customMeshHandle != Engine::Renderer::InvalidHandle) {
@@ -248,7 +278,7 @@ void Part::onAddedToWorkspace() {
     renderProxyIndex = Engine::Renderer::RenderScene::instance().registerProxy(getInstanceId(), proxy);
     
     JPH::BodyCreationSettings bodySettings(
-        new JPH::BoxShape(Engine::Physics::toJoltVec3(size * 0.5f)),
+        createPartShape(*this),
         Engine::Physics::toJoltVec3(position),
         JPH::Quat::sIdentity(),
         anchored ? JPH::EMotionType::Static : JPH::EMotionType::Dynamic,
@@ -284,6 +314,7 @@ void Part::resetPhysics() {
     if (physicsBodyId != 0xFFFFFFFF) {
         JPH::BodyID bodyId(physicsBodyId);
         auto& bi = Engine::Physics::PhysicsWorld::instance().getBodyInterface();
+        bi.SetShape(bodyId, createPartShape(*this), true, JPH::EActivation::Activate);
         bi.SetLinearVelocity(bodyId, JPH::Vec3::sZero());
         bi.SetAngularVelocity(bodyId, JPH::Vec3::sZero());
     }
@@ -299,7 +330,7 @@ void Part::setAnchored(const bool& value) {
         physicsBodyId = 0xFFFFFFFF;
 
         JPH::BodyCreationSettings bodySettings(
-            new JPH::BoxShape(Engine::Physics::toJoltVec3(size * 0.5f)),
+            createPartShape(*this),
             Engine::Physics::toJoltVec3(position),
             JPH::Quat::sIdentity(),
             anchored ? JPH::EMotionType::Static : JPH::EMotionType::Dynamic,
