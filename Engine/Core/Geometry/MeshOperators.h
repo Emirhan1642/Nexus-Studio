@@ -48,6 +48,14 @@ public:
     );
 
     // ── 3. Bevel / Chamfer ──────────────────────────────────────────────────
+    static void bevelFaces(
+        EditableMesh& mesh,
+        const std::vector<uint32_t>& faceIndices,
+        float width = 0.2f,
+        int segments = 1,
+        float depth = 0.0f
+    );
+
     static void bevelEdges(
         EditableMesh& mesh,
         const std::vector<uint32_t>& edgeIndices,

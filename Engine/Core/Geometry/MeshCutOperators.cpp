@@ -162,27 +162,38 @@ bool MeshCutOperators::cutFaceWithRaySegment(
     const Engine::Math::Vector3& p1
 ) {
     auto& faces = mesh.getFaces();
+    auto& vertices = mesh.getVertices();
     if (faceIndex >= faces.size() || faces[faceIndex].deleted) return false;
 
-    uint32_t nv0 = mesh.addVertex(p0);
-    uint32_t nv1 = mesh.addVertex(p1);
-
     auto face = faces[faceIndex];
+    if (face.vertices.size() < 3) return false;
+
+    mesh.calculateFaceNormal(faceIndex);
+    Engine::Math::Vector3 fn = face.normal;
+    Engine::Math::Vector3 fp = vertices[face.vertices[0]].position;
+
+    float d0 = std::abs((p0 - fp).dot(fn));
+    float d1 = std::abs((p1 - fp).dot(fn));
+    if (d0 > 0.6f && d1 > 0.6f) return false; // Segment does not lie on this face plane
+
+    uint32_t nv0 = mesh.addVertex(p0, 0.5f, 0.5f, fn);
+    uint32_t nv1 = mesh.addVertex(p1, 0.5f, 0.5f, fn);
+
     mesh.removeFace(faceIndex);
 
-    // Simple bisect into two sub-faces using the new knife cut vertices
-    std::vector<uint32_t> half1 = {nv0, nv1};
-    std::vector<uint32_t> half2 = {nv1, nv0};
+    size_t count = face.vertices.size();
+    size_t mid = count / 2;
 
-    for (size_t i = 0; i < face.vertices.size(); ++i) {
-        if (i < face.vertices.size() / 2) half1.push_back(face.vertices[i]);
-        else half2.push_back(face.vertices[i]);
-    }
+    std::vector<uint32_t> fA = { nv0, nv1 };
+    for (size_t i = 0; i < mid; ++i) fA.push_back(face.vertices[i]);
 
-    mesh.addFace(half1);
-    mesh.addFace(half2);
+    std::vector<uint32_t> fB = { nv1, nv0 };
+    for (size_t i = mid; i < count; ++i) fB.push_back(face.vertices[i]);
 
-    mesh.packAndCompact();
+    if (fA.size() >= 3) mesh.addFace(fA);
+    if (fB.size() >= 3) mesh.addFace(fB);
+
+    mesh.rebuildTopology();
     mesh.recalculateAllNormals(false);
     return true;
 }

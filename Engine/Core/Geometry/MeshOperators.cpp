@@ -148,6 +148,71 @@ std::vector<uint32_t> MeshOperators::insetFaces(
 }
 
 // ── 3. Bevel / Chamfer ──────────────────────────────────────────────────────
+void MeshOperators::bevelFaces(
+    EditableMesh& mesh,
+    const std::vector<uint32_t>& faceIndices,
+    float width,
+    int segments,
+    float depth
+) {
+    if (faceIndices.empty() || width <= 0.0001f) return;
+    auto& faces = mesh.getFaces();
+    auto& vertices = mesh.getVertices();
+
+    for (uint32_t fIdx : faceIndices) {
+        if (fIdx >= faces.size() || faces[fIdx].deleted) continue;
+
+        auto face = faces[fIdx]; // copy
+        size_t count = face.vertices.size();
+        if (count < 3) continue;
+
+        mesh.calculateFaceNormal(fIdx);
+        Engine::Math::Vector3 normal = face.normal;
+
+        Engine::Math::Vector3 center(0, 0, 0);
+        for (uint32_t v : face.vertices) center += vertices[v].position;
+        center = center * (1.0f / (float)count);
+
+        float maxRadius = 0.0f;
+        for (uint32_t v : face.vertices) {
+            float dist = (vertices[v].position - center).length();
+            if (dist > maxRadius) maxRadius = dist;
+        }
+
+        float actualWidth = std::min(width, maxRadius * 0.90f);
+        float shrinkRatio = (maxRadius > 0.0001f) ? (1.0f - (actualWidth / maxRadius)) : 0.8f;
+        shrinkRatio = std::max(0.05f, std::min(0.95f, shrinkRatio));
+
+        // Create shrunken inner vertices
+        std::vector<uint32_t> innerVerts(count);
+        for (size_t i = 0; i < count; ++i) {
+            uint32_t origV = face.vertices[i];
+            Engine::Math::Vector3 pos = center + (vertices[origV].position - center) * shrinkRatio;
+            pos += normal * depth; // optional height bevel
+            innerVerts[i] = mesh.addVertex(pos, vertices[origV].u, vertices[origV].v, normal);
+        }
+
+        // Replace original face with shrunken top face
+        mesh.removeFace(fIdx);
+        mesh.addFace(innerVerts);
+
+        // Add 4-sided sloping ramp quads connecting original boundary to inner shrunken face
+        for (size_t i = 0; i < count; ++i) {
+            size_t next = (i + 1) % count;
+            uint32_t v0 = face.vertices[i];
+            uint32_t v1 = face.vertices[next];
+            uint32_t iv1 = innerVerts[next];
+            uint32_t iv0 = innerVerts[i];
+
+            // CCW Order: [v0, v1, iv1, iv0] guarantees outward-facing normal
+            mesh.addFace({ v0, v1, iv1, iv0 });
+        }
+    }
+
+    mesh.rebuildTopology();
+    mesh.recalculateAllNormals(false);
+}
+
 void MeshOperators::bevelEdges(
     EditableMesh& mesh,
     const std::vector<uint32_t>& edgeIndices,
@@ -177,10 +242,7 @@ void MeshOperators::bevelEdges(
         float bevelWidth = std::min(width, edgeLen * 0.45f);
 
         auto connectedFaces = mesh.getEdgeFaces(eIdx);
-        if (connectedFaces.size() < 2) {
-            // Boundary edge chamfer
-            continue;
-        }
+        if (connectedFaces.size() < 2) continue;
 
         uint32_t fA_idx = connectedFaces[0];
         uint32_t fB_idx = connectedFaces[1];
@@ -227,7 +289,7 @@ void MeshOperators::bevelEdges(
             else if (v == v1) v = v1_B;
         }
 
-        // Add connecting chamfer quad strip between Face A and Face B
+        // Add connecting chamfer quad strip with guaranteed CCW outwards normal
         mesh.addFace({ v0_A, v1_A, v1_B, v0_B });
     }
 

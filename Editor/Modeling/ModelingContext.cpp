@@ -79,28 +79,12 @@ bool ModelingContext::startBevel(std::shared_ptr<Part> part) {
     auto mesh = part->getEditableMesh();
     if (!mesh) return false;
 
-    // If edges are empty but faces are selected, collect edges from selected faces
-    if (selectedEdges.empty() && !selectedFaces.empty()) {
-        std::set<uint32_t> faceEdges;
-        for (uint32_t fIdx : selectedFaces) {
-            if (fIdx < mesh->getFaces().size()) {
-                const auto& fVerts = mesh->getFaces()[fIdx].vertices;
-                for (size_t i = 0; i < fVerts.size(); ++i) {
-                    uint32_t v0 = fVerts[i];
-                    uint32_t v1 = fVerts[(i + 1) % fVerts.size()];
-                    int eIdx = mesh->findEdge(v0, v1);
-                    if (eIdx != -1) faceEdges.insert((uint32_t)eIdx);
-                }
-            }
-        }
-        selectedEdges.assign(faceEdges.begin(), faceEdges.end());
-    }
-
-    if (selectedEdges.empty() && selectedVertices.empty()) return false;
+    if (selectedFaces.empty() && selectedEdges.empty() && selectedVertices.empty()) return false;
 
     activePart = part;
     preModalMesh = mesh->clone();
     baseSnapshotMesh = mesh->clone();
+    opTargetFaces = selectedFaces;
     opTargetEdges = selectedEdges;
     opTargetVertices = selectedVertices;
 
@@ -109,6 +93,7 @@ bool ModelingContext::startBevel(std::shared_ptr<Part> part) {
     opWidth = 0.05f;
     opSegments = 1;
     opProfile = 0.5f;
+    opDepth = 0.0f;
     lastOp = LastOpType::Bevel;
 
     return true;
@@ -142,6 +127,7 @@ bool ModelingContext::startKnife(std::shared_ptr<Part> part) {
 
     activePart = part;
     preModalMesh = mesh->clone();
+    baseSnapshotMesh = mesh->clone();
     knifePoints.clear();
     activeModal = ModalTool::Knife;
 
@@ -171,14 +157,16 @@ void ModelingContext::updateModal(const ImVec2& currentMousePos, bool shiftHeld,
     } else if (activeModal == ModalTool::Bevel) {
         opWidth = std::max(0.001f, std::abs(dx - dy) * factor);
         auto workingMesh = baseSnapshotMesh->clone();
-        if (!opTargetEdges.empty()) {
+        if (!opTargetFaces.empty()) {
+            Engine::Geometry::MeshOperators::bevelFaces(*workingMesh, opTargetFaces, opWidth, opSegments, opDepth);
+        } else if (!opTargetEdges.empty()) {
             Engine::Geometry::MeshOperators::bevelEdges(*workingMesh, opTargetEdges, opWidth, opSegments, opProfile);
         } else if (!opTargetVertices.empty()) {
             Engine::Geometry::MeshOperators::bevelVertices(*workingMesh, opTargetVertices, opWidth, opSegments);
         }
         part->setEditableMesh(workingMesh);
     } else if (activeModal == ModalTool::LoopCut) {
-        opSlide = std::max(-0.95f, std::min(0.95f, dx * factor));
+        opSlide = std::max(-0.90f, std::min(0.90f, dx * factor));
         if (!previewLoopEdges.empty()) {
             auto workingMesh = baseSnapshotMesh->clone();
             Engine::Geometry::MeshCutOperators::applyLoopCut(*workingMesh, previewLoopEdges, opSlide, opCuts);
@@ -189,13 +177,26 @@ void ModelingContext::updateModal(const ImVec2& currentMousePos, bool shiftHeld,
 
 void ModelingContext::confirmModal() {
     auto part = activePart.lock();
-    if (part && preModalMesh && part->getEditableMesh()) {
-        if (activeModal == ModalTool::LoopCut && !previewLoopEdges.empty()) {
+    if (part && preModalMesh) {
+        if (activeModal == ModalTool::Knife && knifePoints.size() >= 2) {
+            auto workingMesh = preModalMesh->clone();
+            for (size_t i = 0; i + 1 < knifePoints.size(); ++i) {
+                for (size_t f = 0; f < workingMesh->getFaces().size(); ++f) {
+                    if (!workingMesh->getFaces()[f].deleted) {
+                        Engine::Geometry::MeshCutOperators::cutFaceWithRaySegment(*workingMesh, (uint32_t)f, knifePoints[i], knifePoints[i+1]);
+                    }
+                }
+            }
+            part->setEditableMesh(workingMesh);
+        } else if (activeModal == ModalTool::LoopCut && !previewLoopEdges.empty()) {
             opTargetEdges = previewLoopEdges;
         }
-        part->rebuildProceduralMesh();
-        auto cmd = std::make_unique<MeshTopologyCommand>(part, preModalMesh, part->getEditableMesh()->clone());
-        UndoStack::instance().push(std::move(cmd));
+
+        if (part->getEditableMesh()) {
+            part->rebuildProceduralMesh();
+            auto cmd = std::make_unique<MeshTopologyCommand>(part, preModalMesh, part->getEditableMesh()->clone());
+            UndoStack::instance().push(std::move(cmd));
+        }
     }
     activeModal = ModalTool::None;
     preModalMesh = nullptr;
@@ -224,7 +225,9 @@ void ModelingContext::reapplyLastOperation() {
     } else if (lastOp == LastOpType::Inset) {
         Engine::Geometry::MeshOperators::insetFaces(*workingMesh, opTargetFaces, opThickness, opDepth);
     } else if (lastOp == LastOpType::Bevel) {
-        if (!opTargetEdges.empty()) {
+        if (!opTargetFaces.empty()) {
+            Engine::Geometry::MeshOperators::bevelFaces(*workingMesh, opTargetFaces, opWidth, opSegments, opDepth);
+        } else if (!opTargetEdges.empty()) {
             Engine::Geometry::MeshOperators::bevelEdges(*workingMesh, opTargetEdges, opWidth, opSegments, opProfile);
         } else if (!opTargetVertices.empty()) {
             Engine::Geometry::MeshOperators::bevelVertices(*workingMesh, opTargetVertices, opWidth, opSegments);
@@ -238,6 +241,7 @@ void ModelingContext::reapplyLastOperation() {
     }
 
     part->setEditableMesh(workingMesh);
+    part->rebuildProceduralMesh();
 }
 
 void ModelingContext::executeSubdivide(std::shared_ptr<Part> part, int cuts, float smoothness) {

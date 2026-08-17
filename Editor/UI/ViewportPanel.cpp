@@ -405,7 +405,7 @@ void ViewportPanel::draw(Engine::Renderer::Camera& camera) {
         auto selList = SelectionManager::instance().getSelectionList();
 
         bool shiftHeld = ImGui::GetIO().KeyShift || ImGui::GetIO().KeyCtrl;
-        bool canPick = isHovered && !showSnapPieMenu && !showModesPieMenu && !ImGuizmo::IsUsing() && !ImGuizmo::IsOver() && !ImGui::IsMouseDown(ImGuiMouseButton_Right) && (mCtx.activeModal == Editor::Modeling::ModalTool::None);
+        bool canPick = isHovered && !showSnapPieMenu && !showModesPieMenu && !ImGuizmo::IsUsing() && !ImGuizmo::IsOver() && !ImGui::IsMouseDown(ImGuiMouseButton_Right);
 
         int hoveredVertex = -1;
         float bestVertexDist = 14.0f;
@@ -444,9 +444,9 @@ void ViewportPanel::draw(Engine::Renderer::Camera& camera) {
                     visible[i] = project(pos + vertices[i].position, sPts[i]);
                 }
 
-                // Check Picking for Selected Part
+                // Check Picking & Snapping for Selected Part
                 if (isSelected && canPick && !isBoxSelecting) {
-                    if (isVertexMode) {
+                    if (isVertexMode || mCtx.activeModal == Editor::Modeling::ModalTool::Knife) {
                         for (size_t i = 0; i < numVerts; ++i) {
                             if (visible[i] && !vertices[i].deleted) {
                                 float dx = mousePos.x - sPts[i].x;
@@ -458,7 +458,8 @@ void ViewportPanel::draw(Engine::Renderer::Camera& camera) {
                                 }
                             }
                         }
-                    } else if (isEdgeMode || mCtx.activeModal == Editor::Modeling::ModalTool::LoopCut) {
+                    }
+                    if (isEdgeMode || mCtx.activeModal == Editor::Modeling::ModalTool::LoopCut || mCtx.activeModal == Editor::Modeling::ModalTool::Knife) {
                         for (size_t e = 0; e < edges.size(); ++e) {
                             if (edges[e].deleted) continue;
                             uint32_t i0 = edges[e].v0, i1 = edges[e].v1;
@@ -473,7 +474,8 @@ void ViewportPanel::draw(Engine::Renderer::Camera& camera) {
                         if (mCtx.activeModal == Editor::Modeling::ModalTool::LoopCut && hoveredEdge != -1) {
                             mCtx.previewLoopEdges = Engine::Geometry::MeshCutOperators::findEdgeLoop(*mesh, (uint32_t)hoveredEdge);
                         }
-                    } else if (isFaceMode) {
+                    }
+                    if (isFaceMode || mCtx.activeModal == Editor::Modeling::ModalTool::Knife) {
                         for (size_t f = 0; f < faces.size(); ++f) {
                             if (faces[f].deleted || faces[f].vertices.size() < 3) continue;
                             const auto& fVerts = faces[f].vertices;
@@ -500,6 +502,26 @@ void ViewportPanel::draw(Engine::Renderer::Camera& camera) {
                     }
                 }
 
+                // Handle Knife Snapped Click Point Insertion
+                if (mCtx.activeModal == Editor::Modeling::ModalTool::Knife && isSelected && isHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+                    if (hoveredVertex != -1) {
+                        mCtx.knifePoints.push_back(vertices[hoveredVertex].position);
+                    } else if (hoveredEdge != -1) {
+                        uint32_t ev0 = edges[hoveredEdge].v0;
+                        uint32_t ev1 = edges[hoveredEdge].v1;
+                        ImVec2 p0 = sPts[ev0], p1 = sPts[ev1];
+                        float l2 = (p1.x - p0.x) * (p1.x - p0.x) + (p1.y - p0.y) * (p1.y - p0.y);
+                        float t = (l2 > 0.0f) ? std::clamp(((mousePos.x - p0.x) * (p1.x - p0.x) + (mousePos.y - p0.y) * (p1.y - p0.y)) / l2, 0.0f, 1.0f) : 0.5f;
+                        Engine::Math::Vector3 edgePt = vertices[ev0].position + (vertices[ev1].position - vertices[ev0].position) * t;
+                        mCtx.knifePoints.push_back(edgePt);
+                    } else if (hoveredFace != -1) {
+                        Engine::Math::Vector3 facePt(0, 0, 0);
+                        for (uint32_t v : faces[hoveredFace].vertices) facePt += vertices[v].position;
+                        facePt = facePt * (1.0f / (float)faces[hoveredFace].vertices.size());
+                        mCtx.knifePoints.push_back(facePt);
+                    }
+                }
+
                 // Render Loop Cut Preview Continuous Line and Dots
                 if (mCtx.activeModal == Editor::Modeling::ModalTool::LoopCut && isSelected && !mCtx.previewLoopEdges.empty()) {
                     std::vector<ImVec2> loopMidpoints;
@@ -516,7 +538,6 @@ void ViewportPanel::draw(Engine::Renderer::Camera& camera) {
                             }
                         }
                     }
-                    // Connect loop midpoints with thick glowing yellow lines
                     if (loopMidpoints.size() >= 2) {
                         for (size_t i = 0; i < loopMidpoints.size(); ++i) {
                             size_t next = (i + 1) % loopMidpoints.size();
@@ -526,20 +547,33 @@ void ViewportPanel::draw(Engine::Renderer::Camera& camera) {
                     }
                 }
 
-                // Render Knife Tool Preview Path
+                // Render Knife Tool Preview Path & Snap Indicator
                 if (mCtx.activeModal == Editor::Modeling::ModalTool::Knife && isSelected) {
-                    for (size_t i = 0; i < mCtx.knifePoints.size(); ++i) {
-                        ImVec2 pt(mCtx.knifePoints[i].x, mCtx.knifePoints[i].y);
-                        dl->AddCircleFilled(pt, 6.0f, IM_COL32(255, 60, 60, 255));
-                        dl->AddCircle(pt, 8.0f, IM_COL32(255, 255, 255, 255), 0, 1.5f);
-                        if (i > 0) {
-                            ImVec2 prevPt(mCtx.knifePoints[i-1].x, mCtx.knifePoints[i-1].y);
-                            dl->AddLine(prevPt, pt, IM_COL32(255, 60, 60, 255), 3.0f);
+                    // Draw Snapped Hover Indicator
+                    if (hoveredVertex != -1 && visible[hoveredVertex]) {
+                        dl->AddCircle(sPts[hoveredVertex], 10.0f, IM_COL32(0, 255, 120, 255), 0, 2.5f);
+                    } else if (hoveredEdge != -1) {
+                        dl->AddCircle(mousePos, 7.0f, IM_COL32(0, 220, 255, 255), 0, 2.0f);
+                    }
+
+                    // Draw Path
+                    std::vector<ImVec2> projectedKnifePts;
+                    for (const auto& kpt : mCtx.knifePoints) {
+                        ImVec2 spt;
+                        if (project(pos + kpt, spt)) {
+                            projectedKnifePts.push_back(spt);
                         }
                     }
-                    if (!mCtx.knifePoints.empty()) {
-                        ImVec2 lastPt(mCtx.knifePoints.back().x, mCtx.knifePoints.back().y);
-                        dl->AddLine(lastPt, mousePos, IM_COL32(0, 255, 120, 255), 2.0f);
+
+                    for (size_t i = 0; i < projectedKnifePts.size(); ++i) {
+                        dl->AddCircleFilled(projectedKnifePts[i], 6.0f, IM_COL32(255, 60, 60, 255));
+                        dl->AddCircle(projectedKnifePts[i], 8.0f, IM_COL32(255, 255, 255, 255), 0, 1.5f);
+                        if (i > 0) {
+                            dl->AddLine(projectedKnifePts[i-1], projectedKnifePts[i], IM_COL32(255, 60, 60, 255), 3.0f);
+                        }
+                    }
+                    if (!projectedKnifePts.empty() && (hoveredFace != -1 || hoveredEdge != -1 || hoveredVertex != -1)) {
+                        dl->AddLine(projectedKnifePts.back(), mousePos, IM_COL32(0, 255, 120, 255), 2.0f);
                     }
                 }
 
@@ -646,7 +680,7 @@ void ViewportPanel::draw(Engine::Renderer::Camera& camera) {
         drawDeformOverlay(DataModel::instance());
 
         // Handle Click Selection & Loop Selection (Alt + Left Click)
-        if (canPick && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+        if (canPick && mCtx.activeModal == Editor::Modeling::ModalTool::None && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
             bool altHeld = ImGui::GetIO().KeyAlt;
             mCtx.lastOp = Editor::Modeling::LastOpType::None;
 
@@ -1670,13 +1704,13 @@ void ViewportPanel::handleCameraControls(Engine::Renderer::Camera& camera, bool 
 
     // 4. WASD + QE Keyboard Navigation
     bool canMoveKeys = (isHovered || ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)) && !ImGui::GetIO().WantTextInput;
-    if (canMoveKeys) {
+    bool modifierHeld = ImGui::GetIO().KeyCtrl || ImGui::GetIO().KeyAlt;
+    if (canMoveKeys && !modifierHeld) {
         Engine::Math::Vector3 screenRight = camera.forward.cross(camera.up);
         screenRight.normalize();
 
         float speed = 18.0f * ImGui::GetIO().DeltaTime;
         if (ImGui::GetIO().KeyShift) speed *= 3.0f;
-        if (ImGui::GetIO().KeyAlt) speed *= 0.3f;
 
         if (camera.isOrthographic) {
             // In Orthographic mode: 2D Planar Pan navigation (keeps camera distance constant so shadows/LODs are unchanged)
