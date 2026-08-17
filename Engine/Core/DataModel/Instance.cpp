@@ -42,9 +42,14 @@ std::shared_ptr<Instance> Instance::findFirstChild(const std::string& childName)
 
 void Instance::destroy() {
     InstanceRegistry::instance().unregisterInstance(getInstanceId());
-    for (auto& child : children) {
+    // Children detach themselves from this vector during destroy(). Iterating
+    // the live vector here invalidates the iterator and can crash during
+    // teardown (notably when a Part owns a Humanoid).
+    auto childSnapshot = children;
+    for (auto& child : childSnapshot) {
         if (child) child->destroy();
     }
+    children.clear();
     setParent(nullptr);
 }
 

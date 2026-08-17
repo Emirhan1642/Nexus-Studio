@@ -56,6 +56,7 @@ public:
     );
 
     // ── Boolean CSG (Union, Difference, Intersect) ──────────────────────────
+    // BSP polygon CSG for closed, consistently wound polygon meshes.
     static std::shared_ptr<EditableMesh> applyBoolean(
         const EditableMesh& meshA,
         const EditableMesh& meshB,

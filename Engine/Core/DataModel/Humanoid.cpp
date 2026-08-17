@@ -215,8 +215,10 @@ void Humanoid::applyMovement(const Math::Vector3& moveDirection, float deltaTime
     if (!character) return;
     auto part = getRootPart();
     if (!part) return;
+    if (part->getPhysicsBodyId() == 0xFFFFFFFF) return;
 
     auto& physicsWorld = Physics::PhysicsWorld::instance();
+    if (!physicsWorld.getTempAllocator()) return;
 
     // Apply gravity
     JPH::Vec3 linearVelocity = character->GetLinearVelocity();

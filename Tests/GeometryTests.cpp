@@ -286,21 +286,27 @@ TEST_F(GeometryTests, KnifeBoundarySplit) {
     for (const auto& f : mesh->getFaces()) EXPECT_EQ(f.vertices.size(), 4);
 }
 
-// 12. Boolean must fail closed until true CSG is available.
+// 12. Convex Boolean CSG must produce valid union/difference/intersection shells.
 TEST_F(GeometryTests, BooleanSafetyContract) {
     auto a = MeshPrimitives::createCube(Vector3(1, 1, 1));
     auto b = MeshPrimitives::createCube(Vector3(1, 1, 1));
     ASSERT_NE(a, nullptr);
     ASSERT_NE(b, nullptr);
 
-    for (auto& v : b->getVertices()) v.position.x += 3.0f;
+    for (auto& v : b->getVertices()) v.position.x += 0.5f;
     b->rebuildTopology();
-    auto disjointUnion = MeshCutOperators::applyBoolean(*a, *b, BooleanOperation::Union);
-    ASSERT_NE(disjointUnion, nullptr);
-    EXPECT_TRUE(disjointUnion->validate());
-
-    auto overlappingDifference = MeshCutOperators::applyBoolean(*a, *b, BooleanOperation::Difference);
-    EXPECT_EQ(overlappingDifference, nullptr);
+    auto unionMesh = MeshCutOperators::applyBoolean(*a, *b, BooleanOperation::Union);
+    auto differenceMesh = MeshCutOperators::applyBoolean(*a, *b, BooleanOperation::Difference);
+    auto intersectionMesh = MeshCutOperators::applyBoolean(*a, *b, BooleanOperation::Intersect);
+    ASSERT_NE(unionMesh, nullptr);
+    ASSERT_NE(differenceMesh, nullptr);
+    ASSERT_NE(intersectionMesh, nullptr);
+    EXPECT_TRUE(unionMesh->validate());
+    EXPECT_TRUE(differenceMesh->validate());
+    EXPECT_TRUE(intersectionMesh->validate());
+    EXPECT_GT(unionMesh->getFaces().size(), a->getFaces().size());
+    EXPECT_GT(differenceMesh->getFaces().size(), 0u);
+    EXPECT_GT(intersectionMesh->getFaces().size(), 0u);
 }
 
 // 13. Dissolve an edge while preserving the merged face cycle.

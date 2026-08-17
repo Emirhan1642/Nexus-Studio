@@ -5,6 +5,7 @@
 #include "Engine/Core/Geometry/MeshCutOperators.h"
 #include "Editor/Undo/UndoStack.h"
 #include "Editor/Undo/MeshTopologyCommand.h"
+#include "Editor/Undo/InstanceHierarchyCommand.h"
 #include <memory>
 #include <vector>
 

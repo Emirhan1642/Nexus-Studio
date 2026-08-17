@@ -145,6 +145,21 @@ bool EditableMesh::validate() const {
 
         if (!face.uvs.empty() && face.uvs.size() != vCount) return false;
         if (!face.normals.empty() && face.normals.size() != vCount) return false;
+        for (const auto& uv : face.uvs) {
+            if (!std::isfinite(uv.first) || !std::isfinite(uv.second)) return false;
+        }
+        for (const auto& n : face.normals) {
+            if (!std::isfinite(n.x) || !std::isfinite(n.y) || !std::isfinite(n.z)) return false;
+        }
+        // A zero-area polygon cannot produce a valid render or physics face.
+        Engine::Math::Vector3 areaNormal(0.0f, 0.0f, 0.0f);
+        for (size_t i = 0; i < vCount; ++i) {
+            const auto& a = m_vertices[face.vertices[i]].position;
+            const auto& b = m_vertices[face.vertices[(i + 1) % vCount]].position;
+            areaNormal += a.cross(b);
+        }
+        if (!std::isfinite(areaNormal.x) || !std::isfinite(areaNormal.y) ||
+            !std::isfinite(areaNormal.z) || areaNormal.length() <= 1e-7f) return false;
     }
 
     // 3. Verify half-edges
@@ -189,12 +204,21 @@ bool EditableMesh::validate() const {
     for (size_t e = 0; e < m_edges.size(); ++e) {
         const auto& edge = m_edges[e];
         if (edge.deleted) continue;
+        if (edge.v0 >= m_vertices.size() || edge.v1 >= m_vertices.size() ||
+            edge.v0 == edge.v1 || m_vertices[edge.v0].deleted || m_vertices[edge.v1].deleted) return false;
         int count = (edge.halfEdge0 != -1 ? 1 : 0) + (edge.halfEdge1 != -1 ? 1 : 0);
         if (count == 0 || count > 2) return false;
         if (edge.halfEdge0 != -1 && (edge.halfEdge0 >= static_cast<int>(m_halfEdges.size()) ||
             m_halfEdges[edge.halfEdge0].edge != static_cast<int>(e))) return false;
         if (edge.halfEdge1 != -1 && (edge.halfEdge1 >= static_cast<int>(m_halfEdges.size()) ||
             m_halfEdges[edge.halfEdge1].edge != static_cast<int>(e))) return false;
+        if (edge.halfEdge0 != -1) {
+            const auto& he = m_halfEdges[edge.halfEdge0];
+            if (he.next < 0 || he.next >= static_cast<int>(m_halfEdges.size())) return false;
+            const auto& end = m_halfEdges[he.next];
+            if (!((he.origin == edge.v0 && end.origin == edge.v1) ||
+                  (he.origin == edge.v1 && end.origin == edge.v0))) return false;
+        }
     }
 
     return true;

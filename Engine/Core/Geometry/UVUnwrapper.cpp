@@ -1,6 +1,8 @@
 #include "UVUnwrapper.h"
 #include <cmath>
 #include <algorithm>
+#include <map>
+#include <set>
 
 namespace Engine::Geometry {
 
@@ -78,9 +80,11 @@ void UVUnwrapper::planarProject(EditableMesh& mesh, const Engine::Math::Vector3&
 }
 
 void UVUnwrapper::smartUVProject(EditableMesh& mesh, float angleThresholdDeg, float margin) {
-    boxProject(mesh, 1.0f);
-
     auto& faces = mesh.getFaces();
+    auto& vertices = mesh.getVertices();
+    for (uint32_t i = 0; i < faces.size(); ++i) {
+        if (!faces[i].deleted) mesh.calculateFaceNormal(i);
+    }
     margin = std::clamp(margin, 0.0f, 0.49f);
     angleThresholdDeg = std::clamp(angleThresholdDeg, 0.0f, 180.0f);
     const float cosThreshold = std::cos(angleThresholdDeg * 3.14159265358979323846f / 180.0f);
@@ -125,6 +129,87 @@ void UVUnwrapper::smartUVProject(EditableMesh& mesh, float angleThresholdDeg, fl
     const float cell = std::max(0.001f, usable / std::ceil(std::sqrt(static_cast<float>(islands.size()))));
     float cursorX = margin, cursorY = margin, rowHeight = 0.0f;
     for (const auto& island : islands) {
+        // Build a common tangent frame for this smooth chart. Unlike the old
+        // global box projection, this is a genuine chart parameterization:
+        // connected faces share a continuous 2D basis and hard-angle seams
+        // remain separate islands.
+        Engine::Math::Vector3 islandNormal(0.0f, 0.0f, 0.0f);
+        for (uint32_t fIdx : island) islandNormal += faces[fIdx].normal;
+        islandNormal = islandNormal.normalized();
+        Engine::Math::Vector3 helper = std::abs(islandNormal.y) < 0.9f
+            ? Engine::Math::Vector3(0, 1, 0) : Engine::Math::Vector3(1, 0, 0);
+        Engine::Math::Vector3 tangent = helper.cross(islandNormal).normalized();
+        Engine::Math::Vector3 bitangent = islandNormal.cross(tangent).normalized();
+        for (uint32_t fIdx : island) {
+            auto& face = faces[fIdx];
+            face.uvs.resize(face.vertices.size());
+            for (size_t i = 0; i < face.vertices.size(); ++i) {
+                uint32_t vIdx = face.vertices[i];
+                if (vIdx >= vertices.size() || vertices[vIdx].deleted) continue;
+                const auto& p = vertices[vIdx].position;
+                face.uvs[i] = {p.dot(tangent), p.dot(bitangent)};
+            }
+        }
+
+        // Harmonic (Tutte) relaxation with a fixed boundary gives curved
+        // charts a real surface parameterization instead of merely projecting
+        // every face independently. Boundary loops are placed on a circle;
+        // interior vertices are solved by iterative cotangent-free Laplacian
+        // relaxation, which is stable for the editor's low-poly meshes.
+        std::set<uint32_t> islandVerts, boundaryVerts;
+        std::map<uint32_t, std::vector<uint32_t>> boundaryGraph, graph;
+        std::set<uint32_t> islandSet(island.begin(), island.end());
+        for (uint32_t fIdx : island) {
+            const auto& face = faces[fIdx];
+            for (uint32_t v : face.vertices) islandVerts.insert(v);
+            for (uint32_t e : face.edges) {
+                auto ef = mesh.getEdgeFaces(e);
+                size_t inside = 0; for (uint32_t n : ef) if (islandSet.count(n)) ++inside;
+                if (inside != 1 || face.vertices.empty()) continue;
+                const auto& edge = mesh.getEdges()[e];
+                boundaryVerts.insert(edge.v0); boundaryVerts.insert(edge.v1);
+                boundaryGraph[edge.v0].push_back(edge.v1);
+                boundaryGraph[edge.v1].push_back(edge.v0);
+            }
+            for (size_t i = 0; i < face.vertices.size(); ++i) {
+                uint32_t a = face.vertices[i], b = face.vertices[(i + 1) % face.vertices.size()];
+                graph[a].push_back(b); graph[b].push_back(a);
+            }
+        }
+        if (boundaryVerts.size() >= 3) {
+            std::vector<uint32_t> loop;
+            uint32_t start = *boundaryVerts.begin(), prev = UINT32_MAX, cur = start;
+            for (size_t guard = 0; guard <= boundaryVerts.size() + 1; ++guard) {
+                loop.push_back(cur);
+                uint32_t next = UINT32_MAX;
+                for (uint32_t candidate : boundaryGraph[cur]) if (candidate != prev) { next = candidate; break; }
+                if (next == UINT32_MAX || next == start) break;
+                prev = cur; cur = next;
+            }
+            if (loop.size() >= 3) {
+                float perimeter = 0.0f;
+                for (size_t i = 0; i < loop.size(); ++i) perimeter += (vertices[loop[i]].position - vertices[loop[(i + 1) % loop.size()]].position).length();
+                float travelled = 0.0f;
+                std::map<uint32_t, std::pair<float, float>> solved;
+                for (size_t i = 0; i < loop.size(); ++i) {
+                    float t = perimeter > 1e-5f ? travelled / perimeter : static_cast<float>(i) / loop.size();
+                    solved[loop[i]] = {std::cos(t * 6.28318530718f), std::sin(t * 6.28318530718f)};
+                    travelled += (vertices[loop[i]].position - vertices[loop[(i + 1) % loop.size()]].position).length();
+                }
+                for (uint32_t v : islandVerts) if (!solved.count(v)) solved[v] = {vertices[v].position.dot(tangent), vertices[v].position.dot(bitangent)};
+                for (int iteration = 0; iteration < 64; ++iteration) {
+                    auto nextSolved = solved;
+                    for (uint32_t v : islandVerts) if (!boundaryVerts.count(v)) {
+                        auto it = graph.find(v); if (it == graph.end() || it->second.empty()) continue;
+                        std::pair<float, float> avg{0.0f, 0.0f};
+                        for (uint32_t n : it->second) { avg.first += solved[n].first; avg.second += solved[n].second; }
+                        nextSolved[v] = {avg.first / it->second.size(), avg.second / it->second.size()};
+                    }
+                    solved.swap(nextSolved);
+                }
+                for (uint32_t fIdx : island) for (size_t i = 0; i < faces[fIdx].vertices.size(); ++i) faces[fIdx].uvs[i] = solved[faces[fIdx].vertices[i]];
+            }
+        }
         float minU = 1e30f, maxU = -1e30f, minV = 1e30f, maxV = -1e30f;
         for (uint32_t fIdx : island) {
             for (const auto& uv : faces[fIdx].uvs) {

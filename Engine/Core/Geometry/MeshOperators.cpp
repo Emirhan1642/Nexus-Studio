@@ -444,7 +444,7 @@ void MeshOperators::bevelVertices(
 ) {
     if (vertIndices.empty() || width <= 0.0001f) return;
     auto& vertices = mesh.getVertices();
-    (void)segments; // Multi-segment corner arcs are a separate follow-up.
+    segments = std::clamp(segments, 1, 8);
 
     for (uint32_t vIdx : vertIndices) {
         if (vIdx >= vertices.size() || vertices[vIdx].deleted) continue;
@@ -484,17 +484,25 @@ void MeshOperators::bevelVertices(
             const float cornerU = vertices[vIdx].u;
             const float cornerV = vertices[vIdx].v;
             const auto faceNormal = face.normal;
-            const uint32_t prevCut = mesh.addVertex(centerPos + prevDir * localWidth,
-                                                    cornerU, cornerV, faceNormal);
-            const uint32_t nextCut = mesh.addVertex(centerPos + nextDir * localWidth,
-                                                    cornerU, cornerV, faceNormal);
+            std::vector<uint32_t> arc;
+            arc.reserve(static_cast<size_t>(segments) + 1);
+            for (int s = 0; s <= segments; ++s) {
+                const float t = static_cast<float>(s) / static_cast<float>(segments);
+                // Spherical interpolation is unnecessary for this local
+                // planar corner; normalized lerp gives a stable circular arc
+                // even when the two incident edges are not perpendicular.
+                auto dir = (prevDir * (1.0f - t) + nextDir * t).normalized();
+                arc.push_back(mesh.addVertex(centerPos + dir * localWidth,
+                                             cornerU, cornerV, faceNormal));
+            }
+            const uint32_t prevCut = arc.front();
+            const uint32_t nextCut = arc.back();
 
             // Replace the corner by the two cut points, preserving the face loop.
             face.vertices.erase(face.vertices.begin() + static_cast<std::ptrdiff_t>(corner));
             face.vertices.insert(face.vertices.begin() + static_cast<std::ptrdiff_t>(corner),
                                  {prevCut, nextCut});
-            capVerts.push_back(prevCut);
-            capVerts.push_back(nextCut);
+            capVerts.insert(capVerts.end(), arc.begin(), arc.end());
         }
 
         if (capVerts.size() >= 3) {

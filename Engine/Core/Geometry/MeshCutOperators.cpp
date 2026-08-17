@@ -3,6 +3,10 @@
 #include <algorithm>
 #include <set>
 #include <map>
+#include <functional>
+#include <tuple>
+#include <optional>
+#include <memory>
 
 namespace Engine::Geometry {
 
@@ -505,53 +509,247 @@ void MeshCutOperators::applyMirror(
     mesh.recalculateAllNormals(false);
 }
 
-// ── Boolean CSG ─────────────────────────────────────────────────────────────
-std::shared_ptr<EditableMesh> MeshCutOperators::applyBoolean(
-    const EditableMesh& meshA,
-    const EditableMesh& meshB,
-    BooleanOperation op
-) {
-    // A true boolean requires robust triangle intersections, inside/outside
-    // classification and coplanar handling. Returning a plausible-looking
-    // mesh by merely appending B (the old behavior) silently corrupts scenes.
-    // Until the dedicated CSG implementation lands, only disjoint Union is
-    // safe and supported; overlapping or subtractive operations fail closed.
-    if (op != BooleanOperation::Union) return nullptr;
+// ── Polygon-BSP Boolean CSG ─────────────────────────────────────────────────
+// This is the classic BSP solid-geometry algorithm. It splits arbitrary
+// planar polygons against the other solid's planes, so concave closed meshes
+// are supported as well (unlike the previous convex half-space shortcut).
+namespace {
+using Vec3 = Engine::Math::Vector3;
+struct CsgVertex { Vec3 p; std::pair<float, float> uv{0.0f, 0.0f}; };
+struct Plane { Vec3 n; float d = 0.0f; }; // inside is n dot p + d <= eps
 
-    Engine::Math::Vector3 aMin, aMax, bMin, bMax;
-    meshA.computeBounds(aMin, aMax);
-    meshB.computeBounds(bMin, bMax);
-    const bool separated = aMax.x < bMin.x || bMax.x < aMin.x ||
-                           aMax.y < bMin.y || bMax.y < aMin.y ||
-                           aMax.z < bMin.z || bMax.z < aMin.z;
-    if (!separated) return nullptr;
+struct BspPolygon { std::vector<CsgVertex> vertices; Plane plane; };
 
-    auto result = std::make_shared<EditableMesh>(meshA);
-    std::map<uint32_t, uint32_t> bVertRemap;
-    for (size_t i = 0; i < meshB.getVertices().size(); ++i) {
-        const auto& v = meshB.getVertices()[i];
-        if (!v.deleted) {
-            bVertRemap[static_cast<uint32_t>(i)] = result->addVertex(v.position, v.u, v.v, v.normal);
+static BspPolygon makeBspPolygon(const std::vector<CsgVertex>& vertices) {
+    BspPolygon p{vertices, {}};
+    if (vertices.size() >= 3) {
+        Vec3 n = (vertices[1].p - vertices[0].p).cross(vertices[2].p - vertices[0].p).normalized();
+        p.plane = {n, -n.dot(vertices[0].p)};
+    }
+    return p;
+}
+
+static void splitPolygon(const Plane& plane, const BspPolygon& polygon,
+                         std::vector<BspPolygon>& coplanarFront,
+                         std::vector<BspPolygon>& coplanarBack,
+                         std::vector<BspPolygon>& front,
+                         std::vector<BspPolygon>& back) {
+    constexpr float eps = 1e-5f;
+    int polygonType = 0;
+    std::vector<int> types;
+    for (const auto& v : polygon.vertices) {
+        float t = plane.n.dot(v.p) + plane.d;
+        int type = t < -eps ? 1 : (t > eps ? 2 : 0);
+        polygonType |= type;
+        types.push_back(type);
+    }
+    if (polygonType == 0) {
+        (plane.n.dot(polygon.plane.n) >= 0.0f ? coplanarFront : coplanarBack).push_back(polygon);
+    } else if (polygonType == 1) back.push_back(polygon);
+    else if (polygonType == 2) front.push_back(polygon);
+    else {
+        std::vector<CsgVertex> f, b;
+        for (size_t i = 0; i < polygon.vertices.size(); ++i) {
+            const auto& a = polygon.vertices[i];
+            const auto& c = polygon.vertices[(i + 1) % polygon.vertices.size()];
+            int ta = types[i], tc = types[(i + 1) % types.size()];
+            if (ta != 1) f.push_back(a);
+            if (ta != 2) b.push_back(a);
+            if ((ta | tc) == 3) {
+                float da = plane.n.dot(a.p) + plane.d;
+                float dc = plane.n.dot(c.p) + plane.d;
+                float u = std::abs(da - dc) > 1e-8f ? da / (da - dc) : 0.5f;
+                u = std::clamp(u, 0.0f, 1.0f);
+                CsgVertex x;
+                x.p = a.p + (c.p - a.p) * u;
+                x.uv = {a.uv.first + (c.uv.first - a.uv.first) * u,
+                        a.uv.second + (c.uv.second - a.uv.second) * u};
+                f.push_back(x); b.push_back(x);
+            }
+        }
+        if (f.size() >= 3) front.push_back(makeBspPolygon(f));
+        if (b.size() >= 3) back.push_back(makeBspPolygon(b));
+    }
+}
+
+class BspNode {
+public:
+    std::optional<Plane> plane;
+    std::vector<BspPolygon> polygons;
+    std::unique_ptr<BspNode> front, back;
+    BspNode() = default;
+    explicit BspNode(const std::vector<BspPolygon>& p) { build(p); }
+    BspNode(const BspNode& o) : plane(o.plane), polygons(o.polygons) {
+        if (o.front) front = std::make_unique<BspNode>(*o.front);
+        if (o.back) back = std::make_unique<BspNode>(*o.back);
+    }
+    std::vector<BspPolygon> allPolygons() const {
+        auto out = polygons;
+        if (front) { auto p = front->allPolygons(); out.insert(out.end(), p.begin(), p.end()); }
+        if (back) { auto p = back->allPolygons(); out.insert(out.end(), p.begin(), p.end()); }
+        return out;
+    }
+    void invert() {
+        for (auto& p : polygons) { std::reverse(p.vertices.begin(), p.vertices.end()); p.plane.n = p.plane.n * -1.0f; p.plane.d = -p.plane.d; }
+        if (plane) { plane->n = plane->n * -1.0f; plane->d = -plane->d; }
+        if (front) front->invert(); if (back) back->invert(); std::swap(front, back);
+    }
+    void build(const std::vector<BspPolygon>& input) {
+        if (input.empty()) return;
+        if (!plane) plane = input.front().plane;
+        std::vector<BspPolygon> f, b, cf, cb;
+        for (const auto& p : input) {
+            cf.clear(); cb.clear(); splitPolygon(*plane, p, cf, cb, f, b);
+            polygons.insert(polygons.end(), cf.begin(), cf.end());
+            polygons.insert(polygons.end(), cb.begin(), cb.end());
+        }
+        if (!f.empty()) { if (!front) front = std::make_unique<BspNode>(); front->build(f); }
+        if (!b.empty()) { if (!back) back = std::make_unique<BspNode>(); back->build(b); }
+    }
+    std::vector<BspPolygon> clipPolygons(const std::vector<BspPolygon>& input) const {
+        if (!plane) return input;
+        std::vector<BspPolygon> f, b, cf, cb;
+        for (const auto& p : input) { cf.clear(); cb.clear(); splitPolygon(*plane, p, cf, cb, f, b); }
+        if (front) f = front->clipPolygons(f);
+        if (back) b = back->clipPolygons(b); else b.clear();
+        f.insert(f.end(), b.begin(), b.end()); return f;
+    }
+    void clipTo(const BspNode& other) { polygons = other.clipPolygons(polygons); if (front) front->clipTo(other); if (back) back->clipTo(other); }
+};
+
+static std::vector<BspPolygon> meshToBsp(const EditableMesh& mesh) {
+    std::vector<BspPolygon> out;
+    const auto& verts = mesh.getVertices();
+    for (const auto& f : mesh.getFaces()) {
+        if (f.deleted || f.vertices.size() < 3) continue;
+        std::vector<CsgVertex> poly;
+        for (size_t i = 0; i < f.vertices.size(); ++i) {
+            uint32_t vi = f.vertices[i]; if (vi >= verts.size() || verts[vi].deleted) { poly.clear(); break; }
+            poly.push_back({verts[vi].position, i < f.uvs.size() ? f.uvs[i] : std::make_pair(verts[vi].u, verts[vi].v)});
+        }
+        if (poly.size() >= 3) out.push_back(makeBspPolygon(poly));
+    }
+    return out;
+}
+
+static bool isConvex(const EditableMesh& mesh, std::vector<Plane>& planes) {
+    const auto& faces = mesh.getFaces();
+    const auto& verts = mesh.getVertices();
+    Vec3 minP, maxP; mesh.computeBounds(minP, maxP);
+    Vec3 center = (minP + maxP) * 0.5f;
+    for (const auto& f : faces) {
+        if (f.deleted || f.vertices.size() < 3) continue;
+        Vec3 n = f.normal.normalized();
+        if (n.length() < 0.5f) return false;
+        Vec3 fc = verts[f.vertices[0]].position;
+        // Ensure the plane points outward, independent of input winding.
+        if (n.dot(f.center - center) < 0.0f) n = n * -1.0f;
+        Plane plane{n, -n.dot(fc)};
+        for (const auto& v : verts) {
+            if (v.deleted) continue;
+            if (plane.n.dot(v.position) + plane.d > 1e-4f) return false;
+        }
+        planes.push_back(plane);
+    }
+    return !planes.empty();
+}
+
+static std::vector<CsgVertex> clipHalfSpace(const std::vector<CsgVertex>& poly, const Plane& plane, bool keepInside) {
+    std::vector<CsgVertex> out;
+    if (poly.empty()) return out;
+    auto value = [&](const CsgVertex& v) { return plane.n.dot(v.p) + plane.d; };
+    auto accepted = [&](float x) { return keepInside ? x <= 1e-5f : x >= -1e-5f; };
+    for (size_t i = 0; i < poly.size(); ++i) {
+        const CsgVertex& a = poly[i];
+        const CsgVertex& b = poly[(i + 1) % poly.size()];
+        float da = value(a), db = value(b);
+        bool ina = accepted(da), inb = accepted(db);
+        if (ina) out.push_back(a);
+        if (ina != inb) {
+            float denom = da - db;
+            float t = std::abs(denom) > 1e-8f ? da / denom : 0.0f;
+            t = std::clamp(t, 0.0f, 1.0f);
+            CsgVertex x;
+            x.p = a.p + (b.p - a.p) * t;
+            x.uv = {a.uv.first + (b.uv.first - a.uv.first) * t,
+                    a.uv.second + (b.uv.second - a.uv.second) * t};
+            out.push_back(x);
         }
     }
-    for (const auto& f : meshB.getFaces()) {
-        if (f.deleted) continue;
-        std::vector<uint32_t> remapped;
-        remapped.reserve(f.vertices.size());
-        for (uint32_t v : f.vertices) {
-            auto it = bVertRemap.find(v);
-            if (it == bVertRemap.end()) return nullptr;
-            remapped.push_back(it->second);
+    return out;
+}
+
+using CsgPiece = std::pair<std::vector<CsgVertex>, bool>; // polygon, reverse winding
+static void collectPieces(const EditableMesh& source, const std::vector<Plane>& cutter,
+                          bool keepInside, bool reverse, std::vector<CsgPiece>& pieces) {
+    const auto& verts = source.getVertices();
+    for (const auto& f : source.getFaces()) {
+        if (f.deleted || f.vertices.size() < 3) continue;
+        std::vector<CsgVertex> poly;
+        for (size_t i = 0; i < f.vertices.size(); ++i) {
+            uint32_t vi = f.vertices[i];
+            if (vi >= verts.size() || verts[vi].deleted) { poly.clear(); break; }
+            poly.push_back({verts[vi].position,
+                i < f.uvs.size() ? f.uvs[i] : std::make_pair(verts[vi].u, verts[vi].v)});
         }
-        if (remapped.size() >= 3) {
-            const int newFace = result->addFace(remapped);
-            if (newFace < 0) return nullptr;
+        if (poly.size() < 3) continue;
+
+        if (keepInside) {
+            for (const auto& plane : cutter) poly = clipHalfSpace(poly, plane, true);
+            if (poly.size() >= 3) pieces.emplace_back(std::move(poly), reverse);
+        } else {
+            // The complement of an intersection of half-spaces is a union.
+            // Split successively; emit the outside branch and continue only
+            // with the inside branch, preventing duplicate surface fragments.
+            for (const auto& plane : cutter) {
+                auto outside = clipHalfSpace(poly, plane, false);
+                if (outside.size() >= 3) pieces.emplace_back(std::move(outside), reverse);
+                poly = clipHalfSpace(poly, plane, true);
+                if (poly.size() < 3) break;
+            }
         }
+    }
+}
+}
+
+std::shared_ptr<EditableMesh> MeshCutOperators::applyBoolean(
+    const EditableMesh& meshA, const EditableMesh& meshB, BooleanOperation op) {
+    auto pa = meshToBsp(meshA), pb = meshToBsp(meshB);
+    if (pa.empty() || pb.empty()) return nullptr;
+    BspNode a(pa), b(pb);
+    std::vector<BspPolygon> pieces;
+    if (op == BooleanOperation::Union) {
+        a.clipTo(b); b.clipTo(a); b.invert(); b.clipTo(a); b.invert(); a.build(b.allPolygons()); pieces = a.allPolygons();
+    } else if (op == BooleanOperation::Difference) {
+        a.invert(); a.clipTo(b); b.clipTo(a); b.invert(); b.clipTo(a); b.invert(); a.build(b.allPolygons()); a.invert(); pieces = a.allPolygons();
+    } else {
+        a.invert(); b.clipTo(a); b.invert(); a.clipTo(b); b.clipTo(a); a.build(b.allPolygons()); a.invert(); pieces = a.allPolygons();
+    }
+    if (pieces.empty()) return nullptr;
+
+    auto result = std::make_shared<EditableMesh>();
+    std::map<std::tuple<long long, long long, long long>, uint32_t> welded;
+    auto getOrAdd = [&](const CsgVertex& v) {
+        constexpr double q = 100000.0;
+        auto key = std::make_tuple(static_cast<long long>(std::llround(v.p.x * q)),
+                                   static_cast<long long>(std::llround(v.p.y * q)),
+                                   static_cast<long long>(std::llround(v.p.z * q)));
+        auto it = welded.find(key);
+        if (it != welded.end()) return it->second;
+        uint32_t id = result->addVertex(v.p, v.uv.first, v.uv.second);
+        welded.emplace(key, id);
+        return id;
+    };
+    for (auto& piece : pieces) {
+        auto& poly = piece.vertices;
+        std::vector<uint32_t> ids;
+        std::vector<std::pair<float, float>> uvs;
+        for (const auto& v : poly) { ids.push_back(getOrAdd(v)); uvs.push_back(v.uv); }
+        if (ids.size() >= 3) result->addFaceWithUVs(ids, uvs);
     }
     result->rebuildTopology();
     result->recalculateAllNormals(false);
-    if (!result->validate()) return nullptr;
-    return result;
+    return result->validate() ? result : nullptr;
 }
 
 } // namespace Engine::Geometry

@@ -790,6 +790,15 @@ void ModelingContext::executeSeparate(std::shared_ptr<Part> part) {
     if (auto parent = part->getParent()) {
         newPart->setParent(parent);
     }
+
+    // Keep the generated part alive in the command so Separate can be undone
+    // and redone without losing its hierarchy membership.
+    auto parent = part->getParent();
+    UndoStack::instance().push(std::make_unique<InstanceHierarchyCommand>(
+        std::vector<std::shared_ptr<Instance>>{newPart},
+        std::vector<std::shared_ptr<Instance>>{nullptr},
+        std::vector<std::shared_ptr<Instance>>{parent}
+    ));
 }
 
 void ModelingContext::executeJoin(std::vector<std::shared_ptr<Instance>> selectedInstances) {
@@ -843,7 +852,9 @@ void ModelingContext::executeJoin(std::vector<std::shared_ptr<Instance>> selecte
             }
         }
 
-        otherPart->destroy();
+        // Detach rather than destroy: the hierarchy command must retain the
+        // instance so Undo can restore it and Redo can detach it again.
+        otherPart->setParent(nullptr);
     }
 
     mainMesh->rebuildTopology();
@@ -852,6 +863,26 @@ void ModelingContext::executeJoin(std::vector<std::shared_ptr<Instance>> selecte
 
     auto cmd = std::make_unique<MeshTopologyCommand>(mainPart, before, mainMesh->clone());
     UndoStack::instance().push(std::move(cmd));
+
+    std::vector<std::shared_ptr<Instance>> hierarchyInstances;
+    std::vector<std::shared_ptr<Instance>> beforeParents;
+    std::vector<std::shared_ptr<Instance>> afterParents;
+    hierarchyInstances.reserve(parts.size());
+    beforeParents.reserve(parts.size());
+    afterParents.reserve(parts.size());
+    auto mainParent = mainPart->getParent();
+    hierarchyInstances.push_back(mainPart);
+    beforeParents.push_back(mainParent);
+    afterParents.push_back(mainParent);
+    for (size_t i = 1; i < parts.size(); ++i) {
+        hierarchyInstances.push_back(parts[i]);
+        // These were detached above; their original parent is the workspace
+        // model container captured from the selected part.
+        beforeParents.push_back(mainParent);
+        afterParents.push_back(nullptr);
+    }
+    UndoStack::instance().push(std::make_unique<InstanceHierarchyCommand>(
+        std::move(hierarchyInstances), std::move(beforeParents), std::move(afterParents)));
 }
 
 } // namespace Editor::Modeling
