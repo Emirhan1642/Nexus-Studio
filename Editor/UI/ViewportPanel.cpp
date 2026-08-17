@@ -328,7 +328,10 @@ void ViewportPanel::draw(Engine::Renderer::Camera& camera) {
         mCtx.updateModal(mousePos, shiftHeld, ctrlHeld);
 
         if (mCtx.activeModal == Editor::Modeling::ModalTool::Knife) {
-            // Knife Tool: Enter / Space confirms, Right Click / Esc cancels
+            // Knife Tool: 'C' toggles Cut-Through mode, Enter / Space confirms, Right Click / Esc cancels
+            if (ImGui::IsKeyPressed(ImGuiKey_C) || ImGui::IsKeyPressed(ImGuiKey_Z)) {
+                mCtx.opCutThrough = !mCtx.opCutThrough;
+            }
             if (ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_Space)) {
                 mCtx.confirmModal();
                 s_justConfirmedModal = true;
@@ -354,13 +357,15 @@ void ViewportPanel::draw(Engine::Renderer::Camera& camera) {
         else if (mCtx.activeModal == Editor::Modeling::ModalTool::LoopCut) modalName = "LOOP CUT (Ctrl+R)";
         else if (mCtx.activeModal == Editor::Modeling::ModalTool::Knife) {
             modalName = "KNIFE CUT (K)";
-            modalHelp = "[Click: Add Point | Enter/Space: Confirm Cut | ESC: Cancel]";
+            modalHelp = mCtx.opCutThrough 
+                ? "[Click: Add Point | C: Cut-Through [ON] | Enter/Space: Confirm | ESC: Cancel]"
+                : "[Click: Add Point | C: Cut-Through [OFF] | Enter/Space: Confirm | ESC: Cancel]";
         }
 
         char hudText[256];
         std::snprintf(hudText, sizeof(hudText), "%s | %s", modalName, modalHelp);
-        dl->AddRectFilled(ImVec2(screenPos.x + 20, screenPos.y + 40), ImVec2(screenPos.x + 520, screenPos.y + 70), COLA(0x0a1018, 0.92f), 6.0f);
-        dl->AddRect(ImVec2(screenPos.x + 20, screenPos.y + 40), ImVec2(screenPos.x + 520, screenPos.y + 70), IM_COL32(0, 200, 255, 220), 6.0f);
+        dl->AddRectFilled(ImVec2(screenPos.x + 20, screenPos.y + 40), ImVec2(screenPos.x + 600, screenPos.y + 70), COLA(0x0a1018, 0.92f), 6.0f);
+        dl->AddRect(ImVec2(screenPos.x + 20, screenPos.y + 40), ImVec2(screenPos.x + 600, screenPos.y + 70), IM_COL32(0, 200, 255, 220), 6.0f);
         dl->AddText(ImVec2(screenPos.x + 32, screenPos.y + 46), IM_COL32(255, 255, 255, 255), hudText);
     }
 
@@ -413,7 +418,7 @@ void ViewportPanel::draw(Engine::Renderer::Camera& camera) {
         float bestVertexDist = 14.0f;
 
         int hoveredEdge = -1;
-        float bestEdgeDist = (mCtx.activeModal == Editor::Modeling::ModalTool::LoopCut) ? 120.0f : 12.0f;
+        float bestEdgeDist = 12.0f;
 
         int hoveredFace = -1;
 
@@ -461,7 +466,7 @@ void ViewportPanel::draw(Engine::Renderer::Camera& camera) {
                             }
                         }
                     }
-                    if (isEdgeMode || mCtx.activeModal == Editor::Modeling::ModalTool::LoopCut || mCtx.activeModal == Editor::Modeling::ModalTool::Knife) {
+                    if (isEdgeMode || mCtx.activeModal == Editor::Modeling::ModalTool::Knife) {
                         for (size_t e = 0; e < edges.size(); ++e) {
                             if (edges[e].deleted) continue;
                             uint32_t i0 = edges[e].v0, i1 = edges[e].v1;
@@ -473,31 +478,45 @@ void ViewportPanel::draw(Engine::Renderer::Camera& camera) {
                                 }
                             }
                         }
-                        if (mCtx.activeModal == Editor::Modeling::ModalTool::LoopCut && hoveredEdge != -1) {
-                            mCtx.previewLoopEdges = Engine::Geometry::MeshCutOperators::findEdgeLoop(*mesh, (uint32_t)hoveredEdge);
-                        }
                     }
-                    if (isFaceMode || mCtx.activeModal == Editor::Modeling::ModalTool::Knife) {
-                        for (size_t f = 0; f < faces.size(); ++f) {
-                            if (faces[f].deleted || faces[f].vertices.size() < 3) continue;
-                            const auto& fVerts = faces[f].vertices;
-                            bool allVis = true;
-                            for (uint32_t v : fVerts) {
-                                if (v >= numVerts || !visible[v]) { allVis = false; break; }
-                            }
-                            if (allVis && fVerts.size() == 4) {
-                                uint32_t i0 = fVerts[0], i1 = fVerts[1], i2 = fVerts[2], i3 = fVerts[3];
-                                if (isFrontFacing(sPts[i0], sPts[i1], sPts[i2])) {
-                                    if (pointInQuad(mousePos, sPts[i0], sPts[i1], sPts[i2], sPts[i3])) {
-                                        hoveredFace = static_cast<int>(f);
+                    // Face Picking and Face-specific LoopCut detection
+                    for (size_t f = 0; f < faces.size(); ++f) {
+                        if (faces[f].deleted || faces[f].vertices.size() < 3) continue;
+                        const auto& fVerts = faces[f].vertices;
+                        bool allVis = true;
+                        for (uint32_t v : fVerts) {
+                            if (v >= numVerts || !visible[v]) { allVis = false; break; }
+                        }
+                        if (allVis && fVerts.size() == 4) {
+                            uint32_t i0 = fVerts[0], i1 = fVerts[1], i2 = fVerts[2], i3 = fVerts[3];
+                            if (isFrontFacing(sPts[i0], sPts[i1], sPts[i2])) {
+                                if (pointInQuad(mousePos, sPts[i0], sPts[i1], sPts[i2], sPts[i3])) {
+                                    hoveredFace = static_cast<int>(f);
+                                    if (mCtx.activeModal == Editor::Modeling::ModalTool::LoopCut) {
+                                        float bestDistOnFace = 10000.0f;
+                                        int closestQuadEdge = -1;
+                                        for (int ei = 0; ei < 4; ++ei) {
+                                            uint32_t vA = fVerts[ei], vB = fVerts[(ei + 1) % 4];
+                                            int e = mesh->findEdge(vA, vB);
+                                            if (e >= 0) {
+                                                float dist = distToSegment(mousePos, sPts[vA], sPts[vB]);
+                                                if (dist < bestDistOnFace) {
+                                                    bestDistOnFace = dist;
+                                                    closestQuadEdge = e;
+                                                }
+                                            }
+                                        }
+                                        if (closestQuadEdge != -1) {
+                                            mCtx.previewLoopEdges = Engine::Geometry::MeshCutOperators::findEdgeLoop(*mesh, (uint32_t)closestQuadEdge);
+                                        }
                                     }
                                 }
-                            } else if (allVis && fVerts.size() == 3) {
-                                uint32_t i0 = fVerts[0], i1 = fVerts[1], i2 = fVerts[2];
-                                if (isFrontFacing(sPts[i0], sPts[i1], sPts[i2])) {
-                                    if (pointInTriangle(mousePos, sPts[i0], sPts[i1], sPts[i2])) {
-                                        hoveredFace = static_cast<int>(f);
-                                    }
+                            }
+                        } else if (allVis && fVerts.size() == 3) {
+                            uint32_t i0 = fVerts[0], i1 = fVerts[1], i2 = fVerts[2];
+                            if (isFrontFacing(sPts[i0], sPts[i1], sPts[i2])) {
+                                if (pointInTriangle(mousePos, sPts[i0], sPts[i1], sPts[i2])) {
+                                    hoveredFace = static_cast<int>(f);
                                 }
                             }
                         }
@@ -508,6 +527,7 @@ void ViewportPanel::draw(Engine::Renderer::Camera& camera) {
                 if (mCtx.activeModal == Editor::Modeling::ModalTool::Knife && isSelected && isHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
                     if (hoveredVertex != -1) {
                         mCtx.knifePoints.push_back(vertices[hoveredVertex].position);
+                        if (hoveredFace != -1) mCtx.knifeTargetFaces.push_back((uint32_t)hoveredFace);
                     } else if (hoveredEdge != -1) {
                         uint32_t ev0 = edges[hoveredEdge].v0;
                         uint32_t ev1 = edges[hoveredEdge].v1;
@@ -516,6 +536,7 @@ void ViewportPanel::draw(Engine::Renderer::Camera& camera) {
                         float t = (l2 > 0.0f) ? std::clamp(((mousePos.x - p0.x) * (p1.x - p0.x) + (mousePos.y - p0.y) * (p1.y - p0.y)) / l2, 0.0f, 1.0f) : 0.5f;
                         Engine::Math::Vector3 edgePt = vertices[ev0].position + (vertices[ev1].position - vertices[ev0].position) * t;
                         mCtx.knifePoints.push_back(edgePt);
+                        if (hoveredFace != -1) mCtx.knifeTargetFaces.push_back((uint32_t)hoveredFace);
                     } else if (hoveredFace != -1) {
                         float ndcX = ((mousePos.x - screenPos.x) / avail.x) * 2.0f - 1.0f;
                         float ndcY = -(((mousePos.y - screenPos.y) / avail.y) * 2.0f - 1.0f);
@@ -535,6 +556,7 @@ void ViewportPanel::draw(Engine::Renderer::Camera& camera) {
                                 Engine::Math::Vector3 worldHit = rayOrig + rayDir * t;
                                 Engine::Math::Vector3 localHit = worldHit - pos;
                                 mCtx.knifePoints.push_back(localHit);
+                                mCtx.knifeTargetFaces.push_back((uint32_t)hoveredFace);
                             }
                         }
                     }
@@ -543,41 +565,54 @@ void ViewportPanel::draw(Engine::Renderer::Camera& camera) {
                 // Render Loop Cut Preview Quad Edge Connecting Lines and Dots (multi-cut support)
                 if (mCtx.activeModal == Editor::Modeling::ModalTool::LoopCut && isSelected && !mCtx.previewLoopEdges.empty()) {
                     int cuts = std::max(1, std::min(6, mCtx.opCuts));
-                    for (int k = 0; k < cuts; ++k) {
-                        float baseT = (float)(k + 1) / (float)(cuts + 1);
-                        float t = baseT + mCtx.opSlide * (0.40f / (float)(cuts + 1));
-                        t = std::max(0.02f, std::min(0.98f, t));
+                    std::set<uint32_t> loopEdgeSet(mCtx.previewLoopEdges.begin(), mCtx.previewLoopEdges.end());
 
-                        std::map<uint32_t, ImVec2> edgeScreenMid;
-                        for (uint32_t e : mCtx.previewLoopEdges) {
-                            if (e < edges.size() && !edges[e].deleted) {
-                                uint32_t i0 = edges[e].v0, i1 = edges[e].v1;
-                                if (i0 < numVerts && i1 < numVerts && visible[i0] && visible[i1]) {
-                                    ImVec2 pMid(sPts[i0].x + (sPts[i1].x - sPts[i0].x) * t,
-                                                sPts[i0].y + (sPts[i1].y - sPts[i0].y) * t);
-                                    edgeScreenMid[e] = pMid;
-                                    dl->AddCircleFilled(pMid, 5.0f, IM_COL32(255, 200, 0, 255));
-                                    dl->AddCircle(pMid, 7.0f, IM_COL32(255, 255, 255, 255), 0, 1.5f);
+                    for (size_t f = 0; f < faces.size(); ++f) {
+                        if (faces[f].deleted || faces[f].vertices.size() != 4) continue;
+                        uint32_t v0 = faces[f].vertices[0], v1 = faces[f].vertices[1];
+                        uint32_t v2 = faces[f].vertices[2], v3 = faces[f].vertices[3];
+
+                        int e0 = mesh->findEdge(v0, v1);
+                        int e1 = mesh->findEdge(v1, v2);
+                        int e2 = mesh->findEdge(v2, v3);
+                        int e3 = mesh->findEdge(v3, v0);
+
+                        bool has0 = (e0 >= 0 && loopEdgeSet.count((uint32_t)e0));
+                        bool has2 = (e2 >= 0 && loopEdgeSet.count((uint32_t)e2));
+                        bool has1 = (e1 >= 0 && loopEdgeSet.count((uint32_t)e1));
+                        bool has3 = (e3 >= 0 && loopEdgeSet.count((uint32_t)e3));
+
+                        if (has0 || has2) {
+                            for (int k = 0; k < cuts; ++k) {
+                                float baseT = (float)(k + 1) / (float)(cuts + 1);
+                                float t = std::clamp(baseT + mCtx.opSlide * (0.40f / (float)(cuts + 1)), 0.02f, 0.98f);
+
+                                Engine::Math::Vector3 pA = vertices[v0].position + (vertices[v1].position - vertices[v0].position) * t;
+                                Engine::Math::Vector3 pB = vertices[v3].position + (vertices[v2].position - vertices[v3].position) * t;
+
+                                ImVec2 sA, sB;
+                                if (project(pos + pA, sA) && project(pos + pB, sB)) {
+                                    dl->AddLine(sA, sB, IM_COL32(255, 210, 0, 255), 3.5f);
+                                    dl->AddLine(sA, sB, IM_COL32(255, 255, 255, 220), 1.5f);
+                                    dl->AddCircleFilled(sA, 5.0f, IM_COL32(255, 200, 0, 255));
+                                    dl->AddCircleFilled(sB, 5.0f, IM_COL32(255, 200, 0, 255));
                                 }
                             }
-                        }
+                        } else if (has1 || has3) {
+                            for (int k = 0; k < cuts; ++k) {
+                                float baseT = (float)(k + 1) / (float)(cuts + 1);
+                                float t = std::clamp(baseT + mCtx.opSlide * (0.40f / (float)(cuts + 1)), 0.02f, 0.98f);
 
-                        // Draw connecting line across each quad intersected
-                        for (size_t f = 0; f < faces.size(); ++f) {
-                            if (faces[f].deleted || faces[f].vertices.size() != 4) continue;
-                            uint32_t v0 = faces[f].vertices[0], v1 = faces[f].vertices[1];
-                            uint32_t v2 = faces[f].vertices[2], v3 = faces[f].vertices[3];
-                            int e0 = mesh->findEdge(v0, v1);
-                            int e1 = mesh->findEdge(v1, v2);
-                            int e2 = mesh->findEdge(v2, v3);
-                            int e3 = mesh->findEdge(v3, v0);
+                                Engine::Math::Vector3 pA = vertices[v1].position + (vertices[v2].position - vertices[v1].position) * t;
+                                Engine::Math::Vector3 pB = vertices[v0].position + (vertices[v3].position - vertices[v0].position) * t;
 
-                            if (e0 >= 0 && e2 >= 0 && edgeScreenMid.count((uint32_t)e0) && edgeScreenMid.count((uint32_t)e2)) {
-                                dl->AddLine(edgeScreenMid[(uint32_t)e0], edgeScreenMid[(uint32_t)e2], IM_COL32(255, 210, 0, 255), 3.5f);
-                                dl->AddLine(edgeScreenMid[(uint32_t)e0], edgeScreenMid[(uint32_t)e2], IM_COL32(255, 255, 255, 220), 1.5f);
-                            } else if (e1 >= 0 && e3 >= 0 && edgeScreenMid.count((uint32_t)e1) && edgeScreenMid.count((uint32_t)e3)) {
-                                dl->AddLine(edgeScreenMid[(uint32_t)e1], edgeScreenMid[(uint32_t)e3], IM_COL32(255, 210, 0, 255), 3.5f);
-                                dl->AddLine(edgeScreenMid[(uint32_t)e1], edgeScreenMid[(uint32_t)e3], IM_COL32(255, 255, 255, 220), 1.5f);
+                                ImVec2 sA, sB;
+                                if (project(pos + pA, sA) && project(pos + pB, sB)) {
+                                    dl->AddLine(sA, sB, IM_COL32(255, 210, 0, 255), 3.5f);
+                                    dl->AddLine(sA, sB, IM_COL32(255, 255, 255, 220), 1.5f);
+                                    dl->AddCircleFilled(sA, 5.0f, IM_COL32(255, 200, 0, 255));
+                                    dl->AddCircleFilled(sB, 5.0f, IM_COL32(255, 200, 0, 255));
+                                }
                             }
                         }
                     }

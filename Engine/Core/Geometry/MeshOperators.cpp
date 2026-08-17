@@ -158,25 +158,81 @@ void MeshOperators::bevelFaces(
 ) {
     if (faceIndices.empty() || width <= 0.0001f) return;
     auto& faces = mesh.getFaces();
+    auto& vertices = mesh.getVertices();
 
-    // Collect all boundary edges belonging to the selected faces
-    std::set<uint32_t> boundaryEdges;
     for (uint32_t fIdx : faceIndices) {
         if (fIdx >= faces.size() || faces[fIdx].deleted) continue;
-        const auto& fVerts = faces[fIdx].vertices;
-        size_t count = fVerts.size();
+
+        auto face = faces[fIdx]; // copy
+        size_t count = face.vertices.size();
+        if (count < 3) continue;
+
+        mesh.calculateFaceNormal(fIdx);
+        Engine::Math::Vector3 normal = face.normal;
+
+        Engine::Math::Vector3 center(0, 0, 0);
+        for (uint32_t v : face.vertices) center += vertices[v].position;
+        center = center * (1.0f / (float)count);
+
+        float maxRadius = 0.0f;
+        for (uint32_t v : face.vertices) {
+            float dist = (vertices[v].position - center).length();
+            if (dist > maxRadius) maxRadius = dist;
+        }
+
+        float actualWidth = std::min(width, maxRadius * 0.45f);
+        float shrinkRatio = (maxRadius > 0.0001f) ? (1.0f - (actualWidth / maxRadius)) : 0.8f;
+        shrinkRatio = std::max(0.05f, std::min(0.95f, shrinkRatio));
+
+        // Create top shrunken vertices and side lowered vertices for every corner
+        std::vector<uint32_t> topVerts(count);
+        std::vector<uint32_t> sideVerts(count);
+
         for (size_t i = 0; i < count; ++i) {
-            uint32_t v0 = fVerts[i];
-            uint32_t v1 = fVerts[(i + 1) % count];
-            int e = mesh.findEdge(v0, v1);
-            if (e >= 0) {
-                boundaryEdges.insert((uint32_t)e);
+            uint32_t origV = face.vertices[i];
+            Engine::Math::Vector3 origPos = vertices[origV].position;
+
+            Engine::Math::Vector3 topPos = center + (origPos - center) * shrinkRatio + normal * depth;
+            Engine::Math::Vector3 sidePos = origPos - normal * actualWidth;
+
+            topVerts[i] = mesh.addVertex(topPos, vertices[origV].u, vertices[origV].v, normal);
+            sideVerts[i] = mesh.addVertex(sidePos, vertices[origV].u, vertices[origV].v, normal);
+        }
+
+        // Replace original top face with inner elevated top face
+        mesh.removeFace(fIdx);
+        mesh.addFace(topVerts);
+
+        // Add 4-sided sloping ramp quads connecting side lowered boundary to top inner face for ALL edges
+        for (size_t i = 0; i < count; ++i) {
+            size_t next = (i + 1) % count;
+            uint32_t s0 = sideVerts[i];
+            uint32_t s1 = sideVerts[next];
+            uint32_t t1 = topVerts[next];
+            uint32_t t0 = topVerts[i];
+
+            // CCW Order: [s0, s1, t1, t0] guarantees outward-facing ramp normal
+            mesh.addFace({ s0, s1, t1, t0 });
+        }
+
+        // Update all neighboring side faces that shared original corners to use the sideVerts
+        for (size_t i = 0; i < count; ++i) {
+            uint32_t origV = face.vertices[i];
+            uint32_t newSideV = sideVerts[i];
+
+            for (size_t otherF = 0; otherF < faces.size(); ++otherF) {
+                if (otherF == fIdx || faces[otherF].deleted) continue;
+                for (auto& v : faces[otherF].vertices) {
+                    if (v == origV) {
+                        v = newSideV;
+                    }
+                }
             }
         }
     }
 
-    std::vector<uint32_t> edgesList(boundaryEdges.begin(), boundaryEdges.end());
-    bevelEdges(mesh, edgesList, width, segments, profile);
+    mesh.rebuildTopology();
+    mesh.recalculateAllNormals(false);
 }
 
 void MeshOperators::bevelEdges(

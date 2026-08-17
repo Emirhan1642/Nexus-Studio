@@ -35,7 +35,9 @@ public:
     // ── Knife Tool (Polyline Slice) ──────────────────────────────────────────
     static bool cutMeshWithKnifePolyline(
         EditableMesh& mesh,
-        const std::vector<Engine::Math::Vector3>& localPoints
+        const std::vector<Engine::Math::Vector3>& localPoints,
+        const std::vector<uint32_t>& targetFaces = {},
+        bool cutThrough = false
     );
 
     static bool cutFaceWithRaySegment(

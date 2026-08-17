@@ -54,6 +54,8 @@ public:
 
     // Knife Cut Points
     std::vector<Engine::Math::Vector3> knifePoints;
+    std::vector<uint32_t> knifeTargetFaces;
+    bool opCutThrough = false; // When false, cuts only clicked front faces; when true, cuts through whole model
 
     // Last Operation Parameters (For Floating Operator Panel)
     LastOpType lastOp = LastOpType::None;

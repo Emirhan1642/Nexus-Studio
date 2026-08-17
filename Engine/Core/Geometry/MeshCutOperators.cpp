@@ -90,36 +90,14 @@ std::vector<uint32_t> MeshCutOperators::applyLoopCut(
     numCuts = std::max(1, std::min(6, numCuts));
     slideFactor = std::max(-0.90f, std::min(0.90f, slideFactor));
 
-    // Map: edgeIdx -> vector of newly created split vertexIdx (size = numCuts)
-    std::map<uint32_t, std::vector<uint32_t>> edgeSplitMap;
-
-    for (uint32_t eIdx : edgeLoop) {
-        if (eIdx >= edges.size() || edges[eIdx].deleted) continue;
-        uint32_t v0 = edges[eIdx].v0;
-        uint32_t v1 = edges[eIdx].v1;
-        if (v0 >= vertices.size() || v1 >= vertices.size()) continue;
-
-        std::vector<uint32_t> splits(numCuts);
-        for (int k = 0; k < numCuts; ++k) {
-            float baseT = (float)(k + 1) / (float)(numCuts + 1);
-            float t = baseT + slideFactor * (0.40f / (float)(numCuts + 1));
-            t = std::max(0.02f, std::min(0.98f, t));
-
-            Engine::Math::Vector3 p = vertices[v0].position + (vertices[v1].position - vertices[v0].position) * t;
-            float u = vertices[v0].u + (vertices[v1].u - vertices[v0].u) * t;
-            float v = vertices[v0].v + (vertices[v1].v - vertices[v0].v) * t;
-
-            splits[k] = mesh.addVertex(p, u, v);
-        }
-        edgeSplitMap[eIdx] = splits;
-    }
-
     // Identify all affected quad faces
     std::set<uint32_t> affectedFaces;
     for (uint32_t eIdx : edgeLoop) {
         auto edgeFaces = mesh.getEdgeFaces(eIdx);
         for (uint32_t f : edgeFaces) affectedFaces.insert(f);
     }
+
+    std::set<uint32_t> loopEdgeSet(edgeLoop.begin(), edgeLoop.end());
 
     for (uint32_t fIdx : affectedFaces) {
         if (fIdx >= faces.size() || faces[fIdx].deleted) continue;
@@ -136,41 +114,56 @@ std::vector<uint32_t> MeshCutOperators::applyLoopCut(
         int e2 = mesh.findEdge(v2, v3);
         int e3 = mesh.findEdge(v3, v0);
 
-        bool has0 = (e0 >= 0 && edgeSplitMap.count((uint32_t)e0));
-        bool has1 = (e1 >= 0 && edgeSplitMap.count((uint32_t)e1));
-        bool has2 = (e2 >= 0 && edgeSplitMap.count((uint32_t)e2));
-        bool has3 = (e3 >= 0 && edgeSplitMap.count((uint32_t)e3));
+        bool has0 = (e0 >= 0 && loopEdgeSet.count((uint32_t)e0));
+        bool has2 = (e2 >= 0 && loopEdgeSet.count((uint32_t)e2));
 
-        if (has0 && has2) {
-            const auto& sv0 = edgeSplitMap[(uint32_t)e0];
-            const auto& sv2 = edgeSplitMap[(uint32_t)e2];
-            mesh.removeFace(fIdx);
+        bool has1 = (e1 >= 0 && loopEdgeSet.count((uint32_t)e1));
+        bool has3 = (e3 >= 0 && loopEdgeSet.count((uint32_t)e3));
 
-            // First quad
-            mesh.addFace({v0, sv0[0], sv2[0], v3});
+        if (has0 || has2) {
+            // Cut parallel to e1/e3, dividing e0(v0->v1) and e2(v3->v2)
+            std::vector<uint32_t> sv0(numCuts);
+            std::vector<uint32_t> sv2(numCuts);
 
-            // Intermediate quads
-            for (int k = 0; k + 1 < numCuts; ++k) {
-                mesh.addFace({sv0[k], sv0[k + 1], sv2[k + 1], sv2[k]});
+            for (int k = 0; k < numCuts; ++k) {
+                float baseT = (float)(k + 1) / (float)(numCuts + 1);
+                float t = std::clamp(baseT + slideFactor * (0.40f / (float)(numCuts + 1)), 0.02f, 0.98f);
+
+                Engine::Math::Vector3 pA = vertices[v0].position + (vertices[v1].position - vertices[v0].position) * t;
+                Engine::Math::Vector3 pB = vertices[v3].position + (vertices[v2].position - vertices[v3].position) * t;
+
+                sv0[k] = mesh.addVertex(pA, vertices[v0].u, vertices[v0].v);
+                sv2[k] = mesh.addVertex(pB, vertices[v3].u, vertices[v3].v);
             }
 
-            // Last quad
-            mesh.addFace({sv0[numCuts - 1], v1, v2, sv2[numCuts - 1]});
-        } else if (has1 && has3) {
-            const auto& sv1 = edgeSplitMap[(uint32_t)e1];
-            const auto& sv3 = edgeSplitMap[(uint32_t)e3];
             mesh.removeFace(fIdx);
-
-            // First quad
-            mesh.addFace({v0, v1, sv1[0], sv3[0]});
-
-            // Intermediate quads
+            mesh.addFace({ v0, sv0[0], sv2[0], v3 });
             for (int k = 0; k + 1 < numCuts; ++k) {
-                mesh.addFace({sv3[k], sv1[k], sv1[k + 1], sv3[k + 1]});
+                mesh.addFace({ sv0[k], sv0[k + 1], sv2[k + 1], sv2[k] });
+            }
+            mesh.addFace({ sv0[numCuts - 1], v1, v2, sv2[numCuts - 1] });
+        } else if (has1 || has3) {
+            // Cut parallel to e0/e2, dividing e1(v1->v2) and e3(v0->v3)
+            std::vector<uint32_t> sv1(numCuts);
+            std::vector<uint32_t> sv3(numCuts);
+
+            for (int k = 0; k < numCuts; ++k) {
+                float baseT = (float)(k + 1) / (float)(numCuts + 1);
+                float t = std::clamp(baseT + slideFactor * (0.40f / (float)(numCuts + 1)), 0.02f, 0.98f);
+
+                Engine::Math::Vector3 pA = vertices[v1].position + (vertices[v2].position - vertices[v1].position) * t;
+                Engine::Math::Vector3 pB = vertices[v0].position + (vertices[v3].position - vertices[v0].position) * t;
+
+                sv1[k] = mesh.addVertex(pA, vertices[v1].u, vertices[v1].v);
+                sv3[k] = mesh.addVertex(pB, vertices[v0].u, vertices[v0].v);
             }
 
-            // Last quad
-            mesh.addFace({sv3[numCuts - 1], sv1[numCuts - 1], v2, v3});
+            mesh.removeFace(fIdx);
+            mesh.addFace({ v0, v1, sv1[0], sv3[0] });
+            for (int k = 0; k + 1 < numCuts; ++k) {
+                mesh.addFace({ sv3[k], sv1[k], sv1[k + 1], sv3[k + 1] });
+            }
+            mesh.addFace({ sv3[numCuts - 1], sv1[numCuts - 1], v2, v3 });
         }
     }
 
@@ -182,15 +175,27 @@ std::vector<uint32_t> MeshCutOperators::applyLoopCut(
 // ── Knife Tool ──────────────────────────────────────────────────────────────
 bool MeshCutOperators::cutMeshWithKnifePolyline(
     EditableMesh& mesh,
-    const std::vector<Engine::Math::Vector3>& localPoints
+    const std::vector<Engine::Math::Vector3>& localPoints,
+    const std::vector<uint32_t>& targetFaces,
+    bool cutThrough
 ) {
     if (localPoints.size() < 2) return false;
 
-    // Fixed snapshot of face indices at the beginning of the cut to prevent iterator invalidation
+    // Determine which faces are candidates for cutting
     std::vector<uint32_t> initialFaceIndices;
-    for (size_t f = 0; f < mesh.getFaces().size(); ++f) {
-        if (!mesh.getFaces()[f].deleted) {
-            initialFaceIndices.push_back((uint32_t)f);
+    if (!cutThrough && !targetFaces.empty()) {
+        std::set<uint32_t> uniqueTargets(targetFaces.begin(), targetFaces.end());
+        for (uint32_t f : uniqueTargets) {
+            if (f < mesh.getFaces().size() && !mesh.getFaces()[f].deleted) {
+                initialFaceIndices.push_back(f);
+            }
+        }
+    } else {
+        // Cut through mode: check all faces in mesh
+        for (size_t f = 0; f < mesh.getFaces().size(); ++f) {
+            if (!mesh.getFaces()[f].deleted) {
+                initialFaceIndices.push_back((uint32_t)f);
+            }
         }
     }
 
@@ -234,7 +239,8 @@ bool MeshCutOperators::cutFaceWithRaySegment(
 
     float d0 = std::abs((p0 - fp).dot(fn));
     float d1 = std::abs((p1 - fp).dot(fn));
-    if (d0 > 0.6f && d1 > 0.6f) return false; // Segment does not lie on this face plane
+    // BOTH end points of the cut segment MUST lie precisely on this face's plane
+    if (d0 > 0.05f || d1 > 0.05f) return false;
 
     // Check if p0 or p1 snaps directly to existing face corner vertices
     int matchIdx0 = -1;

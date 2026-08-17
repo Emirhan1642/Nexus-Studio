@@ -180,7 +180,7 @@ void ModelingContext::confirmModal() {
     if (part && preModalMesh) {
         if (activeModal == ModalTool::Knife && knifePoints.size() >= 2) {
             auto workingMesh = preModalMesh->clone();
-            Engine::Geometry::MeshCutOperators::cutMeshWithKnifePolyline(*workingMesh, knifePoints);
+            Engine::Geometry::MeshCutOperators::cutMeshWithKnifePolyline(*workingMesh, knifePoints, knifeTargetFaces, opCutThrough);
             part->setEditableMesh(workingMesh);
         } else if (activeModal == ModalTool::LoopCut && !previewLoopEdges.empty()) {
             opTargetEdges = previewLoopEdges;
@@ -198,6 +198,7 @@ void ModelingContext::confirmModal() {
     activeModal = ModalTool::None;
     preModalMesh = nullptr;
     previewLoopEdges.clear();
+    knifeTargetFaces.clear();
 }
 
 void ModelingContext::cancelModal() {
@@ -209,6 +210,7 @@ void ModelingContext::cancelModal() {
     activeModal = ModalTool::None;
     preModalMesh = nullptr;
     previewLoopEdges.clear();
+    knifeTargetFaces.clear();
 }
 
 void ModelingContext::reapplyLastOperation() {
