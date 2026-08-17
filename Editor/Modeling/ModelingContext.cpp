@@ -375,4 +375,88 @@ void ModelingContext::executeBoxUV(std::shared_ptr<Part> part) {
     UndoStack::instance().push(std::move(cmd));
 }
 
+void ModelingContext::executePoke(std::shared_ptr<Part> part, float offset) {
+    if (!part || selectedFaces.empty()) return;
+    part->ensureEditableMesh();
+    auto mesh = part->getEditableMesh();
+    if (!mesh) return;
+
+    auto before = mesh->clone();
+    Engine::Geometry::MeshOperators::pokeFaces(*mesh, selectedFaces, offset);
+    part->rebuildProceduralMesh();
+
+    auto cmd = std::make_unique<MeshTopologyCommand>(part, before, mesh->clone());
+    UndoStack::instance().push(std::move(cmd));
+}
+
+void ModelingContext::executeTriangulate(std::shared_ptr<Part> part) {
+    if (!part || selectedFaces.empty()) return;
+    part->ensureEditableMesh();
+    auto mesh = part->getEditableMesh();
+    if (!mesh) return;
+
+    auto before = mesh->clone();
+    Engine::Geometry::MeshOperators::triangulateFaces(*mesh, selectedFaces);
+    part->rebuildProceduralMesh();
+
+    auto cmd = std::make_unique<MeshTopologyCommand>(part, before, mesh->clone());
+    UndoStack::instance().push(std::move(cmd));
+}
+
+void ModelingContext::executeTrisToQuads(std::shared_ptr<Part> part) {
+    if (!part || selectedFaces.empty()) return;
+    part->ensureEditableMesh();
+    auto mesh = part->getEditableMesh();
+    if (!mesh) return;
+
+    auto before = mesh->clone();
+    Engine::Geometry::MeshOperators::trisToQuads(*mesh, selectedFaces);
+    part->rebuildProceduralMesh();
+
+    auto cmd = std::make_unique<MeshTopologyCommand>(part, before, mesh->clone());
+    UndoStack::instance().push(std::move(cmd));
+}
+
+void ModelingContext::executeFlipNormals(std::shared_ptr<Part> part) {
+    if (!part || selectedFaces.empty()) return;
+    part->ensureEditableMesh();
+    auto mesh = part->getEditableMesh();
+    if (!mesh) return;
+
+    auto before = mesh->clone();
+    Engine::Geometry::MeshOperators::flipNormals(*mesh, selectedFaces);
+    part->rebuildProceduralMesh();
+
+    auto cmd = std::make_unique<MeshTopologyCommand>(part, before, mesh->clone());
+    UndoStack::instance().push(std::move(cmd));
+}
+
+void ModelingContext::executeEdgeSplit(std::shared_ptr<Part> part) {
+    if (!part || selectedEdges.empty()) return;
+    part->ensureEditableMesh();
+    auto mesh = part->getEditableMesh();
+    if (!mesh) return;
+
+    auto before = mesh->clone();
+    Engine::Geometry::MeshOperators::edgeSplit(*mesh, selectedEdges);
+    part->rebuildProceduralMesh();
+
+    auto cmd = std::make_unique<MeshTopologyCommand>(part, before, mesh->clone());
+    UndoStack::instance().push(std::move(cmd));
+}
+
+void ModelingContext::executeWeldByDistance(std::shared_ptr<Part> part, float threshold) {
+    if (!part) return;
+    part->ensureEditableMesh();
+    auto mesh = part->getEditableMesh();
+    if (!mesh) return;
+
+    auto before = mesh->clone();
+    Engine::Geometry::MeshOperators::weldVerticesByDistance(*mesh, threshold);
+    part->rebuildProceduralMesh();
+
+    auto cmd = std::make_unique<MeshTopologyCommand>(part, before, mesh->clone());
+    UndoStack::instance().push(std::move(cmd));
+}
+
 } // namespace Editor::Modeling

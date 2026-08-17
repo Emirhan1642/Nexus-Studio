@@ -283,6 +283,22 @@ void ViewportPanel::draw(Engine::Renderer::Camera& camera) {
             if (ImGui::IsKeyPressed(ImGuiKey_F)) {
                 mCtx.executeFill(selPart);
             }
+            // Poke Faces: Alt + P
+            if (ImGui::IsKeyDown(ImGuiMod_Alt) && ImGui::IsKeyPressed(ImGuiKey_P)) {
+                mCtx.executePoke(selPart, 0.0f);
+            }
+            // Triangulate Faces: Ctrl + T
+            if (ImGui::IsKeyDown(ImGuiMod_Ctrl) && ImGui::IsKeyPressed(ImGuiKey_T)) {
+                mCtx.executeTriangulate(selPart);
+            }
+            // Tris to Quads: Alt + J
+            if (ImGui::IsKeyDown(ImGuiMod_Alt) && ImGui::IsKeyPressed(ImGuiKey_J)) {
+                mCtx.executeTrisToQuads(selPart);
+            }
+            // Flip Normals: Alt + N
+            if (ImGui::IsKeyDown(ImGuiMod_Alt) && ImGui::IsKeyPressed(ImGuiKey_N)) {
+                mCtx.executeFlipNormals(selPart);
+            }
         }
 
         // Shift + S: Open Snap Pie Menu

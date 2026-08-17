@@ -121,6 +121,39 @@ public:
         const std::vector<uint32_t>& loop1Verts,
         const std::vector<uint32_t>& loop2Verts
     );
+
+    // ── 8. Advanced Topology & Utility Operators ────────────────────────────
+    static void pokeFaces(
+        EditableMesh& mesh,
+        const std::vector<uint32_t>& faceIndices,
+        float offset = 0.0f
+    );
+
+    static void triangulateFaces(
+        EditableMesh& mesh,
+        const std::vector<uint32_t>& faceIndices
+    );
+
+    static void trisToQuads(
+        EditableMesh& mesh,
+        const std::vector<uint32_t>& faceIndices
+    );
+
+    static void slideVertices(
+        EditableMesh& mesh,
+        const std::vector<uint32_t>& vertIndices,
+        float factor
+    );
+
+    static void edgeSplit(
+        EditableMesh& mesh,
+        const std::vector<uint32_t>& edgeIndices
+    );
+
+    static void flipNormals(
+        EditableMesh& mesh,
+        const std::vector<uint32_t>& faceIndices
+    );
 };
 
 } // namespace Engine::Geometry

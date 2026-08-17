@@ -735,4 +735,183 @@ void MeshOperators::bridgeEdgeLoops(
     mesh.recalculateAllNormals(false);
 }
 
+// ── 8. Advanced Topology & Utility Operators ────────────────────────────────
+void MeshOperators::pokeFaces(
+    EditableMesh& mesh,
+    const std::vector<uint32_t>& faceIndices,
+    float offset
+) {
+    auto& faces = mesh.getFaces();
+    auto& vertices = mesh.getVertices();
+
+    for (uint32_t fIdx : faceIndices) {
+        if (fIdx >= faces.size() || faces[fIdx].deleted) continue;
+        auto face = faces[fIdx];
+        size_t count = face.vertices.size();
+        if (count < 3) continue;
+
+        mesh.calculateFaceNormal(fIdx);
+        Engine::Math::Vector3 center = face.center + face.normal * offset;
+        uint32_t centerV = mesh.addVertex(center, 0.5f, 0.5f, face.normal);
+
+        mesh.removeFace(fIdx);
+        for (size_t i = 0; i < count; ++i) {
+            uint32_t v0 = face.vertices[i];
+            uint32_t v1 = face.vertices[(i + 1) % count];
+            mesh.addFace({v0, v1, centerV});
+        }
+    }
+
+    mesh.rebuildTopology();
+    mesh.recalculateAllNormals(false);
+}
+
+void MeshOperators::triangulateFaces(
+    EditableMesh& mesh,
+    const std::vector<uint32_t>& faceIndices
+) {
+    auto& faces = mesh.getFaces();
+
+    for (uint32_t fIdx : faceIndices) {
+        if (fIdx >= faces.size() || faces[fIdx].deleted) continue;
+        auto face = faces[fIdx];
+        size_t count = face.vertices.size();
+        if (count <= 3) continue;
+
+        mesh.removeFace(fIdx);
+        // Fan triangulation into triangles
+        for (size_t i = 1; i + 1 < count; ++i) {
+            mesh.addFace({face.vertices[0], face.vertices[i], face.vertices[i + 1]});
+        }
+    }
+
+    mesh.rebuildTopology();
+    mesh.recalculateAllNormals(false);
+}
+
+void MeshOperators::trisToQuads(
+    EditableMesh& mesh,
+    const std::vector<uint32_t>& faceIndices
+) {
+    auto& faces = mesh.getFaces();
+    auto& edges = mesh.getEdges();
+
+    std::set<uint32_t> triSet;
+    for (uint32_t f : faceIndices) {
+        if (f < faces.size() && !faces[f].deleted && faces[f].vertices.size() == 3) {
+            triSet.insert(f);
+        }
+    }
+
+    std::set<uint32_t> processedFaces;
+
+    for (uint32_t fA : triSet) {
+        if (processedFaces.count(fA) || faces[fA].deleted) continue;
+
+        // Find a neighboring triangle that shares an edge
+        for (size_t e = 0; e < edges.size(); ++e) {
+            if (edges[e].deleted) continue;
+            auto edgeFaces = mesh.getEdgeFaces((uint32_t)e);
+            if (edgeFaces.size() == 2) {
+                uint32_t f0 = edgeFaces[0], f1 = edgeFaces[1];
+                if ((f0 == fA && triSet.count(f1) && !processedFaces.count(f1)) ||
+                    (f1 == fA && triSet.count(f0) && !processedFaces.count(f0))) {
+                    uint32_t fB = (f0 == fA) ? f1 : f0;
+
+                    uint32_t ev0 = edges[e].v0, ev1 = edges[e].v1;
+                    const auto& vA = faces[fA].vertices;
+                    const auto& vB = faces[fB].vertices;
+
+                    uint32_t oppA = 0xFFFFFFFF, oppB = 0xFFFFFFFF;
+                    for (uint32_t v : vA) if (v != ev0 && v != ev1) oppA = v;
+                    for (uint32_t v : vB) if (v != ev0 && v != ev1) oppB = v;
+
+                    if (oppA != 0xFFFFFFFF && oppB != 0xFFFFFFFF) {
+                        mesh.removeFace(fA);
+                        mesh.removeFace(fB);
+                        mesh.addFace({oppA, ev0, oppB, ev1});
+                        processedFaces.insert(fA);
+                        processedFaces.insert(fB);
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    mesh.rebuildTopology();
+    mesh.recalculateAllNormals(false);
+}
+
+void MeshOperators::slideVertices(
+    EditableMesh& mesh,
+    const std::vector<uint32_t>& vertIndices,
+    float factor
+) {
+    auto& vertices = mesh.getVertices();
+
+    for (uint32_t vIdx : vertIndices) {
+        if (vIdx >= vertices.size() || vertices[vIdx].deleted) continue;
+        auto adj = mesh.getAdjacentVertices(vIdx);
+        if (adj.empty()) continue;
+
+        // Pick dominant connected edge direction to slide along
+        uint32_t targetV = (factor >= 0.0f) ? adj.front() : adj.back();
+        float absF = std::clamp(std::abs(factor), 0.0f, 0.95f);
+        vertices[vIdx].position += (vertices[targetV].position - vertices[vIdx].position) * absF;
+    }
+
+    mesh.rebuildTopology();
+    mesh.recalculateAllNormals(false);
+}
+
+void MeshOperators::edgeSplit(
+    EditableMesh& mesh,
+    const std::vector<uint32_t>& edgeIndices
+) {
+    auto& edges = mesh.getEdges();
+    auto& faces = mesh.getFaces();
+    auto& vertices = mesh.getVertices();
+
+    for (uint32_t eIdx : edgeIndices) {
+        if (eIdx >= edges.size() || edges[eIdx].deleted) continue;
+        auto edgeFaces = mesh.getEdgeFaces(eIdx);
+        if (edgeFaces.size() < 2) continue; // Boundary already
+
+        uint32_t f0 = edgeFaces[0];
+        uint32_t f1 = edgeFaces[1];
+        uint32_t v0 = edges[eIdx].v0;
+        uint32_t v1 = edges[eIdx].v1;
+
+        // Duplicate v0 and v1 for face f1
+        uint32_t newV0 = mesh.addVertex(vertices[v0].position, vertices[v0].u, vertices[v0].v, vertices[v0].normal);
+        uint32_t newV1 = mesh.addVertex(vertices[v1].position, vertices[v1].u, vertices[v1].v, vertices[v1].normal);
+
+        for (auto& v : faces[f1].vertices) {
+            if (v == v0) v = newV0;
+            else if (v == v1) v = newV1;
+        }
+    }
+
+    mesh.rebuildTopology();
+    mesh.recalculateAllNormals(false);
+}
+
+void MeshOperators::flipNormals(
+    EditableMesh& mesh,
+    const std::vector<uint32_t>& faceIndices
+) {
+    auto& faces = mesh.getFaces();
+    for (uint32_t fIdx : faceIndices) {
+        if (fIdx >= faces.size() || faces[fIdx].deleted) continue;
+        std::reverse(faces[fIdx].vertices.begin(), faces[fIdx].vertices.end());
+        if (!faces[fIdx].uvs.empty()) {
+            std::reverse(faces[fIdx].uvs.begin(), faces[fIdx].uvs.end());
+        }
+    }
+
+    mesh.rebuildTopology();
+    mesh.recalculateAllNormals(false);
+}
+
 } // namespace Engine::Geometry

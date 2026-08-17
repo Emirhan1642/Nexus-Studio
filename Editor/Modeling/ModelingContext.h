@@ -97,6 +97,13 @@ public:
     void executeSmartUV(std::shared_ptr<Part> part);
     void executeBoxUV(std::shared_ptr<Part> part);
 
+    void executePoke(std::shared_ptr<Part> part, float offset = 0.0f);
+    void executeTriangulate(std::shared_ptr<Part> part);
+    void executeTrisToQuads(std::shared_ptr<Part> part);
+    void executeFlipNormals(std::shared_ptr<Part> part);
+    void executeEdgeSplit(std::shared_ptr<Part> part);
+    void executeWeldByDistance(std::shared_ptr<Part> part, float threshold = 0.001f);
+
     void reapplyLastOperation();
 
 private:
