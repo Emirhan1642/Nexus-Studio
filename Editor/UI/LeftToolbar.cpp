@@ -4,6 +4,8 @@
 #include "IconRegistry.h"
 #include "NexusTheme.h"
 #include "EditorLayout.h"
+#include "SelectionManager.h"
+#include "Editor/Modeling/ModelingContext.h"
 
 // ─── Viewport states (extern from ViewportPanel.cpp) ───
 extern bool  s_wireframe;
@@ -284,6 +286,50 @@ void LeftToolbar::draw() {
     bool clickedVert = isVert;
     drawShortcut("##shading_vert", "icon_wireframe", DrawIcon_Folder, clickedVert, "Vertex Mode (Select & Move Vertices)");
     if (clickedVert && !isVert) EditorLayout::instance().shadingMode = EditorShadingMode::Vertex;
+
+    // In Edit Modes: Show Dedicated Modeling Tools (Extrude, Inset, Bevel, LoopCut, Knife, Subdivide, Merge, UV)
+    if (EditorLayout::instance().shadingMode != EditorShadingMode::Object) {
+        drawDivider();
+        auto selPart = std::dynamic_pointer_cast<Part>(SelectionManager::instance().getSelected());
+        auto& mCtx = Editor::Modeling::ModelingContext::instance();
+
+        // 1. Extrude (E)
+        bool dummyExtrude = (mCtx.activeModal == Editor::Modeling::ModalTool::Extrude);
+        drawShortcut("##tool_extrude", "icon_mesh", DrawIcon_Folder, dummyExtrude, "Extrude Region (E)");
+        if (ImGui::IsItemClicked() && selPart) mCtx.startExtrude(selPart);
+
+        // 2. Inset (I)
+        bool dummyInset = (mCtx.activeModal == Editor::Modeling::ModalTool::Inset);
+        drawShortcut("##tool_inset", "icon_box", DrawIcon_Folder, dummyInset, "Inset Faces (I)");
+        if (ImGui::IsItemClicked() && selPart) mCtx.startInset(selPart);
+
+        // 3. Bevel (Ctrl+B)
+        bool dummyBevel = (mCtx.activeModal == Editor::Modeling::ModalTool::Bevel);
+        drawShortcut("##tool_bevel", "icon_3d_cube", DrawIcon_Folder, dummyBevel, "Bevel / Chamfer (Ctrl+B)");
+        if (ImGui::IsItemClicked() && selPart) mCtx.startBevel(selPart);
+
+        // 4. Loop Cut (Ctrl+R)
+        bool dummyLoop = (mCtx.activeModal == Editor::Modeling::ModalTool::LoopCut);
+        drawShortcut("##tool_loopcut", "icon_wireframe", DrawIcon_Folder, dummyLoop, "Loop Cut & Slide (Ctrl+R)");
+        if (ImGui::IsItemClicked() && selPart) mCtx.startLoopCut(selPart);
+
+        // 5. Knife Tool (K)
+        bool dummyKnife = (mCtx.activeModal == Editor::Modeling::ModalTool::Knife);
+        drawShortcut("##tool_knife", "icon_ai", DrawIcon_Folder, dummyKnife, "Knife Cut (K)");
+        if (ImGui::IsItemClicked() && selPart) mCtx.startKnife(selPart);
+
+        // 6. Subdivide
+        bool dummySubdiv = false;
+        drawShortcut("##tool_subdiv", "icon_model", DrawIcon_Folder, dummySubdiv, "Subdivide Faces");
+        if (ImGui::IsItemClicked() && selPart) mCtx.executeSubdivide(selPart, 1, 0.0f);
+
+        // 7. Auto UV Mapping
+        bool dummyUV = false;
+        drawShortcut("##tool_uv", "icon_node_editor", DrawIcon_Folder, dummyUV, "Smart UV Project (Auto-Unwrap)");
+        if (ImGui::IsItemClicked() && selPart) mCtx.executeSmartUV(selPart);
+    }
+
+    drawDivider();
 
     drawShortcut("##coll", "icon_collision", DrawIcon_Folder, s_collision, "Collision Bounds");
     drawShortcut("##world", "icon_world", DrawIcon_Folder, s_worldSpace, "World Space Toggle");

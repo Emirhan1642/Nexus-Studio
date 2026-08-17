@@ -18,6 +18,11 @@ set(CORE_SOURCES
     DataModel/DataModelSerializer.cpp
     Math/Matrix4.cpp
     Math/Quaternion.cpp
+    Geometry/EditableMesh.cpp
+    Geometry/MeshPrimitives.cpp
+    Geometry/MeshOperators.cpp
+    Geometry/MeshCutOperators.cpp
+    Geometry/UVUnwrapper.cpp
 )
 
 set(CORE_HEADERS
@@ -39,6 +44,11 @@ set(CORE_HEADERS
     Math/Vector3.h
     Math/Matrix4.h
     Math/Quaternion.h
+    Geometry/EditableMesh.h
+    Geometry/MeshPrimitives.h
+    Geometry/MeshOperators.h
+    Geometry/MeshCutOperators.h
+    Geometry/UVUnwrapper.h
 )
 
 add_library(EngineCore OBJECT ${CORE_SOURCES} ${CORE_HEADERS})

@@ -12,6 +12,8 @@
 #include "EditorLayout.h"
 #include "SharedTabBar.h"
 #include "ImGuiLayer.h"
+#include "Asset/MeshAssetExporter.h"
+#include "Engine/Core/Geometry/UVUnwrapper.h"
 #include <string>
 #include <vector>
 #include <map>
@@ -711,6 +713,53 @@ void PropertiesPanel::draw() {
             // Normal Strength
             static float normalStr = 0.80f;
             SliderRow("Normal Strength", &normalStr, 0.0f, 2.0f);
+
+            // ─────────────────────────────────────────────────────────────────
+            // MESH & MODELING (EditableMesh inspection, Shading, Normals, Export)
+            // ─────────────────────────────────────────────────────────────────
+            if (SectionHeader("Mesh & Topology", "icon_mesh_bold", nullptr)) {
+                auto singlePart = selectedParts[0];
+                singlePart->ensureEditableMesh();
+                auto mesh = singlePart->getEditableMesh();
+                if (mesh) {
+                    char vInfo[32], fInfo[32], eInfo[32];
+                    snprintf(vInfo, sizeof(vInfo), "%zu", mesh->getVertices().size());
+                    snprintf(fInfo, sizeof(fInfo), "%zu", mesh->getFaces().size());
+                    snprintf(eInfo, sizeof(eInfo), "%zu", mesh->getEdges().size());
+
+                    PropRow("Vertices", vInfo, COL(T.textPrimary));
+                    PropRow("Faces (Polygons)", fInfo, COL(T.textPrimary));
+                    PropRow("Edges", eInfo, COL(T.textPrimary));
+
+                    ImGui::Spacing();
+                    float btnW = (ImGui::GetContentRegionAvail().x - 8.0f) * 0.5f;
+
+                    if (ImGui::Button("Recalculate Normals", ImVec2(btnW, 24.0f))) {
+                        mesh->recalculateAllNormals(false);
+                        singlePart->rebuildProceduralMesh();
+                    }
+                    ImGui::SameLine();
+                    if (ImGui::Button("Shade Smooth", ImVec2(btnW, 24.0f))) {
+                        mesh->recalculateAllNormals(true, 30.0f);
+                        singlePart->rebuildProceduralMesh();
+                    }
+
+                    if (ImGui::Button("Box UV Project", ImVec2(btnW, 24.0f))) {
+                        Engine::Geometry::UVUnwrapper::boxProject(*mesh, 1.0f);
+                        singlePart->rebuildProceduralMesh();
+                    }
+                    ImGui::SameLine();
+                    if (ImGui::Button("Smart UV Unwrap", ImVec2(btnW, 24.0f))) {
+                        Engine::Geometry::UVUnwrapper::smartUVProject(*mesh);
+                        singlePart->rebuildProceduralMesh();
+                    }
+
+                    if (ImGui::Button("Export to OBJ...", ImVec2(-1.0f, 26.0f))) {
+                        std::string exportPath = "Assets/" + singlePart->name + ".obj";
+                        Engine::Asset::MeshAssetExporter::exportToObj(*mesh, exportPath);
+                    }
+                }
+            }
         }
     }
     // ─────────────────────────────────────────────────────────────────────────

@@ -14,6 +14,8 @@
 #include "Engine/Core/DataModel/Constraint.h"
 #include "Engine/Assets/AssetDatabase.h"
 #include "Engine/Core/Math/Quaternion.h"
+#include "ModelingOperatorPanel.h"
+#include "Editor/Modeling/ModelingContext.h"
 #include <functional>
 #include <cstdio>
 #include <cmath>
@@ -194,9 +196,90 @@ void ViewportPanel::draw(Engine::Renderer::Camera& camera) {
     }
 
     ImVec2 mousePos = ImGui::GetIO().MousePos;
+    auto& mCtx = Editor::Modeling::ModelingContext::instance();
 
-    // ── Shortcuts: Tab (Edit Mode), Shift+S (Snap Pie), Ctrl+F (Faces Menu) ──
+    // ── Blender Shortcuts: Tab (Edit/Object), 1/2/3, E, I, Ctrl+B, Ctrl+R, K, M, X, F, Alt+Z ──
     if (!ImGui::GetIO().WantTextInput) {
+        auto selPart = std::dynamic_pointer_cast<Part>(SelectionManager::instance().getSelected());
+
+        // Tab: Toggle Object / Edit (Face) Mode
+        if (ImGui::IsKeyPressed(ImGuiKey_Tab)) {
+            if (EditorLayout::instance().shadingMode == EditorShadingMode::Object) {
+                EditorLayout::instance().shadingMode = EditorShadingMode::Face;
+                if (selPart) selPart->ensureEditableMesh();
+            } else {
+                EditorLayout::instance().shadingMode = EditorShadingMode::Object;
+                if (mCtx.activeModal != Editor::Modeling::ModalTool::None) mCtx.cancelModal();
+            }
+        }
+
+        // 1, 2, 3: Vertex, Edge, Face Mode shortcuts
+        if (ImGui::IsKeyPressed(ImGuiKey_1)) {
+            EditorLayout::instance().shadingMode = EditorShadingMode::Vertex;
+            if (selPart) selPart->ensureEditableMesh();
+        }
+        if (ImGui::IsKeyPressed(ImGuiKey_2)) {
+            EditorLayout::instance().shadingMode = EditorShadingMode::Edge;
+            if (selPart) selPart->ensureEditableMesh();
+        }
+        if (ImGui::IsKeyPressed(ImGuiKey_3)) {
+            EditorLayout::instance().shadingMode = EditorShadingMode::Face;
+            if (selPart) selPart->ensureEditableMesh();
+        }
+
+        // Alt + Z: Toggle Wireframe / X-Ray mode
+        if (ImGui::IsKeyDown(ImGuiMod_Alt) && ImGui::IsKeyPressed(ImGuiKey_Z)) {
+            s_wireframe = !s_wireframe;
+        }
+
+        // A: Select All, Alt + A: Deselect All
+        if (ImGui::IsKeyDown(ImGuiMod_Alt) && ImGui::IsKeyPressed(ImGuiKey_A)) {
+            mCtx.clearSelection();
+        } else if (ImGui::IsKeyPressed(ImGuiKey_A) && isHovered) {
+            int mode = (EditorLayout::instance().shadingMode == EditorShadingMode::Face) ? 3 :
+                       (EditorLayout::instance().shadingMode == EditorShadingMode::Edge) ? 2 : 1;
+            mCtx.selectAll(selPart, mode);
+        }
+
+        // Modeling Operator Shortcuts:
+        if (EditorLayout::instance().shadingMode != EditorShadingMode::Object && selPart) {
+            // E: Extrude
+            if (ImGui::IsKeyPressed(ImGuiKey_E) && mCtx.activeModal == Editor::Modeling::ModalTool::None) {
+                mCtx.startExtrude(selPart);
+            }
+            // I: Inset
+            if (ImGui::IsKeyPressed(ImGuiKey_I) && mCtx.activeModal == Editor::Modeling::ModalTool::None) {
+                mCtx.startInset(selPart);
+            }
+            // Ctrl + B: Bevel
+            if (ImGui::IsKeyDown(ImGuiMod_Ctrl) && ImGui::IsKeyPressed(ImGuiKey_B) && mCtx.activeModal == Editor::Modeling::ModalTool::None) {
+                mCtx.startBevel(selPart);
+            }
+            // Ctrl + R: Loop Cut
+            if (ImGui::IsKeyDown(ImGuiMod_Ctrl) && ImGui::IsKeyPressed(ImGuiKey_R) && mCtx.activeModal == Editor::Modeling::ModalTool::None) {
+                mCtx.startLoopCut(selPart);
+            }
+            // K: Knife
+            if (ImGui::IsKeyPressed(ImGuiKey_K) && mCtx.activeModal == Editor::Modeling::ModalTool::None) {
+                mCtx.startKnife(selPart);
+            }
+            // M: Merge
+            if (ImGui::IsKeyPressed(ImGuiKey_M)) {
+                mCtx.executeMerge(selPart, Engine::Geometry::MergeMode::Center);
+            }
+            // X / Delete: Delete selected sub-elements
+            if (ImGui::IsKeyPressed(ImGuiKey_X) || ImGui::IsKeyPressed(ImGuiKey_Delete)) {
+                auto subType = (EditorLayout::instance().shadingMode == EditorShadingMode::Face) ? Engine::Geometry::SubElementType::Face :
+                               (EditorLayout::instance().shadingMode == EditorShadingMode::Edge) ? Engine::Geometry::SubElementType::Edge :
+                               Engine::Geometry::SubElementType::Vertex;
+                mCtx.executeDelete(selPart, subType);
+            }
+            // F: Fill Face
+            if (ImGui::IsKeyPressed(ImGuiKey_F)) {
+                mCtx.executeFill(selPart);
+            }
+        }
+
         // Shift + S: Open Snap Pie Menu
         if (ImGui::IsKeyDown(ImGuiMod_Shift) && ImGui::IsKeyPressed(ImGuiKey_S)) {
             showSnapPieMenu = true;
@@ -229,6 +312,36 @@ void ViewportPanel::draw(Engine::Renderer::Camera& camera) {
                 }
             }
         }
+    }
+
+    // Modal Tool Interaction Handling
+    if (mCtx.activeModal != Editor::Modeling::ModalTool::None) {
+        bool shiftHeld = ImGui::GetIO().KeyShift;
+        bool ctrlHeld  = ImGui::GetIO().KeyCtrl;
+        mCtx.updateModal(mousePos, shiftHeld, ctrlHeld);
+
+        // Confirm with Left Click
+        if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+            mCtx.confirmModal();
+        }
+        // Cancel with Right Click or Escape
+        else if (ImGui::IsMouseClicked(ImGuiMouseButton_Right) || ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+            mCtx.cancelModal();
+        }
+
+        // Draw On-Screen Modal Tool HUD
+        const char* modalName = "MODAL TOOL";
+        if (mCtx.activeModal == Editor::Modeling::ModalTool::Extrude) modalName = "EXTRUDE (E)";
+        else if (mCtx.activeModal == Editor::Modeling::ModalTool::Inset) modalName = "INSET FACES (I)";
+        else if (mCtx.activeModal == Editor::Modeling::ModalTool::Bevel) modalName = "BEVEL (Ctrl+B)";
+        else if (mCtx.activeModal == Editor::Modeling::ModalTool::LoopCut) modalName = "LOOP CUT (Ctrl+R)";
+        else if (mCtx.activeModal == Editor::Modeling::ModalTool::Knife) modalName = "KNIFE CUT (K)";
+
+        char hudText[256];
+        std::snprintf(hudText, sizeof(hudText), "%s | [Left Click: Confirm | Right Click/ESC: Cancel]", modalName);
+        dl->AddRectFilled(ImVec2(screenPos.x + 20, screenPos.y + 40), ImVec2(screenPos.x + 480, screenPos.y + 70), COLA(0x101520, 0.90f), 6.0f);
+        dl->AddRect(ImVec2(screenPos.x + 20, screenPos.y + 40), ImVec2(screenPos.x + 480, screenPos.y + 70), IM_COL32(0, 200, 255, 200), 6.0f);
+        dl->AddText(ImVec2(screenPos.x + 32, screenPos.y + 46), IM_COL32(255, 255, 255, 255), hudText);
     }
 
     // ── Sub-Element Edit Modes (Face, Edge, Vertex) Overlays & Picking ───────
@@ -273,7 +386,7 @@ void ViewportPanel::draw(Engine::Renderer::Camera& camera) {
         auto selList = SelectionManager::instance().getSelectionList();
 
         bool shiftHeld = ImGui::GetIO().KeyShift || ImGui::GetIO().KeyCtrl;
-        bool canPick = isHovered && !showSnapPieMenu && !showModesPieMenu && !ImGuizmo::IsUsing() && !ImGuizmo::IsOver() && !ImGui::IsMouseDown(ImGuiMouseButton_Right);
+        bool canPick = isHovered && !showSnapPieMenu && !showModesPieMenu && !ImGuizmo::IsUsing() && !ImGuizmo::IsOver() && !ImGui::IsMouseDown(ImGuiMouseButton_Right) && (mCtx.activeModal == Editor::Modeling::ModalTool::None);
 
         int hoveredVertex = -1;
         float bestVertexDist = 14.0f;
@@ -281,235 +394,243 @@ void ViewportPanel::draw(Engine::Renderer::Camera& camera) {
         int hoveredEdge = -1;
         float bestEdgeDist = 12.0f;
 
-    int hoveredFace = -1;
+        int hoveredFace = -1;
 
-    struct FaceDef {
-        int idx[4]; // 0=BL, 1=BR, 2=TR, 3=TL
-    };
-    static const FaceDef faces[6] = {
-        { { 4, 5, 6, 7 } }, // 0: Front  (+Z)
-        { { 1, 0, 3, 2 } }, // 1: Back   (-Z)
-        { { 7, 6, 2, 3 } }, // 2: Top    (+Y)
-        { { 0, 1, 5, 4 } }, // 3: Bottom (-Y)
-        { { 5, 1, 2, 6 } }, // 4: Right  (+X)
-        { { 0, 4, 7, 3 } }  // 5: Left   (-X)
-    };
+        auto contains = [](const std::vector<uint32_t>& vec, uint32_t val) {
+            return std::find(vec.begin(), vec.end(), val) != vec.end();
+        };
 
-    static const int edges[12][2] = {
-        {0, 1}, {1, 2}, {2, 3}, {3, 0}, // Front quad
-        {4, 5}, {5, 6}, {6, 7}, {7, 4}, // Back quad
-        {0, 4}, {1, 5}, {2, 6}, {3, 7}  // Connecting edges
-    };
+        std::function<void(const std::shared_ptr<Instance>&)> drawDeformOverlay = [&](const std::shared_ptr<Instance>& inst) {
+            if (auto part = std::dynamic_pointer_cast<Part>(inst)) {
+                part->ensureEditableMesh();
+                auto mesh = part->getEditableMesh();
+                if (!mesh) return;
 
-    auto contains = [](const std::vector<int>& vec, int val) {
-        return std::find(vec.begin(), vec.end(), val) != vec.end();
-    };
+                Engine::Math::Vector3 pos = part->getPosition();
+                bool isSelected = (part == sel);
+                if (!isSelected) {
+                    for (auto& s : selList) { if (s == part) { isSelected = true; break; } }
+                }
 
-    std::function<void(const std::shared_ptr<Instance>&)> drawDeformOverlay = [&](const std::shared_ptr<Instance>& inst) {
-        if (auto part = std::dynamic_pointer_cast<Part>(inst)) {
-            Engine::Math::Vector3 pos = part->getPosition();
+                const auto& vertices = mesh->getVertices();
+                const auto& edges = mesh->getEdges();
+                const auto& faces = mesh->getFaces();
 
-            bool isSelected = (part == sel);
-            if (!isSelected) {
-                for (auto& s : selList) { if (s == part) { isSelected = true; break; } }
-            }
+                size_t numVerts = vertices.size();
+                std::vector<ImVec2> sPts(numVerts);
+                std::vector<bool> visible(numVerts);
 
-            Engine::Math::Vector3 corners[8];
-            for (int i = 0; i < 8; ++i) {
-                corners[i] = pos + part->getVertex(i);
-            }
+                for (size_t i = 0; i < numVerts; ++i) {
+                    if (vertices[i].deleted) continue;
+                    visible[i] = project(pos + vertices[i].position, sPts[i]);
+                }
 
-            ImVec2 sPts[8];
-            bool visible[8];
-            for (int i = 0; i < 8; ++i) {
-                visible[i] = project(corners[i], sPts[i]);
-            }
-
-            // Check Picking for Selected Part
-            if (isSelected && canPick && !isBoxSelecting) {
-                if (isVertexMode) {
-                    for (int i = 0; i < 8; ++i) {
-                        if (visible[i]) {
-                            float dx = mousePos.x - sPts[i].x;
-                            float dy = mousePos.y - sPts[i].y;
-                            float dist = std::sqrt(dx * dx + dy * dy);
-                            if (dist < bestVertexDist) {
-                                bestVertexDist = dist;
-                                hoveredVertex = i;
-                            }
-                        }
-                    }
-                } else if (isEdgeMode) {
-                    for (int e = 0; e < 12; ++e) {
-                        int i0 = edges[e][0], i1 = edges[e][1];
-                        if (visible[i0] && visible[i1]) {
-                            float dist = distToSegment(mousePos, sPts[i0], sPts[i1]);
-                            if (dist < bestEdgeDist) {
-                                bestEdgeDist = dist;
-                                hoveredEdge = e;
-                            }
-                        }
-                    }
-                } else if (isFaceMode) {
-                    for (int f = 0; f < 6; ++f) {
-                        int i0 = faces[f].idx[0], i1 = faces[f].idx[1];
-                        int i2 = faces[f].idx[2], i3 = faces[f].idx[3];
-                        if (visible[i0] && visible[i1] && visible[i2] && visible[i3]) {
-                            if (isFrontFacing(sPts[i0], sPts[i1], sPts[i2])) {
-                                if (pointInQuad(mousePos, sPts[i0], sPts[i1], sPts[i2], sPts[i3])) {
-                                    hoveredFace = f;
+                // Check Picking for Selected Part
+                if (isSelected && canPick && !isBoxSelecting) {
+                    if (isVertexMode) {
+                        for (size_t i = 0; i < numVerts; ++i) {
+                            if (visible[i] && !vertices[i].deleted) {
+                                float dx = mousePos.x - sPts[i].x;
+                                float dy = mousePos.y - sPts[i].y;
+                                float dist = std::sqrt(dx * dx + dy * dy);
+                                if (dist < bestVertexDist) {
+                                    bestVertexDist = dist;
+                                    hoveredVertex = static_cast<int>(i);
                                 }
                             }
                         }
-                    }
-                }
-            }
-
-            // In Face Mode: Render Quad Face Highlights
-            if (isFaceMode && isSelected) {
-                for (int f = 0; f < 6; ++f) {
-                    int i0 = faces[f].idx[0], i1 = faces[f].idx[1];
-                    int i2 = faces[f].idx[2], i3 = faces[f].idx[3];
-                    if (visible[i0] && visible[i1] && visible[i2] && visible[i3]) {
-                        bool frontFacing = isFrontFacing(sPts[i0], sPts[i1], sPts[i2]);
-                        if (frontFacing) {
-                            bool isHoveredF = (hoveredFace == f);
-                            bool isCurrentF = contains(selectedFaces, f);
-
-                            ImVec2 center((sPts[i0].x + sPts[i1].x + sPts[i2].x + sPts[i3].x) * 0.25f,
-                                          (sPts[i0].y + sPts[i1].y + sPts[i2].y + sPts[i3].y) * 0.25f);
-
-                            if (isCurrentF) {
-                                dl->AddQuadFilled(sPts[i0], sPts[i1], sPts[i2], sPts[i3], IM_COL32(0, 200, 255, 100));
-                                dl->AddQuad(sPts[i0], sPts[i1], sPts[i2], sPts[i3], IM_COL32(0, 230, 255, 255), 3.0f);
-                                dl->AddCircleFilled(center, 5.5f, IM_COL32(0, 230, 255, 255));
-                                dl->AddCircle(center, 7.5f, IM_COL32(255, 255, 255, 255), 0, 1.5f);
-                            } else if (isHoveredF) {
-                                dl->AddQuadFilled(sPts[i0], sPts[i1], sPts[i2], sPts[i3], IM_COL32(255, 230, 70, 80));
-                                dl->AddQuad(sPts[i0], sPts[i1], sPts[i2], sPts[i3], IM_COL32(255, 230, 70, 255), 2.5f);
-                                dl->AddCircleFilled(center, 4.5f, IM_COL32(255, 230, 70, 255));
-                            } else {
-                                dl->AddQuad(sPts[i0], sPts[i1], sPts[i2], sPts[i3], IM_COL32(130, 217, 255, 140), 1.5f);
-                                dl->AddCircleFilled(center, 3.5f, IM_COL32(255, 255, 255, 180));
+                    } else if (isEdgeMode) {
+                        for (size_t e = 0; e < edges.size(); ++e) {
+                            if (edges[e].deleted) continue;
+                            uint32_t i0 = edges[e].v0, i1 = edges[e].v1;
+                            if (i0 < numVerts && i1 < numVerts && visible[i0] && visible[i1]) {
+                                float dist = distToSegment(mousePos, sPts[i0], sPts[i1]);
+                                if (dist < bestEdgeDist) {
+                                    bestEdgeDist = dist;
+                                    hoveredEdge = static_cast<int>(e);
+                                }
                             }
                         }
-                    }
-                }
-            }
-
-            // In Edge & Vertex Modes: Render 12 Cage Edges
-            if (isEdgeMode || isVertexMode) {
-                for (int e = 0; e < 12; ++e) {
-                    int i0 = edges[e][0], i1 = edges[e][1];
-                    if (visible[i0] && visible[i1]) {
-                        bool isHoveredE = (isSelected && isEdgeMode && hoveredEdge == e);
-                        bool isCurrentE = (isSelected && isEdgeMode && contains(selectedEdges, e));
-
-                        if (isCurrentE) {
-                            // Selected Edge: Thick glowing cyan bar
-                            dl->AddLine(sPts[i0], sPts[i1], IM_COL32(0, 220, 255, 255), 4.5f);
-                            dl->AddLine(sPts[i0], sPts[i1], IM_COL32(255, 255, 255, 255), 2.0f);
-                        } else if (isHoveredE) {
-                            // Hovered Edge: Glowing yellow bar
-                            dl->AddLine(sPts[i0], sPts[i1], IM_COL32(255, 230, 70, 255), 3.5f);
-                        } else {
-                            // Default Edge
-                            ImU32 lineCol = isSelected ? IM_COL32(130, 217, 255, 220) : IM_COL32(180, 180, 180, 160);
-                            dl->AddLine(sPts[i0], sPts[i1], lineCol, isSelected ? 2.5f : 1.8f);
-                        }
-                    }
-                }
-            }
-
-            // Vertex Corner dots (Rendered in Vertex Mode or for selected Edge endpoints)
-            if (isVertexMode || isEdgeMode) {
-                for (int i = 0; i < 8; ++i) {
-                    if (visible[i]) {
-                        if (isVertexMode) {
-                            bool isHoveredVert = (isSelected && hoveredVertex == i);
-                            bool isCurrentVert = (isSelected && contains(selectedVertices, i));
-
-                            if (isCurrentVert) {
-                                // Active selected vertex: Glowing cyan target with inner bright white dot
-                                dl->AddCircleFilled(sPts[i], 6.5f, IM_COL32(0, 210, 255, 255));
-                                dl->AddCircleFilled(sPts[i], 4.0f, IM_COL32(255, 255, 255, 255));
-                                dl->AddCircle(sPts[i], 8.5f, IM_COL32(0, 140, 255, 200), 0, 1.8f);
-                            } else if (isHoveredVert) {
-                                // Hovered vertex: Yellow pulse ring
-                                dl->AddCircleFilled(sPts[i], 5.5f, IM_COL32(255, 240, 80, 255));
-                                dl->AddCircle(sPts[i], 7.5f, IM_COL32(255, 180, 0, 220), 0, 1.5f);
-                            } else {
-                                // Unselected vertex
-                                ImU32 vCol = isSelected ? IM_COL32(255, 255, 255, 255) : IM_COL32(255, 210, 40, 255);
-                                ImU32 borderCol = isSelected ? IM_COL32(0, 120, 215, 255) : IM_COL32(20, 20, 20, 240);
-                                dl->AddCircleFilled(sPts[i], 3.5f, vCol);
-                                dl->AddCircle(sPts[i], 4.0f, borderCol, 0, 1.2f);
+                    } else if (isFaceMode) {
+                        for (size_t f = 0; f < faces.size(); ++f) {
+                            if (faces[f].deleted || faces[f].vertices.size() < 3) continue;
+                            const auto& fVerts = faces[f].vertices;
+                            bool allVis = true;
+                            for (uint32_t v : fVerts) {
+                                if (v >= numVerts || !visible[v]) { allVis = false; break; }
                             }
-                        } else if (isEdgeMode && isSelected) {
-                            bool isEndpointOfSelectedEdge = false;
-                            for (int selE : selectedEdges) {
-                                if (selE >= 0 && selE < 12) {
-                                    if (i == edges[selE][0] || i == edges[selE][1]) {
-                                        isEndpointOfSelectedEdge = true;
-                                        break;
+                            if (allVis && fVerts.size() == 4) {
+                                uint32_t i0 = fVerts[0], i1 = fVerts[1], i2 = fVerts[2], i3 = fVerts[3];
+                                if (isFrontFacing(sPts[i0], sPts[i1], sPts[i2])) {
+                                    if (pointInQuad(mousePos, sPts[i0], sPts[i1], sPts[i2], sPts[i3])) {
+                                        hoveredFace = static_cast<int>(f);
+                                    }
+                                }
+                            } else if (allVis && fVerts.size() == 3) {
+                                uint32_t i0 = fVerts[0], i1 = fVerts[1], i2 = fVerts[2];
+                                if (isFrontFacing(sPts[i0], sPts[i1], sPts[i2])) {
+                                    if (pointInTriangle(mousePos, sPts[i0], sPts[i1], sPts[i2])) {
+                                        hoveredFace = static_cast<int>(f);
                                     }
                                 }
                             }
-                            if (isEndpointOfSelectedEdge) {
-                                dl->AddCircleFilled(sPts[i], 4.5f, IM_COL32(0, 220, 255, 255));
-                                dl->AddCircle(sPts[i], 5.5f, IM_COL32(255, 255, 255, 255), 0, 1.2f);
+                        }
+                    }
+                }
+
+                // In Face Mode: Render Face Highlights
+                if (isFaceMode && isSelected) {
+                    for (size_t f = 0; f < faces.size(); ++f) {
+                        if (faces[f].deleted || faces[f].vertices.size() < 3) continue;
+                        const auto& fVerts = faces[f].vertices;
+                        bool allVis = true;
+                        for (uint32_t v : fVerts) {
+                            if (v >= numVerts || !visible[v]) { allVis = false; break; }
+                        }
+                        if (!allVis) continue;
+
+                        bool isHoveredF = (hoveredFace == (int)f);
+                        bool isCurrentF = contains(mCtx.selectedFaces, static_cast<uint32_t>(f));
+
+                        ImVec2 fCenter(0, 0);
+                        for (uint32_t v : fVerts) fCenter = ImVec2(fCenter.x + sPts[v].x, fCenter.y + sPts[v].y);
+                        fCenter = ImVec2(fCenter.x / fVerts.size(), fCenter.y / fVerts.size());
+
+                        if (fVerts.size() == 4) {
+                            uint32_t i0 = fVerts[0], i1 = fVerts[1], i2 = fVerts[2], i3 = fVerts[3];
+                            if (isCurrentF) {
+                                dl->AddQuadFilled(sPts[i0], sPts[i1], sPts[i2], sPts[i3], IM_COL32(0, 200, 255, 100));
+                                dl->AddQuad(sPts[i0], sPts[i1], sPts[i2], sPts[i3], IM_COL32(0, 230, 255, 255), 3.0f);
+                                dl->AddCircleFilled(fCenter, 5.5f, IM_COL32(0, 230, 255, 255));
+                            } else if (isHoveredF) {
+                                dl->AddQuadFilled(sPts[i0], sPts[i1], sPts[i2], sPts[i3], IM_COL32(255, 230, 70, 80));
+                                dl->AddQuad(sPts[i0], sPts[i1], sPts[i2], sPts[i3], IM_COL32(255, 230, 70, 255), 2.5f);
+                                dl->AddCircleFilled(fCenter, 4.5f, IM_COL32(255, 230, 70, 255));
+                            } else {
+                                dl->AddQuad(sPts[i0], sPts[i1], sPts[i2], sPts[i3], IM_COL32(130, 217, 255, 140), 1.5f);
+                                dl->AddCircleFilled(fCenter, 3.5f, IM_COL32(255, 255, 255, 180));
+                            }
+                        } else if (fVerts.size() == 3) {
+                            uint32_t i0 = fVerts[0], i1 = fVerts[1], i2 = fVerts[2];
+                            if (isCurrentF) {
+                                dl->AddTriangleFilled(sPts[i0], sPts[i1], sPts[i2], IM_COL32(0, 200, 255, 100));
+                                dl->AddTriangle(sPts[i0], sPts[i1], sPts[i2], IM_COL32(0, 230, 255, 255), 3.0f);
+                                dl->AddCircleFilled(fCenter, 5.5f, IM_COL32(0, 230, 255, 255));
+                            } else if (isHoveredF) {
+                                dl->AddTriangleFilled(sPts[i0], sPts[i1], sPts[i2], IM_COL32(255, 230, 70, 80));
+                                dl->AddTriangle(sPts[i0], sPts[i1], sPts[i2], IM_COL32(255, 230, 70, 255), 2.5f);
+                                dl->AddCircleFilled(fCenter, 4.5f, IM_COL32(255, 230, 70, 255));
+                            } else {
+                                dl->AddTriangle(sPts[i0], sPts[i1], sPts[i2], IM_COL32(130, 217, 255, 140), 1.5f);
+                                dl->AddCircleFilled(fCenter, 3.5f, IM_COL32(255, 255, 255, 180));
+                            }
+                        }
+                    }
+                }
+
+                // In Edge & Vertex Modes: Render Edges
+                if (isEdgeMode || isVertexMode) {
+                    for (size_t e = 0; e < edges.size(); ++e) {
+                        if (edges[e].deleted) continue;
+                        uint32_t i0 = edges[e].v0, i1 = edges[e].v1;
+                        if (i0 < numVerts && i1 < numVerts && visible[i0] && visible[i1]) {
+                            bool isHoveredE = (isSelected && isEdgeMode && hoveredEdge == (int)e);
+                            bool isCurrentE = (isSelected && isEdgeMode && contains(mCtx.selectedEdges, static_cast<uint32_t>(e)));
+
+                            if (isCurrentE) {
+                                dl->AddLine(sPts[i0], sPts[i1], IM_COL32(0, 220, 255, 255), 4.5f);
+                                dl->AddLine(sPts[i0], sPts[i1], IM_COL32(255, 255, 255, 255), 2.0f);
+                            } else if (isHoveredE) {
+                                dl->AddLine(sPts[i0], sPts[i1], IM_COL32(255, 230, 70, 255), 3.5f);
+                            } else {
+                                ImU32 lineCol = isSelected ? IM_COL32(130, 217, 255, 220) : IM_COL32(180, 180, 180, 160);
+                                dl->AddLine(sPts[i0], sPts[i1], lineCol, isSelected ? 2.5f : 1.8f);
+                            }
+                        }
+                    }
+                }
+
+                // Vertex Corner dots
+                if (isVertexMode || isEdgeMode) {
+                    for (size_t i = 0; i < numVerts; ++i) {
+                        if (visible[i] && !vertices[i].deleted) {
+                            if (isVertexMode) {
+                                bool isHoveredVert = (isSelected && hoveredVertex == (int)i);
+                                bool isCurrentVert = (isSelected && contains(mCtx.selectedVertices, static_cast<uint32_t>(i)));
+
+                                if (isCurrentVert) {
+                                    dl->AddCircleFilled(sPts[i], 6.5f, IM_COL32(0, 210, 255, 255));
+                                    dl->AddCircleFilled(sPts[i], 4.0f, IM_COL32(255, 255, 255, 255));
+                                    dl->AddCircle(sPts[i], 8.5f, IM_COL32(0, 140, 255, 200), 0, 1.8f);
+                                } else if (isHoveredVert) {
+                                    dl->AddCircleFilled(sPts[i], 5.5f, IM_COL32(255, 240, 80, 255));
+                                    dl->AddCircle(sPts[i], 7.5f, IM_COL32(255, 180, 0, 220), 0, 1.5f);
+                                } else {
+                                    ImU32 vCol = isSelected ? IM_COL32(255, 255, 255, 255) : IM_COL32(255, 210, 40, 255);
+                                    ImU32 borderCol = isSelected ? IM_COL32(0, 120, 215, 255) : IM_COL32(20, 20, 20, 240);
+                                    dl->AddCircleFilled(sPts[i], 3.5f, vCol);
+                                    dl->AddCircle(sPts[i], 4.0f, borderCol, 0, 1.2f);
+                                }
                             }
                         }
                     }
                 }
             }
-        }
-        for (auto& child : inst->getChildren()) drawDeformOverlay(child);
-    };
-    drawDeformOverlay(DataModel::instance());
+            for (auto& child : inst->getChildren()) drawDeformOverlay(child);
+        };
+        drawDeformOverlay(DataModel::instance());
 
-    // Handle Click Selection & Multi-Selection (Shift / Ctrl + Click)
-    if (canPick && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
-        if (isVertexMode) {
-            if (hoveredVertex != -1) {
-                if (shiftHeld) {
-                    auto it = std::find(selectedVertices.begin(), selectedVertices.end(), hoveredVertex);
-                    if (it != selectedVertices.end()) selectedVertices.erase(it);
-                    else selectedVertices.push_back(hoveredVertex);
-                } else {
-                    selectedVertices = { hoveredVertex };
+        // Handle Click Selection & Loop Selection (Alt + Left Click)
+        if (canPick && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+            bool altHeld = ImGui::GetIO().KeyAlt;
+
+            if (isVertexMode) {
+                if (hoveredVertex != -1) {
+                    if (shiftHeld) {
+                        auto it = std::find(mCtx.selectedVertices.begin(), mCtx.selectedVertices.end(), (uint32_t)hoveredVertex);
+                        if (it != mCtx.selectedVertices.end()) mCtx.selectedVertices.erase(it);
+                        else mCtx.selectedVertices.push_back((uint32_t)hoveredVertex);
+                    } else {
+                        mCtx.selectedVertices = { (uint32_t)hoveredVertex };
+                    }
+                } else if (!shiftHeld && !ImGuizmo::IsOver()) {
+                    isBoxSelecting = true;
+                    boxSelectStart = mousePos;
                 }
-            } else if (!shiftHeld && !ImGuizmo::IsOver()) {
-                isBoxSelecting = true;
-                boxSelectStart = mousePos;
-            }
-        } else if (isEdgeMode) {
-            if (hoveredEdge != -1) {
-                if (shiftHeld) {
-                    auto it = std::find(selectedEdges.begin(), selectedEdges.end(), hoveredEdge);
-                    if (it != selectedEdges.end()) selectedEdges.erase(it);
-                    else selectedEdges.push_back(hoveredEdge);
-                } else {
-                    selectedEdges = { hoveredEdge };
+            } else if (isEdgeMode) {
+                if (hoveredEdge != -1) {
+                    if (altHeld && sel) {
+                        if (auto p = std::dynamic_pointer_cast<Part>(sel)) {
+                            p->ensureEditableMesh();
+                            auto loop = Engine::Geometry::MeshCutOperators::findEdgeLoop(*p->getEditableMesh(), (uint32_t)hoveredEdge);
+                            if (!shiftHeld) mCtx.selectedEdges = loop;
+                            else mCtx.selectedEdges.insert(mCtx.selectedEdges.end(), loop.begin(), loop.end());
+                        }
+                    } else if (shiftHeld) {
+                        auto it = std::find(mCtx.selectedEdges.begin(), mCtx.selectedEdges.end(), (uint32_t)hoveredEdge);
+                        if (it != mCtx.selectedEdges.end()) mCtx.selectedEdges.erase(it);
+                        else mCtx.selectedEdges.push_back((uint32_t)hoveredEdge);
+                    } else {
+                        mCtx.selectedEdges = { (uint32_t)hoveredEdge };
+                    }
+                } else if (!shiftHeld && !ImGuizmo::IsOver()) {
+                    isBoxSelecting = true;
+                    boxSelectStart = mousePos;
                 }
-            } else if (!shiftHeld && !ImGuizmo::IsOver()) {
-                isBoxSelecting = true;
-                boxSelectStart = mousePos;
-            }
-        } else if (isFaceMode) {
-            if (hoveredFace != -1) {
-                if (shiftHeld) {
-                    auto it = std::find(selectedFaces.begin(), selectedFaces.end(), hoveredFace);
-                    if (it != selectedFaces.end()) selectedFaces.erase(it);
-                    else selectedFaces.push_back(hoveredFace);
-                } else {
-                    selectedFaces = { hoveredFace };
+            } else if (isFaceMode) {
+                if (hoveredFace != -1) {
+                    if (shiftHeld) {
+                        auto it = std::find(mCtx.selectedFaces.begin(), mCtx.selectedFaces.end(), (uint32_t)hoveredFace);
+                        if (it != mCtx.selectedFaces.end()) mCtx.selectedFaces.erase(it);
+                        else mCtx.selectedFaces.push_back((uint32_t)hoveredFace);
+                    } else {
+                        mCtx.selectedFaces = { (uint32_t)hoveredFace };
+                    }
+                } else if (!shiftHeld && !ImGuizmo::IsOver()) {
+                    mCtx.selectedFaces.clear();
                 }
-            } else if (!shiftHeld && !ImGuizmo::IsOver()) {
-                selectedFaces.clear();
             }
         }
-    }
 
     // Handle Box Selection Dragging
     if (isBoxSelecting) {
@@ -528,55 +649,76 @@ void ViewportPanel::draw(Engine::Renderer::Camera& camera) {
 
             if (boxArea > 25.0f) { // Dragged more than 5x5 px
                 if (!shiftHeld) {
-                    selectedVertices.clear();
-                    selectedEdges.clear();
-                    selectedFaces.clear();
+                    mCtx.clearSelection();
                 }
                 if (auto part = std::dynamic_pointer_cast<Part>(sel)) {
-                    Engine::Math::Vector3 pos = part->getPosition();
-                    ImVec2 sPts[8];
-                    bool visible[8];
-                    for (int i = 0; i < 8; ++i) {
-                        visible[i] = project(pos + part->getVertex(i), sPts[i]);
-                    }
+                    part->ensureEditableMesh();
+                    auto mesh = part->getEditableMesh();
+                    if (mesh) {
+                        Engine::Math::Vector3 pos = part->getPosition();
+                        const auto& vertices = mesh->getVertices();
+                        const auto& edges = mesh->getEdges();
+                        const auto& faces = mesh->getFaces();
 
-                    if (isVertexMode) {
-                        for (int i = 0; i < 8; ++i) {
-                            if (visible[i] && sPts[i].x >= bMin.x && sPts[i].x <= bMax.x &&
-                                sPts[i].y >= bMin.y && sPts[i].y <= bMax.y) {
-                                if (!contains(selectedVertices, i)) selectedVertices.push_back(i);
-                            }
+                        size_t numVerts = vertices.size();
+                        std::vector<ImVec2> sPts(numVerts);
+                        std::vector<bool> visible(numVerts);
+
+                        for (size_t i = 0; i < numVerts; ++i) {
+                            if (vertices[i].deleted) continue;
+                            visible[i] = project(pos + vertices[i].position, sPts[i]);
                         }
-                    } else if (isEdgeMode) {
-                        for (int e = 0; e < 12; ++e) {
-                            int i0 = edges[e][0], i1 = edges[e][1];
-                            if (visible[i0] && visible[i1]) {
-                                ImVec2 mid((sPts[i0].x + sPts[i1].x) * 0.5f, (sPts[i0].y + sPts[i1].y) * 0.5f);
-                                if ((sPts[i0].x >= bMin.x && sPts[i0].x <= bMax.x && sPts[i0].y >= bMin.y && sPts[i0].y <= bMax.y) ||
-                                    (sPts[i1].x >= bMin.x && sPts[i1].x <= bMax.x && sPts[i1].y >= bMin.y && sPts[i1].y <= bMax.y) ||
-                                    (mid.x >= bMin.x && mid.x <= bMax.x && mid.y >= bMin.y && mid.y <= bMax.y)) {
-                                    if (!contains(selectedEdges, e)) selectedEdges.push_back(e);
+
+                        if (isVertexMode) {
+                            for (size_t i = 0; i < numVerts; ++i) {
+                                if (visible[i] && !vertices[i].deleted &&
+                                    sPts[i].x >= bMin.x && sPts[i].x <= bMax.x &&
+                                    sPts[i].y >= bMin.y && sPts[i].y <= bMax.y) {
+                                    if (!contains(mCtx.selectedVertices, static_cast<uint32_t>(i))) {
+                                        mCtx.selectedVertices.push_back(static_cast<uint32_t>(i));
+                                    }
                                 }
                             }
-                        }
-                    } else if (isFaceMode) {
-                        for (int f = 0; f < 6; ++f) {
-                            int i0 = faces[f].idx[0], i1 = faces[f].idx[1];
-                            int i2 = faces[f].idx[2], i3 = faces[f].idx[3];
-                            if (visible[i0] && visible[i1] && visible[i2] && visible[i3]) {
-                                ImVec2 center((sPts[i0].x + sPts[i1].x + sPts[i2].x + sPts[i3].x) * 0.25f,
-                                              (sPts[i0].y + sPts[i1].y + sPts[i2].y + sPts[i3].y) * 0.25f);
-                                if (center.x >= bMin.x && center.x <= bMax.x && center.y >= bMin.y && center.y <= bMax.y) {
-                                    if (!contains(selectedFaces, f)) selectedFaces.push_back(f);
+                        } else if (isEdgeMode) {
+                            for (size_t e = 0; e < edges.size(); ++e) {
+                                if (edges[e].deleted) continue;
+                                uint32_t i0 = edges[e].v0, i1 = edges[e].v1;
+                                if (i0 < numVerts && i1 < numVerts && visible[i0] && visible[i1]) {
+                                    ImVec2 mid((sPts[i0].x + sPts[i1].x) * 0.5f, (sPts[i0].y + sPts[i1].y) * 0.5f);
+                                    if ((sPts[i0].x >= bMin.x && sPts[i0].x <= bMax.x && sPts[i0].y >= bMin.y && sPts[i0].y <= bMax.y) ||
+                                        (sPts[i1].x >= bMin.x && sPts[i1].x <= bMax.x && sPts[i1].y >= bMin.y && sPts[i1].y <= bMax.y) ||
+                                        (mid.x >= bMin.x && mid.x <= bMax.x && mid.y >= bMin.y && mid.y <= bMax.y)) {
+                                        if (!contains(mCtx.selectedEdges, static_cast<uint32_t>(e))) {
+                                            mCtx.selectedEdges.push_back(static_cast<uint32_t>(e));
+                                        }
+                                    }
+                                }
+                            }
+                        } else if (isFaceMode) {
+                            for (size_t f = 0; f < faces.size(); ++f) {
+                                if (faces[f].deleted || faces[f].vertices.empty()) continue;
+                                ImVec2 center(0, 0);
+                                bool allVis = true;
+                                for (uint32_t v : faces[f].vertices) {
+                                    if (v >= numVerts || !visible[v]) { allVis = false; break; }
+                                    center.x += sPts[v].x;
+                                    center.y += sPts[v].y;
+                                }
+                                if (allVis) {
+                                    center.x /= faces[f].vertices.size();
+                                    center.y /= faces[f].vertices.size();
+                                    if (center.x >= bMin.x && center.x <= bMax.x && center.y >= bMin.y && center.y <= bMax.y) {
+                                        if (!contains(mCtx.selectedFaces, static_cast<uint32_t>(f))) {
+                                            mCtx.selectedFaces.push_back(static_cast<uint32_t>(f));
+                                        }
+                                    }
                                 }
                             }
                         }
                     }
                 }
             } else if (!shiftHeld) {
-                selectedVertices.clear();
-                selectedEdges.clear();
-                selectedFaces.clear();
+                mCtx.clearSelection();
             }
             isBoxSelecting = false;
         }
@@ -928,11 +1070,15 @@ void ViewportPanel::draw(Engine::Renderer::Camera& camera) {
         }
     }
 
+    // Render Floating Operator Panel (Adjust Last Operation)
+    Editor::UI::ModelingOperatorPanel::render(screenPos, avail);
+
     ImGui::End();
     ImGui::PopStyleVar();
 }
 
 void ViewportPanel::handleGizmoInput(Engine::Renderer::Camera& camera) {
+    auto& mCtx = Editor::Modeling::ModelingContext::instance();
     auto selectionList = SelectionManager::instance().getSelectionList();
     std::vector<std::shared_ptr<Part>> selectedParts;
     for (auto& inst : selectionList) {
@@ -946,105 +1092,34 @@ void ViewportPanel::handleGizmoInput(Engine::Renderer::Camera& camera) {
         }
     }
     if (selectedParts.empty()) {
-        selectedVertices.clear();
-        selectedEdges.clear();
-        selectedFaces.clear();
+        mCtx.clearSelection();
         return;
     }
 
     // ── Face Mode Multi-Gizmo ────────────────────────────────────────────────
     if (EditorLayout::instance().shadingMode == EditorShadingMode::Face) {
-            struct FaceDef {
-                int idx[4]; // 0=BL, 1=BR, 2=TR, 3=TL
-            };
-            static const FaceDef s_boxFaces[6] = {
-                { { 4, 5, 6, 7 } }, // 0: Front  (+Z)
-                { { 1, 0, 3, 2 } }, // 1: Back   (-Z)
-                { { 7, 6, 2, 3 } }, // 2: Top    (+Y)
-                { { 0, 1, 5, 4 } }, // 3: Bottom (-Y)
-                { { 5, 1, 2, 6 } }, // 4: Right  (+X)
-                { { 0, 4, 7, 3 } }  // 5: Left   (-X)
-            };
+        if (selectedParts.size() == 1 && !mCtx.selectedFaces.empty()) {
+            auto part = selectedParts[0];
+            part->ensureEditableMesh();
+            auto mesh = part->getEditableMesh();
+            if (!mesh) return;
 
-            if (selectedParts.size() == 1 && !selectedFaces.empty()) {
-                auto part = selectedParts[0];
-
-                // Collect all unique vertex indices from selected faces
-                std::set<int> uniqueVerts;
-                for (int fIdx : selectedFaces) {
-                    if (fIdx >= 0 && fIdx < 6) {
-                        for (int v = 0; v < 4; ++v) {
-                            uniqueVerts.insert(s_boxFaces[fIdx].idx[v]);
-                        }
+            // Collect all unique vertex indices from selected faces
+            std::set<uint32_t> uniqueVerts;
+            for (uint32_t fIdx : mCtx.selectedFaces) {
+                if (fIdx < mesh->getFaces().size() && !mesh->getFaces()[fIdx].deleted) {
+                    for (uint32_t v : mesh->getFaces()[fIdx].vertices) {
+                        uniqueVerts.insert(v);
                     }
-                }
-
-                if (!uniqueVerts.empty()) {
-                    Engine::Math::Vector3 centroidLocal(0, 0, 0);
-                    for (int vIdx : uniqueVerts) {
-                        centroidLocal += part->getVertex(vIdx);
-                    }
-                    centroidLocal = centroidLocal * (1.0f / (float)uniqueVerts.size());
-                    Engine::Math::Vector3 centroidWorld = part->getPosition() + centroidLocal;
-
-                    ImGuizmo::SetDrawlist();
-                    ImGuizmo::SetRect(ImGui::GetWindowPos().x, ImGui::GetWindowPos().y,
-                                      ImGui::GetWindowWidth(), ImGui::GetWindowHeight());
-
-                    Engine::Math::Matrix4 vTransform = Engine::Math::Matrix4::translation(centroidWorld);
-                    Engine::Math::Matrix4 view = camera.getViewMatrix();
-                    Engine::Math::Matrix4 proj = camera.getProjectionMatrix(
-                        (float)currentWidth / (float)currentHeight);
-
-                    float snapValues[3] = { 1.0f, 1.0f, 1.0f };
-                    float* snapPtr = EditorLayout::instance().gridSnap ? snapValues : nullptr;
-
-                    static std::map<int, Engine::Math::Vector3> s_faceDragStartPositions;
-                    static Engine::Math::Vector3 s_faceDragStartCenter;
-
-                    ImGuizmo::Manipulate(
-                        view.m.data(), proj.m.data(),
-                        ImGuizmo::TRANSLATE,
-                        ImGuizmo::WORLD,
-                        vTransform.m.data(),
-                        nullptr,
-                        snapPtr
-                    );
-
-                    if (ImGuizmo::IsUsing()) {
-                        if (!isDraggingGizmo) {
-                            isDraggingGizmo = true;
-                            s_faceDragStartCenter = centroidWorld;
-                            s_faceDragStartPositions.clear();
-                            for (int vIdx : uniqueVerts) {
-                                s_faceDragStartPositions[vIdx] = part->getVertex(vIdx);
-                            }
-                        }
-                        Engine::Math::Vector3 newWorldCenter(vTransform.m[12], vTransform.m[13], vTransform.m[14]);
-                        Engine::Math::Vector3 delta = newWorldCenter - s_faceDragStartCenter;
-                        for (int vIdx : uniqueVerts) {
-                            part->setVertex(vIdx, s_faceDragStartPositions[vIdx] + delta);
-                        }
-                    } else {
-                        isDraggingGizmo = false;
-                    }
-                    return; // Face is selected and manipulated
                 }
             }
-            return; // In Face mode, do not draw whole-object gizmo
-        }
 
-        // ── Vertex Mode Multi-Gizmo ──────────────────────────────────────────
-        if (EditorLayout::instance().shadingMode == EditorShadingMode::Vertex) {
-            if (selectedParts.size() == 1 && !selectedVertices.empty()) {
-                auto part = selectedParts[0];
-
-                // Calculate Centroid of all selected vertices
+            if (!uniqueVerts.empty()) {
                 Engine::Math::Vector3 centroidLocal(0, 0, 0);
-                for (int vIdx : selectedVertices) {
+                for (uint32_t vIdx : uniqueVerts) {
                     centroidLocal += part->getVertex(vIdx);
                 }
-                centroidLocal = centroidLocal * (1.0f / (float)selectedVertices.size());
+                centroidLocal = centroidLocal * (1.0f / (float)uniqueVerts.size());
                 Engine::Math::Vector3 centroidWorld = part->getPosition() + centroidLocal;
 
                 ImGuizmo::SetDrawlist();
@@ -1059,8 +1134,8 @@ void ViewportPanel::handleGizmoInput(Engine::Renderer::Camera& camera) {
                 float snapValues[3] = { 1.0f, 1.0f, 1.0f };
                 float* snapPtr = EditorLayout::instance().gridSnap ? snapValues : nullptr;
 
-                static std::map<int, Engine::Math::Vector3> s_vertDragStartPositions;
-                static Engine::Math::Vector3 s_vertDragStartCenter;
+                static std::map<uint32_t, Engine::Math::Vector3> s_faceDragStartPositions;
+                static Engine::Math::Vector3 s_faceDragStartCenter;
 
                 ImGuizmo::Manipulate(
                     view.m.data(), proj.m.data(),
@@ -1074,97 +1149,155 @@ void ViewportPanel::handleGizmoInput(Engine::Renderer::Camera& camera) {
                 if (ImGuizmo::IsUsing()) {
                     if (!isDraggingGizmo) {
                         isDraggingGizmo = true;
-                        s_vertDragStartCenter = centroidWorld;
-                        s_vertDragStartPositions.clear();
-                        for (int vIdx : selectedVertices) {
-                            s_vertDragStartPositions[vIdx] = part->getVertex(vIdx);
+                        s_faceDragStartCenter = centroidWorld;
+                        s_faceDragStartPositions.clear();
+                        for (uint32_t vIdx : uniqueVerts) {
+                            s_faceDragStartPositions[vIdx] = part->getVertex(vIdx);
                         }
                     }
                     Engine::Math::Vector3 newWorldCenter(vTransform.m[12], vTransform.m[13], vTransform.m[14]);
-                    Engine::Math::Vector3 delta = newWorldCenter - s_vertDragStartCenter;
-                    for (int vIdx : selectedVertices) {
-                        part->setVertex(vIdx, s_vertDragStartPositions[vIdx] + delta);
+                    Engine::Math::Vector3 delta = newWorldCenter - s_faceDragStartCenter;
+                    for (uint32_t vIdx : uniqueVerts) {
+                        part->setVertex(vIdx, s_faceDragStartPositions[vIdx] + delta);
+                    }
+                } else {
+                    isDraggingGizmo = false;
+                }
+                return; // Face is selected and manipulated
+            }
+        }
+        return; // In Face mode, do not draw whole-object gizmo
+    }
+
+    // ── Vertex Mode Multi-Gizmo ──────────────────────────────────────────
+    if (EditorLayout::instance().shadingMode == EditorShadingMode::Vertex) {
+        if (selectedParts.size() == 1 && !mCtx.selectedVertices.empty()) {
+            auto part = selectedParts[0];
+            part->ensureEditableMesh();
+
+            // Calculate Centroid of all selected vertices
+            Engine::Math::Vector3 centroidLocal(0, 0, 0);
+            for (uint32_t vIdx : mCtx.selectedVertices) {
+                centroidLocal += part->getVertex(vIdx);
+            }
+            centroidLocal = centroidLocal * (1.0f / (float)mCtx.selectedVertices.size());
+            Engine::Math::Vector3 centroidWorld = part->getPosition() + centroidLocal;
+
+            ImGuizmo::SetDrawlist();
+            ImGuizmo::SetRect(ImGui::GetWindowPos().x, ImGui::GetWindowPos().y,
+                              ImGui::GetWindowWidth(), ImGui::GetWindowHeight());
+
+            Engine::Math::Matrix4 vTransform = Engine::Math::Matrix4::translation(centroidWorld);
+            Engine::Math::Matrix4 view = camera.getViewMatrix();
+            Engine::Math::Matrix4 proj = camera.getProjectionMatrix(
+                (float)currentWidth / (float)currentHeight);
+
+            float snapValues[3] = { 1.0f, 1.0f, 1.0f };
+            float* snapPtr = EditorLayout::instance().gridSnap ? snapValues : nullptr;
+
+            static std::map<uint32_t, Engine::Math::Vector3> s_vertDragStartPositions;
+            static Engine::Math::Vector3 s_vertDragStartCenter;
+
+            ImGuizmo::Manipulate(
+                view.m.data(), proj.m.data(),
+                ImGuizmo::TRANSLATE,
+                ImGuizmo::WORLD,
+                vTransform.m.data(),
+                nullptr,
+                snapPtr
+            );
+
+            if (ImGuizmo::IsUsing()) {
+                if (!isDraggingGizmo) {
+                    isDraggingGizmo = true;
+                    s_vertDragStartCenter = centroidWorld;
+                    s_vertDragStartPositions.clear();
+                    for (uint32_t vIdx : mCtx.selectedVertices) {
+                        s_vertDragStartPositions[vIdx] = part->getVertex(vIdx);
+                    }
+                }
+                Engine::Math::Vector3 newWorldCenter(vTransform.m[12], vTransform.m[13], vTransform.m[14]);
+                Engine::Math::Vector3 delta = newWorldCenter - s_vertDragStartCenter;
+                for (uint32_t vIdx : mCtx.selectedVertices) {
+                    part->setVertex(vIdx, s_vertDragStartPositions[vIdx] + delta);
+                }
+            } else {
+                isDraggingGizmo = false;
+            }
+        }
+        return; // In Vertex mode, do not draw whole-object gizmo
+    }
+
+    // ── Edge Mode Multi-Gizmo ────────────────────────────────────────────
+    if (EditorLayout::instance().shadingMode == EditorShadingMode::Edge) {
+        if (selectedParts.size() == 1 && !mCtx.selectedEdges.empty()) {
+            auto part = selectedParts[0];
+            part->ensureEditableMesh();
+            auto mesh = part->getEditableMesh();
+            if (!mesh) return;
+
+            // Collect all unique vertex indices from selected edges
+            std::set<uint32_t> uniqueVerts;
+            for (uint32_t eIdx : mCtx.selectedEdges) {
+                if (eIdx < mesh->getEdges().size() && !mesh->getEdges()[eIdx].deleted) {
+                    uniqueVerts.insert(mesh->getEdges()[eIdx].v0);
+                    uniqueVerts.insert(mesh->getEdges()[eIdx].v1);
+                }
+            }
+
+            if (!uniqueVerts.empty()) {
+                Engine::Math::Vector3 centroidLocal(0, 0, 0);
+                for (uint32_t vIdx : uniqueVerts) {
+                    centroidLocal += part->getVertex(vIdx);
+                }
+                centroidLocal = centroidLocal * (1.0f / (float)uniqueVerts.size());
+                Engine::Math::Vector3 centroidWorld = part->getPosition() + centroidLocal;
+
+                ImGuizmo::SetDrawlist();
+                ImGuizmo::SetRect(ImGui::GetWindowPos().x, ImGui::GetWindowPos().y,
+                                  ImGui::GetWindowWidth(), ImGui::GetWindowHeight());
+
+                Engine::Math::Matrix4 vTransform = Engine::Math::Matrix4::translation(centroidWorld);
+                Engine::Math::Matrix4 view = camera.getViewMatrix();
+                Engine::Math::Matrix4 proj = camera.getProjectionMatrix(
+                    (float)currentWidth / (float)currentHeight);
+
+                float snapValues[3] = { 1.0f, 1.0f, 1.0f };
+                float* snapPtr = EditorLayout::instance().gridSnap ? snapValues : nullptr;
+
+                static std::map<uint32_t, Engine::Math::Vector3> s_edgeDragStartPositions;
+                static Engine::Math::Vector3 s_edgeDragStartCenter;
+
+                ImGuizmo::Manipulate(
+                    view.m.data(), proj.m.data(),
+                    ImGuizmo::TRANSLATE,
+                    ImGuizmo::WORLD,
+                    vTransform.m.data(),
+                    nullptr,
+                    snapPtr
+                );
+
+                if (ImGuizmo::IsUsing()) {
+                    if (!isDraggingGizmo) {
+                        isDraggingGizmo = true;
+                        s_edgeDragStartCenter = centroidWorld;
+                        s_edgeDragStartPositions.clear();
+                        for (uint32_t vIdx : uniqueVerts) {
+                            s_edgeDragStartPositions[vIdx] = part->getVertex(vIdx);
+                        }
+                    }
+                    Engine::Math::Vector3 newWorldCenter(vTransform.m[12], vTransform.m[13], vTransform.m[14]);
+                    Engine::Math::Vector3 delta = newWorldCenter - s_edgeDragStartCenter;
+                    for (uint32_t vIdx : uniqueVerts) {
+                        part->setVertex(vIdx, s_edgeDragStartPositions[vIdx] + delta);
                     }
                 } else {
                     isDraggingGizmo = false;
                 }
             }
-            return; // In Vertex mode, do not draw whole-object gizmo
         }
-
-        // ── Edge Mode Multi-Gizmo ────────────────────────────────────────────
-        if (EditorLayout::instance().shadingMode == EditorShadingMode::Edge) {
-            static const int edges[12][2] = {
-                {0, 1}, {1, 2}, {2, 3}, {3, 0}, // Front quad
-                {4, 5}, {5, 6}, {6, 7}, {7, 4}, // Back quad
-                {0, 4}, {1, 5}, {2, 6}, {3, 7}  // Connecting edges
-            };
-
-            if (selectedParts.size() == 1 && !selectedEdges.empty()) {
-                auto part = selectedParts[0];
-
-                // Collect all unique vertex indices from selected edges
-                std::set<int> uniqueVerts;
-                for (int eIdx : selectedEdges) {
-                    if (eIdx >= 0 && eIdx < 12) {
-                        uniqueVerts.insert(edges[eIdx][0]);
-                        uniqueVerts.insert(edges[eIdx][1]);
-                    }
-                }
-
-                if (!uniqueVerts.empty()) {
-                    Engine::Math::Vector3 centroidLocal(0, 0, 0);
-                    for (int vIdx : uniqueVerts) {
-                        centroidLocal += part->getVertex(vIdx);
-                    }
-                    centroidLocal = centroidLocal * (1.0f / (float)uniqueVerts.size());
-                    Engine::Math::Vector3 centroidWorld = part->getPosition() + centroidLocal;
-
-                    ImGuizmo::SetDrawlist();
-                    ImGuizmo::SetRect(ImGui::GetWindowPos().x, ImGui::GetWindowPos().y,
-                                      ImGui::GetWindowWidth(), ImGui::GetWindowHeight());
-
-                    Engine::Math::Matrix4 vTransform = Engine::Math::Matrix4::translation(centroidWorld);
-                    Engine::Math::Matrix4 view = camera.getViewMatrix();
-                    Engine::Math::Matrix4 proj = camera.getProjectionMatrix(
-                        (float)currentWidth / (float)currentHeight);
-
-                    float snapValues[3] = { 1.0f, 1.0f, 1.0f };
-                    float* snapPtr = EditorLayout::instance().gridSnap ? snapValues : nullptr;
-
-                    static std::map<int, Engine::Math::Vector3> s_edgeDragStartPositions;
-                    static Engine::Math::Vector3 s_edgeDragStartCenter;
-
-                    ImGuizmo::Manipulate(
-                        view.m.data(), proj.m.data(),
-                        ImGuizmo::TRANSLATE,
-                        ImGuizmo::WORLD,
-                        vTransform.m.data(),
-                        nullptr,
-                        snapPtr
-                    );
-
-                    if (ImGuizmo::IsUsing()) {
-                        if (!isDraggingGizmo) {
-                            isDraggingGizmo = true;
-                            s_edgeDragStartCenter = centroidWorld;
-                            s_edgeDragStartPositions.clear();
-                            for (int vIdx : uniqueVerts) {
-                                s_edgeDragStartPositions[vIdx] = part->getVertex(vIdx);
-                            }
-                        }
-                        Engine::Math::Vector3 newWorldCenter(vTransform.m[12], vTransform.m[13], vTransform.m[14]);
-                        Engine::Math::Vector3 delta = newWorldCenter - s_edgeDragStartCenter;
-                        for (int vIdx : uniqueVerts) {
-                            part->setVertex(vIdx, s_edgeDragStartPositions[vIdx] + delta);
-                        }
-                    } else {
-                        isDraggingGizmo = false;
-                    }
-                }
-            }
-            return; // In Edge mode, do not draw whole-object gizmo
-        }
+        return; // In Edge mode, do not draw whole-object gizmo
+    }
 
     // Calculate Bounding Centroid Center
     Engine::Math::Vector3 center(0.0f, 0.0f, 0.0f);

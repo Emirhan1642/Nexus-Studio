@@ -2,7 +2,9 @@
 #include "Instance.h"
 #include "../Math/Vector3.h"
 #include "../../Assets/AssetDatabase.h"
+#include "../Geometry/EditableMesh.h"
 #include <cstdint>
+#include <memory>
 
 class Part : public Instance {
 public:
@@ -70,17 +72,21 @@ public:
     void setBoneTransforms(const std::vector<Engine::Math::Matrix4>& transforms);
     const std::vector<Engine::Math::Matrix4>& getBoneTransforms() const { return currentBoneTransforms; }
 
-    // Vertex / Mesh Deformation (Blender Edit Mode Style)
-    bool isDeformed() const { return !customVertices.empty(); }
+    // Vertex / Mesh Deformation & EditableMesh (Blender Edit Mode Style)
+    bool isDeformed() const { return m_editableMesh != nullptr || !customVertices.empty(); }
     Engine::Math::Vector3 getVertex(int index) const;
     void setVertex(int index, const Engine::Math::Vector3& localPos);
     void resetDeformation();
     const std::vector<Engine::Math::Vector3>& getCustomVertices() const { return customVertices; }
 
+    std::shared_ptr<Engine::Geometry::EditableMesh> getEditableMesh();
+    void setEditableMesh(std::shared_ptr<Engine::Geometry::EditableMesh> mesh);
+    void ensureEditableMesh();
     void ensureCustomVertices();
     void rebuildProceduralMesh();
 
 private:
+    std::shared_ptr<Engine::Geometry::EditableMesh> m_editableMesh;
     std::vector<Engine::Math::Vector3> customVertices;
     uint32_t customMeshHandle = 0xFFFFFFFF; // InvalidHandle
     std::vector<Engine::Math::Matrix4> currentBoneTransforms;

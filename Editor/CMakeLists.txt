@@ -21,6 +21,9 @@ set(EDITOR_SOURCES
     UI/AICopilotPanel.cpp
     UI/BottomBar.cpp
     UI/EditorLayout.cpp
+    UI/ModelingOperatorPanel.cpp
+    Modeling/ModelingContext.cpp
+    Asset/MeshAssetExporter.cpp
     Undo/UndoStack.cpp
 )
 

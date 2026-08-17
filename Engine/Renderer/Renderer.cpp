@@ -1030,6 +1030,83 @@ void RendererSystem::updateDeformedCubeMesh(MeshHandle handle, const std::vector
     );
 }
 
+MeshHandle RendererSystem::createDynamicMesh(const void* vertData, uint32_t vertSize, uint32_t vertCount, const uint32_t* indices, uint32_t numIndices, const uint32_t* lineIndices, uint32_t numLineIndices) {
+    if (!vertData || vertCount == 0) return InvalidHandle;
+
+    MeshData meshData;
+    meshData.vbh = bgfx::createVertexBuffer(
+        bgfx::copy(vertData, vertCount * vertSize),
+        PosColorTexCoordVertex::ms_layout
+    );
+
+    if (indices && numIndices > 0) {
+        std::vector<uint16_t> idx16(numIndices);
+        for (uint32_t i = 0; i < numIndices; ++i) idx16[i] = static_cast<uint16_t>(indices[i]);
+        meshData.ibhLods[0] = bgfx::createIndexBuffer(
+            bgfx::copy(idx16.data(), static_cast<uint32_t>(idx16.size() * sizeof(uint16_t)))
+        );
+        meshData.numIndicesLods[0] = numIndices;
+        meshData.numLods = 1;
+    }
+
+    if (lineIndices && numLineIndices > 0) {
+        std::vector<uint16_t> lidx16(numLineIndices);
+        for (uint32_t i = 0; i < numLineIndices; ++i) lidx16[i] = static_cast<uint16_t>(lineIndices[i]);
+        meshData.ibhLines = bgfx::createIndexBuffer(
+            bgfx::copy(lidx16.data(), static_cast<uint32_t>(lidx16.size() * sizeof(uint16_t)))
+        );
+        meshData.numLineIndices = numLineIndices;
+    }
+
+    MeshHandle handle = m_nextMeshHandle++;
+    m_meshes[handle] = meshData;
+    return handle;
+}
+
+void RendererSystem::updateDynamicMesh(MeshHandle handle, const void* vertData, uint32_t vertSize, uint32_t vertCount, const uint32_t* indices, uint32_t numIndices, const uint32_t* lineIndices, uint32_t numLineIndices) {
+    auto it = m_meshes.find(handle);
+    if (it == m_meshes.end()) return;
+
+    if (bgfx::isValid(it->second.vbh)) {
+        bgfx::destroy(it->second.vbh);
+        it->second.vbh = BGFX_INVALID_HANDLE;
+    }
+    if (bgfx::isValid(it->second.ibhLods[0])) {
+        bgfx::destroy(it->second.ibhLods[0]);
+        it->second.ibhLods[0] = BGFX_INVALID_HANDLE;
+    }
+    if (bgfx::isValid(it->second.ibhLines)) {
+        bgfx::destroy(it->second.ibhLines);
+        it->second.ibhLines = BGFX_INVALID_HANDLE;
+    }
+
+    if (vertData && vertCount > 0) {
+        it->second.vbh = bgfx::createVertexBuffer(
+            bgfx::copy(vertData, vertCount * vertSize),
+            PosColorTexCoordVertex::ms_layout
+        );
+    }
+
+    if (indices && numIndices > 0) {
+        std::vector<uint16_t> idx16(numIndices);
+        for (uint32_t i = 0; i < numIndices; ++i) idx16[i] = static_cast<uint16_t>(indices[i]);
+        it->second.ibhLods[0] = bgfx::createIndexBuffer(
+            bgfx::copy(idx16.data(), static_cast<uint32_t>(idx16.size() * sizeof(uint16_t)))
+        );
+        it->second.numIndicesLods[0] = numIndices;
+        it->second.numLods = 1;
+    }
+
+    if (lineIndices && numLineIndices > 0) {
+        std::vector<uint16_t> lidx16(numLineIndices);
+        for (uint32_t i = 0; i < numLineIndices; ++i) lidx16[i] = static_cast<uint16_t>(lineIndices[i]);
+        it->second.ibhLines = bgfx::createIndexBuffer(
+            bgfx::copy(lidx16.data(), static_cast<uint32_t>(lidx16.size() * sizeof(uint16_t)))
+        );
+        it->second.numLineIndices = numLineIndices;
+    }
+}
+
 void RendererSystem::destroyMesh(MeshHandle handle) {
     auto it = m_meshes.find(handle);
     if (it != m_meshes.end()) {

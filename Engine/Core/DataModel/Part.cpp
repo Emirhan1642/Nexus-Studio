@@ -57,9 +57,36 @@ void Part::setMeshFromAsset(const Engine::Assets::AssetGuid& guid) {
     }
 }
 
+#include "../Geometry/EditableMesh.h"
+#include "../Geometry/MeshPrimitives.h"
+
 void Part::setBoneTransforms(const std::vector<Engine::Math::Matrix4>& transforms) {
     currentBoneTransforms = transforms;
     markRenderDirty();
+}
+
+std::shared_ptr<Engine::Geometry::EditableMesh> Part::getEditableMesh() {
+    return m_editableMesh;
+}
+
+void Part::setEditableMesh(std::shared_ptr<Engine::Geometry::EditableMesh> mesh) {
+    m_editableMesh = mesh;
+    rebuildProceduralMesh();
+    markRenderDirty();
+}
+
+void Part::ensureEditableMesh() {
+    if (m_editableMesh) return;
+    if (customVertices.size() == 8) {
+        // Convert customVertices cube into EditableMesh
+        m_editableMesh = Engine::Geometry::MeshPrimitives::createCube(size);
+        for (int i = 0; i < 8 && i < (int)m_editableMesh->getVertices().size(); ++i) {
+            m_editableMesh->getVertices()[i].position = customVertices[i];
+        }
+        m_editableMesh->rebuildTopology();
+    } else {
+        m_editableMesh = Engine::Geometry::MeshPrimitives::createCube(size);
+    }
 }
 
 void Part::ensureCustomVertices() {
@@ -80,6 +107,9 @@ void Part::ensureCustomVertices() {
 }
 
 Engine::Math::Vector3 Part::getVertex(int index) const {
+    if (m_editableMesh && index >= 0 && index < (int)m_editableMesh->getVertices().size()) {
+        return m_editableMesh->getVertices()[index].position;
+    }
     if (index < 0 || index >= 8) return {0, 0, 0};
     if (customVertices.size() == 8) {
         return customVertices[index];
@@ -95,6 +125,12 @@ Engine::Math::Vector3 Part::getVertex(int index) const {
 }
 
 void Part::setVertex(int index, const Engine::Math::Vector3& localPos) {
+    if (m_editableMesh && index >= 0 && index < (int)m_editableMesh->getVertices().size()) {
+        m_editableMesh->getVertices()[index].position = localPos;
+        rebuildProceduralMesh();
+        markRenderDirty();
+        return;
+    }
     if (index < 0 || index >= 8) return;
     ensureCustomVertices();
     customVertices[index] = localPos;
@@ -107,11 +143,37 @@ void Part::resetDeformation() {
         Engine::Renderer::RendererSystem::instance().destroyMesh(customMeshHandle);
         customMeshHandle = Engine::Renderer::InvalidHandle;
     }
+    m_editableMesh = nullptr;
     customVertices.clear();
     markRenderDirty();
 }
 
 void Part::rebuildProceduralMesh() {
+    if (m_editableMesh) {
+        std::vector<Engine::Geometry::RenderVertex> rverts;
+        std::vector<uint32_t> indices;
+        std::vector<uint32_t> lineIndices;
+        m_editableMesh->generateRenderBuffers(rverts, indices, lineIndices);
+
+        if (rverts.empty()) return;
+
+        if (customMeshHandle == Engine::Renderer::InvalidHandle) {
+            customMeshHandle = Engine::Renderer::RendererSystem::instance().createDynamicMesh(
+                rverts.data(), sizeof(Engine::Geometry::RenderVertex), static_cast<uint32_t>(rverts.size()),
+                indices.data(), static_cast<uint32_t>(indices.size()),
+                lineIndices.data(), static_cast<uint32_t>(lineIndices.size())
+            );
+        } else {
+            Engine::Renderer::RendererSystem::instance().updateDynamicMesh(
+                customMeshHandle,
+                rverts.data(), sizeof(Engine::Geometry::RenderVertex), static_cast<uint32_t>(rverts.size()),
+                indices.data(), static_cast<uint32_t>(indices.size()),
+                lineIndices.data(), static_cast<uint32_t>(lineIndices.size())
+            );
+        }
+        return;
+    }
+
     if (customVertices.size() < 8) return;
     if (customMeshHandle == Engine::Renderer::InvalidHandle) {
         customMeshHandle = Engine::Renderer::RendererSystem::instance().createDeformedCubeMesh(customVertices);

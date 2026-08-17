@@ -55,6 +55,8 @@ public:
     MeshHandle getMeshHandle(const Engine::Assets::AssetGuid& guid);
     MeshHandle createDeformedCubeMesh(const std::vector<Engine::Math::Vector3>& localCorners);
     void updateDeformedCubeMesh(MeshHandle handle, const std::vector<Engine::Math::Vector3>& localCorners);
+    MeshHandle createDynamicMesh(const void* vertData, uint32_t vertSize, uint32_t vertCount, const uint32_t* indices, uint32_t numIndices, const uint32_t* lineIndices, uint32_t numLineIndices);
+    void updateDynamicMesh(MeshHandle handle, const void* vertData, uint32_t vertSize, uint32_t vertCount, const uint32_t* indices, uint32_t numIndices, const uint32_t* lineIndices, uint32_t numLineIndices);
     void destroyMesh(MeshHandle handle);
 
     // Shading Mode (Object, Face, Edge, Vertex)
