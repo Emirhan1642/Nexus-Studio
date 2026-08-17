@@ -161,29 +161,33 @@ void Part::rebuildProceduralMesh() {
 
         if (rverts.empty()) return;
 
-        if (customMeshHandle == Engine::Renderer::InvalidHandle) {
-            customMeshHandle = Engine::Renderer::RendererSystem::instance().createDynamicMesh(
-                rverts.data(), sizeof(Engine::Geometry::RenderVertex), static_cast<uint32_t>(rverts.size()),
-                indices.data(), static_cast<uint32_t>(indices.size()),
-                lineIndices.data(), static_cast<uint32_t>(lineIndices.size())
-            );
-        } else {
-            Engine::Renderer::RendererSystem::instance().updateDynamicMesh(
-                customMeshHandle,
-                rverts.data(), sizeof(Engine::Geometry::RenderVertex), static_cast<uint32_t>(rverts.size()),
-                indices.data(), static_cast<uint32_t>(indices.size()),
-                lineIndices.data(), static_cast<uint32_t>(lineIndices.size())
-            );
+        if (Engine::Renderer::RendererSystem::instance().isInitialized()) {
+            if (customMeshHandle == Engine::Renderer::InvalidHandle) {
+                customMeshHandle = Engine::Renderer::RendererSystem::instance().createDynamicMesh(
+                    rverts.data(), sizeof(Engine::Geometry::RenderVertex), static_cast<uint32_t>(rverts.size()),
+                    indices.data(), static_cast<uint32_t>(indices.size()),
+                    lineIndices.data(), static_cast<uint32_t>(lineIndices.size())
+                );
+            } else {
+                Engine::Renderer::RendererSystem::instance().updateDynamicMesh(
+                    customMeshHandle,
+                    rverts.data(), sizeof(Engine::Geometry::RenderVertex), static_cast<uint32_t>(rverts.size()),
+                    indices.data(), static_cast<uint32_t>(indices.size()),
+                    lineIndices.data(), static_cast<uint32_t>(lineIndices.size())
+                );
+            }
         }
         resetPhysics();
         return;
     }
 
     if (customVertices.size() < 8) return;
-    if (customMeshHandle == Engine::Renderer::InvalidHandle) {
-        customMeshHandle = Engine::Renderer::RendererSystem::instance().createDeformedCubeMesh(customVertices);
-    } else {
-        Engine::Renderer::RendererSystem::instance().updateDeformedCubeMesh(customMeshHandle, customVertices);
+    if (Engine::Renderer::RendererSystem::instance().isInitialized()) {
+        if (customMeshHandle == Engine::Renderer::InvalidHandle) {
+            customMeshHandle = Engine::Renderer::RendererSystem::instance().createDeformedCubeMesh(customVertices);
+        } else {
+            Engine::Renderer::RendererSystem::instance().updateDeformedCubeMesh(customMeshHandle, customVertices);
+        }
     }
     resetPhysics();
 }

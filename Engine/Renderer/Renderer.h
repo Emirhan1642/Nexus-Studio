@@ -50,6 +50,7 @@ public:
 
     void init();
     void shutdown();
+    bool isInitialized() const { return m_initialized; }
     void renderFrame(const Camera& camera, int width, int height, bgfx::FrameBufferHandle fb = BGFX_INVALID_HANDLE);
     bgfx::TextureHandle getTexture(const std::string& path);
     MeshHandle getMeshHandle(const Engine::Assets::AssetGuid& guid);
@@ -73,6 +74,7 @@ private:
     RendererSystem() = default;
 
     ShadingMode m_shadingMode = ShadingMode::Object;
+    bool m_initialized = false;
 
     // Hardcoded küp nesnesi için VBO/IBO
     bgfx::VertexBufferHandle m_vbh = BGFX_INVALID_HANDLE;

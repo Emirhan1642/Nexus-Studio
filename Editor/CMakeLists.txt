@@ -25,6 +25,7 @@ set(EDITOR_SOURCES
     Modeling/ModelingContext.cpp
     Asset/MeshAssetExporter.cpp
     Undo/UndoStack.cpp
+    Undo/MeshTopologyCommand.cpp
 )
 
 set(EDITOR_EXTERNAL_SOURCES

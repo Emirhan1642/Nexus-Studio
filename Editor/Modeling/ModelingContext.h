@@ -5,7 +5,6 @@
 #include "Engine/Core/Geometry/MeshCutOperators.h"
 #include "Editor/Undo/UndoStack.h"
 #include "Editor/Undo/MeshTopologyCommand.h"
-#include <imgui.h>
 #include <memory>
 #include <vector>
 
@@ -45,7 +44,8 @@ public:
 
     // Modal Tool States
     ModalTool activeModal = ModalTool::None;
-    ImVec2 modalStartMouse{0, 0};
+    float modalStartMouseX = 0.0f;
+    float modalStartMouseY = 0.0f;
     std::shared_ptr<Engine::Geometry::EditableMesh> preModalMesh;
 
     // Loop Cut Preview Edge Loop
@@ -84,7 +84,7 @@ public:
     bool startLoopCut(std::shared_ptr<Part> part);
     bool startKnife(std::shared_ptr<Part> part);
 
-    void updateModal(const ImVec2& currentMousePos, bool shiftHeld, bool ctrlHeld);
+    void updateModal(float mouseX, float mouseY, bool shiftHeld, bool ctrlHeld);
     void confirmModal();
     void cancelModal();
 

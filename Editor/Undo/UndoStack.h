@@ -17,6 +17,7 @@ public:
 
     void undo();
     void redo();
+    void clear() { undoList.clear(); redoList.clear(); }
 
 private:
     UndoStack() = default;

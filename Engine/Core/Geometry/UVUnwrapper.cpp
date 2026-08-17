@@ -81,32 +81,77 @@ void UVUnwrapper::smartUVProject(EditableMesh& mesh, float angleThresholdDeg, fl
     boxProject(mesh, 1.0f);
 
     auto& faces = mesh.getFaces();
-    auto& vertices = mesh.getVertices();
-    if (vertices.empty()) return;
+    margin = std::clamp(margin, 0.0f, 0.49f);
+    angleThresholdDeg = std::clamp(angleThresholdDeg, 0.0f, 180.0f);
+    const float cosThreshold = std::cos(angleThresholdDeg * 3.14159265358979323846f / 180.0f);
 
-    float minU = 1e9f, maxU = -1e9f;
-    float minV = 1e9f, maxV = -1e9f;
-
-    for (const auto& f : faces) {
-        if (f.deleted) continue;
-        for (const auto& uv : f.uvs) {
-            minU = std::min(minU, uv.first);
-            maxU = std::max(maxU, uv.first);
-            minV = std::min(minV, uv.second);
-            maxV = std::max(maxV, uv.second);
+    std::vector<std::vector<uint32_t>> adjacency(faces.size());
+    const auto& edges = mesh.getEdges();
+    for (uint32_t e = 0; e < edges.size(); ++e) {
+        if (edges[e].deleted) continue;
+        const auto edgeFaces = mesh.getEdgeFaces(e);
+        if (edgeFaces.size() != 2) continue;
+        const uint32_t a = edgeFaces[0], b = edgeFaces[1];
+        if (a >= faces.size() || b >= faces.size() || faces[a].deleted || faces[b].deleted) continue;
+        const float dot = faces[a].normal.dot(faces[b].normal);
+        if (dot >= cosThreshold) {
+            adjacency[a].push_back(b);
+            adjacency[b].push_back(a);
         }
     }
 
-    float rangeU = std::max(0.001f, maxU - minU);
-    float rangeV = std::max(0.001f, maxV - minV);
-    float scale = (1.0f - margin * 2.0f);
-
-    for (auto& f : faces) {
-        if (f.deleted) continue;
-        for (auto& uv : f.uvs) {
-            uv.first = margin + ((uv.first - minU) / rangeU) * scale;
-            uv.second = margin + ((uv.second - minV) / rangeV) * scale;
+    std::vector<uint8_t> visited(faces.size(), 0);
+    std::vector<std::vector<uint32_t>> islands;
+    for (uint32_t seed = 0; seed < faces.size(); ++seed) {
+        if (faces[seed].deleted || visited[seed]) continue;
+        std::vector<uint32_t> island;
+        std::vector<uint32_t> stack{seed};
+        visited[seed] = 1;
+        while (!stack.empty()) {
+            uint32_t f = stack.back(); stack.pop_back();
+            island.push_back(f);
+            for (uint32_t n : adjacency[f]) {
+                if (!visited[n]) { visited[n] = 1; stack.push_back(n); }
+            }
         }
+        islands.push_back(std::move(island));
+    }
+
+    if (islands.empty()) return;
+
+    // Normalize and pack each chart independently. This avoids the old global
+    // normalization which collapsed every hard-surface chart into one overlap.
+    const float usable = std::max(0.001f, 1.0f - 2.0f * margin);
+    const float cell = std::max(0.001f, usable / std::ceil(std::sqrt(static_cast<float>(islands.size()))));
+    float cursorX = margin, cursorY = margin, rowHeight = 0.0f;
+    for (const auto& island : islands) {
+        float minU = 1e30f, maxU = -1e30f, minV = 1e30f, maxV = -1e30f;
+        for (uint32_t fIdx : island) {
+            for (const auto& uv : faces[fIdx].uvs) {
+                minU = std::min(minU, uv.first); maxU = std::max(maxU, uv.first);
+                minV = std::min(minV, uv.second); maxV = std::max(maxV, uv.second);
+            }
+        }
+        const float rangeU = std::max(0.001f, maxU - minU);
+        const float rangeV = std::max(0.001f, maxV - minV);
+        const float chartScale = std::min((cell * 0.96f) / rangeU, (cell * 0.96f) / rangeV);
+        const float chartW = rangeU * chartScale, chartH = rangeV * chartScale;
+        if (cursorX + chartW > 1.0f - margin) {
+            cursorX = margin; cursorY += rowHeight + margin; rowHeight = 0.0f;
+        }
+        if (cursorY + chartH > 1.0f - margin) {
+            // More charts than the grid can hold: keep them inside the tile and
+            // let the final row use the remaining space rather than emit NaNs.
+            cursorY = margin;
+        }
+        for (uint32_t fIdx : island) {
+            for (auto& uv : faces[fIdx].uvs) {
+                uv.first = cursorX + (uv.first - minU) * chartScale;
+                uv.second = cursorY + (uv.second - minV) * chartScale;
+            }
+        }
+        cursorX += chartW + margin;
+        rowHeight = std::max(rowHeight, chartH);
     }
 }
 

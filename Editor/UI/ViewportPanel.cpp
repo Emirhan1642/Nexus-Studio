@@ -374,7 +374,7 @@ void ViewportPanel::draw(Engine::Renderer::Camera& camera) {
     if (mCtx.activeModal != Editor::Modeling::ModalTool::None) {
         bool shiftHeld = ImGui::GetIO().KeyShift;
         bool ctrlHeld  = ImGui::GetIO().KeyCtrl;
-        mCtx.updateModal(mousePos, shiftHeld, ctrlHeld);
+        mCtx.updateModal(mousePos.x, mousePos.y, shiftHeld, ctrlHeld);
 
         if (mCtx.activeModal == Editor::Modeling::ModalTool::Knife) {
             // Knife Tool: 'C' toggles Cut-Through mode, Enter / Space confirms, Right Click / Esc cancels

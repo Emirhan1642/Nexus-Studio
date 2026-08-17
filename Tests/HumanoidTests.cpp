@@ -15,6 +15,17 @@ class HumanoidTest : public ::testing::Test {
 protected:
     void SetUp() override {
         ensureTestEnvironmentInitialized();
+        auto root = DataModel::instance();
+        while (!root->getChildren().empty()) {
+            root->getChildren().back()->destroy();
+        }
+    }
+
+    void TearDown() override {
+        auto root = DataModel::instance();
+        while (!root->getChildren().empty()) {
+            root->getChildren().back()->destroy();
+        }
     }
 };
 

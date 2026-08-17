@@ -47,7 +47,8 @@ bool ModelingContext::startExtrude(std::shared_ptr<Part> part) {
     opTargetFaces = selectedFaces;
 
     activeModal = ModalTool::Extrude;
-    modalStartMouse = ImGui::GetMousePos();
+    modalStartMouseX = 0.0f;
+    modalStartMouseY = 0.0f;
     opDistance = 0.0f;
     lastOp = LastOpType::Extrude;
 
@@ -66,7 +67,8 @@ bool ModelingContext::startInset(std::shared_ptr<Part> part) {
     opTargetFaces = selectedFaces;
 
     activeModal = ModalTool::Inset;
-    modalStartMouse = ImGui::GetMousePos();
+    modalStartMouseX = 0.0f;
+    modalStartMouseY = 0.0f;
     opThickness = 0.0f;
     opDepth = 0.0f;
     lastOp = LastOpType::Inset;
@@ -90,7 +92,8 @@ bool ModelingContext::startBevel(std::shared_ptr<Part> part) {
     opTargetVertices = selectedVertices;
 
     activeModal = ModalTool::Bevel;
-    modalStartMouse = ImGui::GetMousePos();
+    modalStartMouseX = 0.0f;
+    modalStartMouseY = 0.0f;
     opWidth = 0.05f;
     opSegments = 1;
     opProfile = 0.5f;
@@ -112,7 +115,8 @@ bool ModelingContext::startLoopCut(std::shared_ptr<Part> part) {
     previewLoopEdges.clear();
 
     activeModal = ModalTool::LoopCut;
-    modalStartMouse = ImGui::GetMousePos();
+    modalStartMouseX = 0.0f;
+    modalStartMouseY = 0.0f;
     opSlide = 0.0f;
     opCuts = 1;
     lastOp = LastOpType::LoopCut;
@@ -135,12 +139,17 @@ bool ModelingContext::startKnife(std::shared_ptr<Part> part) {
     return true;
 }
 
-void ModelingContext::updateModal(const ImVec2& currentMousePos, bool shiftHeld, bool ctrlHeld) {
+void ModelingContext::updateModal(float mouseX, float mouseY, bool shiftHeld, bool ctrlHeld) {
     auto part = activePart.lock();
     if (!part || !baseSnapshotMesh || activeModal == ModalTool::None) return;
 
-    float dx = (currentMousePos.x - modalStartMouse.x);
-    float dy = (currentMousePos.y - modalStartMouse.y);
+    if (modalStartMouseX == 0.0f && modalStartMouseY == 0.0f) {
+        modalStartMouseX = mouseX;
+        modalStartMouseY = mouseY;
+    }
+
+    float dx = (mouseX - modalStartMouseX);
+    float dy = (mouseY - modalStartMouseY);
     float factor = shiftHeld ? 0.002f : 0.015f;
 
     if (activeModal == ModalTool::Extrude) {
@@ -192,7 +201,11 @@ void ModelingContext::confirmModal() {
 
         if (part->getEditableMesh()) {
             part->rebuildProceduralMesh();
-            auto cmd = std::make_unique<MeshTopologyCommand>(part, preModalMesh, part->getEditableMesh()->clone());
+            auto cmd = std::make_unique<MeshTopologyCommand>(
+                part, preModalMesh, part->getEditableMesh()->clone(),
+                opTargetVertices, opTargetEdges, opTargetFaces,
+                selectedVertices, selectedEdges, selectedFaces
+            );
             UndoStack::instance().push(std::move(cmd));
         }
     }
@@ -251,6 +264,10 @@ void ModelingContext::executeSubdivide(std::shared_ptr<Part> part, int cuts, flo
     if (!mesh) return;
 
     auto before = mesh->clone();
+    auto beforeVerts = selectedVertices;
+    auto beforeEdges = selectedEdges;
+    auto beforeFaces = selectedFaces;
+
     baseSnapshotMesh = mesh->clone();
     opTargetFaces = selectedFaces;
     opCuts = cuts;
@@ -261,7 +278,11 @@ void ModelingContext::executeSubdivide(std::shared_ptr<Part> part, int cuts, flo
     Engine::Geometry::MeshOperators::subdivideFaces(*mesh, selectedFaces, cuts, smoothness);
     part->rebuildProceduralMesh();
 
-    auto cmd = std::make_unique<MeshTopologyCommand>(part, before, mesh->clone());
+    auto cmd = std::make_unique<MeshTopologyCommand>(
+        part, before, mesh->clone(),
+        beforeVerts, beforeEdges, beforeFaces,
+        selectedVertices, selectedEdges, selectedFaces
+    );
     UndoStack::instance().push(std::move(cmd));
 }
 
@@ -272,11 +293,19 @@ void ModelingContext::executeMerge(std::shared_ptr<Part> part, Engine::Geometry:
     if (!mesh) return;
 
     auto before = mesh->clone();
+    auto beforeVerts = selectedVertices;
+    auto beforeEdges = selectedEdges;
+    auto beforeFaces = selectedFaces;
+
     Engine::Geometry::MeshOperators::mergeVertices(*mesh, selectedVertices, mode);
     part->rebuildProceduralMesh();
-
     clearSelection();
-    auto cmd = std::make_unique<MeshTopologyCommand>(part, before, mesh->clone());
+
+    auto cmd = std::make_unique<MeshTopologyCommand>(
+        part, before, mesh->clone(),
+        beforeVerts, beforeEdges, beforeFaces,
+        selectedVertices, selectedEdges, selectedFaces
+    );
     UndoStack::instance().push(std::move(cmd));
 }
 
@@ -287,6 +316,10 @@ void ModelingContext::executeDelete(std::shared_ptr<Part> part, Engine::Geometry
     if (!mesh) return;
 
     auto before = mesh->clone();
+    auto beforeVerts = selectedVertices;
+    auto beforeEdges = selectedEdges;
+    auto beforeFaces = selectedFaces;
+
     if (type == Engine::Geometry::SubElementType::Face && !selectedFaces.empty()) {
         Engine::Geometry::MeshOperators::deleteElements(*mesh, selectedFaces, type);
     } else if (type == Engine::Geometry::SubElementType::Edge && !selectedEdges.empty()) {
@@ -295,9 +328,13 @@ void ModelingContext::executeDelete(std::shared_ptr<Part> part, Engine::Geometry
         Engine::Geometry::MeshOperators::deleteElements(*mesh, selectedVertices, type);
     }
     part->rebuildProceduralMesh();
-
     clearSelection();
-    auto cmd = std::make_unique<MeshTopologyCommand>(part, before, mesh->clone());
+
+    auto cmd = std::make_unique<MeshTopologyCommand>(
+        part, before, mesh->clone(),
+        beforeVerts, beforeEdges, beforeFaces,
+        selectedVertices, selectedEdges, selectedFaces
+    );
     UndoStack::instance().push(std::move(cmd));
 }
 
@@ -308,15 +345,23 @@ void ModelingContext::executeDissolve(std::shared_ptr<Part> part, Engine::Geomet
     if (!mesh) return;
 
     auto before = mesh->clone();
+    auto beforeVerts = selectedVertices;
+    auto beforeEdges = selectedEdges;
+    auto beforeFaces = selectedFaces;
+
     if (type == Engine::Geometry::SubElementType::Edge && !selectedEdges.empty()) {
         Engine::Geometry::MeshOperators::dissolveEdges(*mesh, selectedEdges);
     } else if (type == Engine::Geometry::SubElementType::Vertex && !selectedVertices.empty()) {
         Engine::Geometry::MeshOperators::dissolveVertices(*mesh, selectedVertices);
     }
     part->rebuildProceduralMesh();
-
     clearSelection();
-    auto cmd = std::make_unique<MeshTopologyCommand>(part, before, mesh->clone());
+
+    auto cmd = std::make_unique<MeshTopologyCommand>(
+        part, before, mesh->clone(),
+        beforeVerts, beforeEdges, beforeFaces,
+        selectedVertices, selectedEdges, selectedFaces
+    );
     UndoStack::instance().push(std::move(cmd));
 }
 
@@ -330,7 +375,9 @@ void ModelingContext::executeFill(std::shared_ptr<Part> part) {
     Engine::Geometry::MeshOperators::fillFace(*mesh, selectedVertices);
     part->rebuildProceduralMesh();
 
-    auto cmd = std::make_unique<MeshTopologyCommand>(part, before, mesh->clone());
+    auto cmd = std::make_unique<MeshTopologyCommand>(part, before, mesh->clone(),
+        selectedVertices, selectedEdges, selectedFaces,
+        selectedVertices, selectedEdges, selectedFaces);
     UndoStack::instance().push(std::move(cmd));
 }
 
@@ -344,7 +391,9 @@ void ModelingContext::executeMirror(std::shared_ptr<Part> part, Engine::Geometry
     Engine::Geometry::MeshCutOperators::applyMirror(*mesh, axis, true, 0.01f);
     part->rebuildProceduralMesh();
 
-    auto cmd = std::make_unique<MeshTopologyCommand>(part, before, mesh->clone());
+    auto cmd = std::make_unique<MeshTopologyCommand>(part, before, mesh->clone(),
+        selectedVertices, selectedEdges, selectedFaces,
+        selectedVertices, selectedEdges, selectedFaces);
     UndoStack::instance().push(std::move(cmd));
 }
 
@@ -358,7 +407,9 @@ void ModelingContext::executeSmartUV(std::shared_ptr<Part> part) {
     Engine::Geometry::UVUnwrapper::smartUVProject(*mesh);
     part->rebuildProceduralMesh();
 
-    auto cmd = std::make_unique<MeshTopologyCommand>(part, before, mesh->clone());
+    auto cmd = std::make_unique<MeshTopologyCommand>(part, before, mesh->clone(),
+        selectedVertices, selectedEdges, selectedFaces,
+        selectedVertices, selectedEdges, selectedFaces);
     UndoStack::instance().push(std::move(cmd));
 }
 
@@ -372,7 +423,9 @@ void ModelingContext::executeBoxUV(std::shared_ptr<Part> part) {
     Engine::Geometry::UVUnwrapper::boxProject(*mesh, 1.0f);
     part->rebuildProceduralMesh();
 
-    auto cmd = std::make_unique<MeshTopologyCommand>(part, before, mesh->clone());
+    auto cmd = std::make_unique<MeshTopologyCommand>(part, before, mesh->clone(),
+        selectedVertices, selectedEdges, selectedFaces,
+        selectedVertices, selectedEdges, selectedFaces);
     UndoStack::instance().push(std::move(cmd));
 }
 
@@ -386,7 +439,9 @@ void ModelingContext::executePoke(std::shared_ptr<Part> part, float offset) {
     Engine::Geometry::MeshOperators::pokeFaces(*mesh, selectedFaces, offset);
     part->rebuildProceduralMesh();
 
-    auto cmd = std::make_unique<MeshTopologyCommand>(part, before, mesh->clone());
+    auto cmd = std::make_unique<MeshTopologyCommand>(part, before, mesh->clone(),
+        selectedVertices, selectedEdges, selectedFaces,
+        selectedVertices, selectedEdges, selectedFaces);
     UndoStack::instance().push(std::move(cmd));
 }
 
@@ -400,7 +455,9 @@ void ModelingContext::executeTriangulate(std::shared_ptr<Part> part) {
     Engine::Geometry::MeshOperators::triangulateFaces(*mesh, selectedFaces);
     part->rebuildProceduralMesh();
 
-    auto cmd = std::make_unique<MeshTopologyCommand>(part, before, mesh->clone());
+    auto cmd = std::make_unique<MeshTopologyCommand>(part, before, mesh->clone(),
+        selectedVertices, selectedEdges, selectedFaces,
+        selectedVertices, selectedEdges, selectedFaces);
     UndoStack::instance().push(std::move(cmd));
 }
 
@@ -414,7 +471,9 @@ void ModelingContext::executeTrisToQuads(std::shared_ptr<Part> part) {
     Engine::Geometry::MeshOperators::trisToQuads(*mesh, selectedFaces);
     part->rebuildProceduralMesh();
 
-    auto cmd = std::make_unique<MeshTopologyCommand>(part, before, mesh->clone());
+    auto cmd = std::make_unique<MeshTopologyCommand>(part, before, mesh->clone(),
+        selectedVertices, selectedEdges, selectedFaces,
+        selectedVertices, selectedEdges, selectedFaces);
     UndoStack::instance().push(std::move(cmd));
 }
 
@@ -428,7 +487,9 @@ void ModelingContext::executeFlipNormals(std::shared_ptr<Part> part) {
     Engine::Geometry::MeshOperators::flipNormals(*mesh, selectedFaces);
     part->rebuildProceduralMesh();
 
-    auto cmd = std::make_unique<MeshTopologyCommand>(part, before, mesh->clone());
+    auto cmd = std::make_unique<MeshTopologyCommand>(part, before, mesh->clone(),
+        selectedVertices, selectedEdges, selectedFaces,
+        selectedVertices, selectedEdges, selectedFaces);
     UndoStack::instance().push(std::move(cmd));
 }
 
@@ -442,7 +503,9 @@ void ModelingContext::executeEdgeSplit(std::shared_ptr<Part> part) {
     Engine::Geometry::MeshOperators::edgeSplit(*mesh, selectedEdges);
     part->rebuildProceduralMesh();
 
-    auto cmd = std::make_unique<MeshTopologyCommand>(part, before, mesh->clone());
+    auto cmd = std::make_unique<MeshTopologyCommand>(part, before, mesh->clone(),
+        selectedVertices, selectedEdges, selectedFaces,
+        selectedVertices, selectedEdges, selectedFaces);
     UndoStack::instance().push(std::move(cmd));
 }
 
@@ -456,7 +519,9 @@ void ModelingContext::executeWeldByDistance(std::shared_ptr<Part> part, float th
     Engine::Geometry::MeshOperators::weldVerticesByDistance(*mesh, threshold);
     part->rebuildProceduralMesh();
 
-    auto cmd = std::make_unique<MeshTopologyCommand>(part, before, mesh->clone());
+    auto cmd = std::make_unique<MeshTopologyCommand>(part, before, mesh->clone(),
+        selectedVertices, selectedEdges, selectedFaces,
+        selectedVertices, selectedEdges, selectedFaces);
     UndoStack::instance().push(std::move(cmd));
 }
 
@@ -677,7 +742,9 @@ void ModelingContext::executeSolidify(std::shared_ptr<Part> part, float thicknes
     Engine::Geometry::MeshOperators::solidify(*mesh, thickness, rimFill);
     part->rebuildProceduralMesh();
 
-    auto cmd = std::make_unique<MeshTopologyCommand>(part, before, mesh->clone());
+    auto cmd = std::make_unique<MeshTopologyCommand>(part, before, mesh->clone(),
+        selectedVertices, selectedEdges, selectedFaces,
+        selectedVertices, selectedEdges, selectedFaces);
     UndoStack::instance().push(std::move(cmd));
 }
 
@@ -763,10 +830,17 @@ void ModelingContext::executeJoin(std::vector<std::shared_ptr<Instance>> selecte
         for (const auto& f : otherFaces) {
             if (f.deleted) continue;
             std::vector<uint32_t> newFv;
+            std::vector<std::pair<float, float>> newUVs;
             for (uint32_t v : f.vertices) {
-                if (remap.count(v)) newFv.push_back(remap[v]);
+                if (remap.count(v)) {
+                    newFv.push_back(remap[v]);
+                    const size_t corner = newFv.size() - 1;
+                    newUVs.push_back(corner < f.uvs.size() ? f.uvs[corner] : std::make_pair(0.0f, 0.0f));
+                }
             }
-            if (newFv.size() >= 3) mainMesh->addFace(newFv);
+            if (newFv.size() >= 3) {
+                mainMesh->addFaceWithUVs(newFv, newUVs, f.materialId);
+            }
         }
 
         otherPart->destroy();

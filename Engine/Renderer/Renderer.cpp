@@ -159,6 +159,7 @@ bgfx::ShaderHandle loadShader(const char* filepath) {
 }
 
 void RendererSystem::init() {
+    m_initialized = true;
     PosColorTexCoordVertex::init();
     SkinnedVertex::init();
 
@@ -352,6 +353,7 @@ void RendererSystem::init() {
 }
 
 void RendererSystem::shutdown() {
+    m_initialized = false;
     m_voxelizer.shutdown();
 
     bgfx::destroy(m_ibh);
@@ -1064,6 +1066,7 @@ MeshHandle RendererSystem::createDynamicMesh(const void* vertData, uint32_t vert
 }
 
 void RendererSystem::updateDynamicMesh(MeshHandle handle, const void* vertData, uint32_t vertSize, uint32_t vertCount, const uint32_t* indices, uint32_t numIndices, const uint32_t* lineIndices, uint32_t numLineIndices) {
+    if (!m_initialized) return;
     auto it = m_meshes.find(handle);
     if (it == m_meshes.end()) return;
 
@@ -1110,11 +1113,13 @@ void RendererSystem::updateDynamicMesh(MeshHandle handle, const void* vertData, 
 void RendererSystem::destroyMesh(MeshHandle handle) {
     auto it = m_meshes.find(handle);
     if (it != m_meshes.end()) {
-        if (bgfx::isValid(it->second.vbh)) bgfx::destroy(it->second.vbh);
-        for (int i = 0; i < it->second.numLods; ++i) {
-            if (bgfx::isValid(it->second.ibhLods[i])) bgfx::destroy(it->second.ibhLods[i]);
+        if (m_initialized) {
+            if (bgfx::isValid(it->second.vbh)) bgfx::destroy(it->second.vbh);
+            for (int i = 0; i < it->second.numLods; ++i) {
+                if (bgfx::isValid(it->second.ibhLods[i])) bgfx::destroy(it->second.ibhLods[i]);
+            }
+            if (bgfx::isValid(it->second.ibhLines)) bgfx::destroy(it->second.ibhLines);
         }
-        if (bgfx::isValid(it->second.ibhLines)) bgfx::destroy(it->second.ibhLines);
         m_meshes.erase(it);
     }
 }

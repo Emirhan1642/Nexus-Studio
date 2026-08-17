@@ -81,6 +81,7 @@ std::vector<uint32_t> MeshCutOperators::applyLoopCut(
     int numCuts
 ) {
     std::vector<uint32_t> newEdges;
+    std::vector<std::pair<uint32_t, uint32_t>> newEdgeVertexPairs;
     if (edgeLoop.empty()) return newEdges;
 
     auto& edges = mesh.getEdges();
@@ -177,7 +178,9 @@ std::vector<uint32_t> MeshCutOperators::applyLoopCut(
 
             for (int k = 0; k < numCuts; ++k) {
                 int ne = mesh.addEdge(sv0[k], sv2[k]);
-                if (ne >= 0) newEdges.push_back((uint32_t)ne);
+                if (ne >= 0) {
+                    newEdgeVertexPairs.emplace_back(mesh.getEdges()[ne].v0, mesh.getEdges()[ne].v1);
+                }
             }
         } else if (has1 || has3) {
             std::vector<uint32_t> sv1 = (has1) ? getEdgeSplitsOriented((uint32_t)e1, v1) : std::vector<uint32_t>(numCuts);
@@ -208,12 +211,25 @@ std::vector<uint32_t> MeshCutOperators::applyLoopCut(
 
             for (int k = 0; k < numCuts; ++k) {
                 int ne = mesh.addEdge(sv3[k], sv1[k]);
-                if (ne >= 0) newEdges.push_back((uint32_t)ne);
+                if (ne >= 0) {
+                    newEdgeVertexPairs.emplace_back(mesh.getEdges()[ne].v0, mesh.getEdges()[ne].v1);
+                }
             }
         }
     }
 
-    mesh.rebuildTopology();
+    std::vector<uint32_t> vertRemap;
+    mesh.packAndCompact(&vertRemap);
+    // packAndCompact reindexes vertices and rebuilds edges. Re-resolve the
+    // returned cut edges instead of exposing stale pre-compaction IDs.
+    for (const auto& pair : newEdgeVertexPairs) {
+        if (pair.first >= vertRemap.size() || pair.second >= vertRemap.size()) continue;
+        const uint32_t v0 = vertRemap[pair.first];
+        const uint32_t v1 = vertRemap[pair.second];
+        if (v0 == 0xFFFFFFFF || v1 == 0xFFFFFFFF) continue;
+        const int edge = mesh.findEdge(v0, v1);
+        if (edge >= 0) newEdges.push_back(static_cast<uint32_t>(edge));
+    }
     mesh.recalculateAllNormals(false);
     return newEdges;
 }
@@ -299,6 +315,7 @@ bool MeshCutOperators::cutMeshWithKnifePolyline(
     }
 
     if (anyCut) {
+        mesh.packAndCompact();
         mesh.rebuildTopology();
         mesh.recalculateAllNormals(false);
     }
@@ -322,68 +339,98 @@ bool MeshCutOperators::cutFaceWithRaySegment(
     Engine::Math::Vector3 fn = face.normal;
     Engine::Math::Vector3 fp = vertices[face.vertices[0]].position;
 
-    float d0 = std::abs((p0 - fp).dot(fn));
-    float d1 = std::abs((p1 - fp).dot(fn));
-    // BOTH end points of the cut segment MUST lie precisely on this face's plane
+    const float d0 = std::abs((p0 - fp).dot(fn));
+    const float d1 = std::abs((p1 - fp).dot(fn));
     if (d0 > 0.05f || d1 > 0.05f) return false;
 
-    // Check if p0 or p1 snaps directly to existing face corner vertices
-    int matchIdx0 = -1;
-    int matchIdx1 = -1;
+    struct BoundaryHit { uint32_t vertex = 0xFFFFFFFF; uint32_t a = 0xFFFFFFFF; uint32_t b = 0xFFFFFFFF; };
+    float maxEdgeLength = 0.0f;
     for (size_t i = 0; i < face.vertices.size(); ++i) {
-        uint32_t v = face.vertices[i];
-        if ((vertices[v].position - p0).length() < 0.08f) matchIdx0 = (int)i;
-        if ((vertices[v].position - p1).length() < 0.08f) matchIdx1 = (int)i;
+        const auto& a = vertices[face.vertices[i]].position;
+        const auto& b = vertices[face.vertices[(i + 1) % face.vertices.size()]].position;
+        maxEdgeLength = std::max(maxEdgeLength, (b - a).length());
     }
+    const float tolerance = std::max(1e-4f, maxEdgeLength * 0.02f);
 
-    // Vertex-to-Vertex Diagonal Split (e.g. Quad -> Two Triangles)
-    if (matchIdx0 != -1 && matchIdx1 != -1 && matchIdx0 != matchIdx1) {
-        if (face.vertices.size() == 4) {
-            uint32_t v0 = face.vertices[0], v1 = face.vertices[1];
-            uint32_t v2 = face.vertices[2], v3 = face.vertices[3];
+    auto locateBoundary = [&](const Engine::Math::Vector3& p) -> BoundaryHit {
+        for (uint32_t v : face.vertices) {
+            if ((vertices[v].position - p).length() <= tolerance) return {v, v, v};
+        }
+        for (size_t i = 0; i < face.vertices.size(); ++i) {
+            const uint32_t a = face.vertices[i];
+            const uint32_t b = face.vertices[(i + 1) % face.vertices.size()];
+            const auto ab = vertices[b].position - vertices[a].position;
+            const float lenSq = ab.dot(ab);
+            if (lenSq <= 1e-8f) continue;
+            const float t = std::clamp((p - vertices[a].position).dot(ab) / lenSq, 0.0f, 1.0f);
+            const auto closest = vertices[a].position + ab * t;
+            if ((closest - p).length() > tolerance) continue;
+            if (t <= 1e-4f) return {a, a, b};
+            if (t >= 1.0f - 1e-4f) return {b, a, b};
+            const uint32_t split = mesh.addVertex(closest, 0.5f, 0.5f, fn);
+            return {split, a, b};
+        }
+        return {};
+    };
 
-            if ((matchIdx0 == 0 && matchIdx1 == 2) || (matchIdx0 == 2 && matchIdx1 == 0)) {
-                mesh.removeFace(faceIndex);
-                mesh.addFace({v0, v1, v2});
-                mesh.addFace({v2, v3, v0});
-                mesh.rebuildTopology();
-                mesh.recalculateAllNormals(false);
-                return true;
-            } else if ((matchIdx0 == 1 && matchIdx1 == 3) || (matchIdx0 == 3 && matchIdx1 == 1)) {
-                mesh.removeFace(faceIndex);
-                mesh.addFace({v0, v1, v3});
-                mesh.addFace({v1, v2, v3});
-                mesh.rebuildTopology();
-                mesh.recalculateAllNormals(false);
-                return true;
+    BoundaryHit h0 = locateBoundary(p0);
+    BoundaryHit h1 = locateBoundary(p1);
+    if (h0.vertex == 0xFFFFFFFF || h1.vertex == 0xFFFFFFFF || h0.vertex == h1.vertex) return false;
+
+    // Insert a newly created boundary vertex into every adjacent face sharing
+    // the edge so the cut does not leave a T-junction on the neighboring face.
+    auto insertOnAdjacentFaces = [&](const BoundaryHit& hit) {
+        if (hit.a == hit.b) return;
+        for (size_t f = 0; f < faces.size(); ++f) {
+            if (f == faceIndex || faces[f].deleted) continue;
+            auto& verts = faces[f].vertices;
+            for (size_t i = 0; i < verts.size(); ++i) {
+                const uint32_t a = verts[i];
+                const uint32_t b = verts[(i + 1) % verts.size()];
+                if ((a == hit.a && b == hit.b) || (a == hit.b && b == hit.a)) {
+                    verts.insert(verts.begin() + static_cast<std::ptrdiff_t>(i + 1), hit.vertex);
+                    break;
+                }
             }
         }
+    };
+    insertOnAdjacentFaces(h0);
+    insertOnAdjacentFaces(h1);
+
+    std::vector<uint32_t> expanded;
+    for (size_t i = 0; i < face.vertices.size(); ++i) {
+        const uint32_t a = face.vertices[i];
+        const uint32_t b = face.vertices[(i + 1) % face.vertices.size()];
+        expanded.push_back(a);
+        if (h0.a != h0.b && ((a == h0.a && b == h0.b) || (a == h0.b && b == h0.a))) expanded.push_back(h0.vertex);
+        if (h1.a != h1.b && ((a == h1.a && b == h1.b) || (a == h1.b && b == h1.a))) expanded.push_back(h1.vertex);
     }
 
-    // General Cut: Add safe split vertices
-    uint32_t nv0 = (matchIdx0 != -1) ? face.vertices[matchIdx0] : mesh.addVertex(p0, 0.5f, 0.5f, fn);
-    uint32_t nv1 = (matchIdx1 != -1) ? face.vertices[matchIdx1] : mesh.addVertex(p1, 0.5f, 0.5f, fn);
+    auto findIndex = [&](uint32_t v) -> size_t {
+        return static_cast<size_t>(std::find(expanded.begin(), expanded.end(), v) - expanded.begin());
+    };
+    const size_t i0 = findIndex(h0.vertex);
+    const size_t i1 = findIndex(h1.vertex);
+    if (i0 >= expanded.size() || i1 >= expanded.size() || i0 == i1) return false;
 
-    if (nv0 == nv1) return false;
+    auto path = [&](size_t start, size_t end) {
+        std::vector<uint32_t> result;
+        size_t i = start;
+        for (size_t n = 0; n <= expanded.size(); ++n) {
+            result.push_back(expanded[i]);
+            if (i == end) break;
+            i = (i + 1) % expanded.size();
+        }
+        return result;
+    };
+    const auto first = path(i0, i1);
+    const auto second = path(i1, i0);
+    if (first.size() < 3 || second.size() < 3) return false;
 
     mesh.removeFace(faceIndex);
-
-    size_t count = face.vertices.size();
-    size_t mid = count / 2;
-
-    std::vector<uint32_t> fA = { nv0, nv1 };
-    for (size_t i = 0; i < mid; ++i) {
-        if (face.vertices[i] != nv0 && face.vertices[i] != nv1) fA.push_back(face.vertices[i]);
-    }
-
-    std::vector<uint32_t> fB = { nv1, nv0 };
-    for (size_t i = mid; i < count; ++i) {
-        if (face.vertices[i] != nv0 && face.vertices[i] != nv1) fB.push_back(face.vertices[i]);
-    }
-
-    if (fA.size() >= 3) mesh.addFace(fA);
-    if (fB.size() >= 3) mesh.addFace(fB);
-
+    mesh.addFace(first);
+    mesh.addFace(second);
+    mesh.packAndCompact();
     mesh.rebuildTopology();
     mesh.recalculateAllNormals(false);
     return true;
@@ -464,35 +511,46 @@ std::shared_ptr<EditableMesh> MeshCutOperators::applyBoolean(
     const EditableMesh& meshB,
     BooleanOperation op
 ) {
-    auto result = std::make_shared<EditableMesh>(meshA);
+    // A true boolean requires robust triangle intersections, inside/outside
+    // classification and coplanar handling. Returning a plausible-looking
+    // mesh by merely appending B (the old behavior) silently corrupts scenes.
+    // Until the dedicated CSG implementation lands, only disjoint Union is
+    // safe and supported; overlapping or subtractive operations fail closed.
+    if (op != BooleanOperation::Union) return nullptr;
 
+    Engine::Math::Vector3 aMin, aMax, bMin, bMax;
+    meshA.computeBounds(aMin, aMax);
+    meshB.computeBounds(bMin, bMax);
+    const bool separated = aMax.x < bMin.x || bMax.x < aMin.x ||
+                           aMax.y < bMin.y || bMax.y < aMin.y ||
+                           aMax.z < bMin.z || bMax.z < aMin.z;
+    if (!separated) return nullptr;
+
+    auto result = std::make_shared<EditableMesh>(meshA);
     std::map<uint32_t, uint32_t> bVertRemap;
     for (size_t i = 0; i < meshB.getVertices().size(); ++i) {
         const auto& v = meshB.getVertices()[i];
         if (!v.deleted) {
-            Engine::Math::Vector3 norm = (op == BooleanOperation::Difference) ? v.normal * -1.0f : v.normal;
-            bVertRemap[static_cast<uint32_t>(i)] = result->addVertex(v.position, v.u, v.v, norm);
+            bVertRemap[static_cast<uint32_t>(i)] = result->addVertex(v.position, v.u, v.v, v.normal);
         }
     }
-
     for (const auto& f : meshB.getFaces()) {
         if (f.deleted) continue;
         std::vector<uint32_t> remapped;
+        remapped.reserve(f.vertices.size());
         for (uint32_t v : f.vertices) {
-            if (bVertRemap.count(v)) {
-                remapped.push_back(bVertRemap[v]);
-            }
+            auto it = bVertRemap.find(v);
+            if (it == bVertRemap.end()) return nullptr;
+            remapped.push_back(it->second);
         }
         if (remapped.size() >= 3) {
-            if (op == BooleanOperation::Difference) {
-                std::reverse(remapped.begin(), remapped.end()); // Invert winding
-            }
-            result->addFace(remapped);
+            const int newFace = result->addFace(remapped);
+            if (newFace < 0) return nullptr;
         }
     }
-
-    result->packAndCompact();
+    result->rebuildTopology();
     result->recalculateAllNormals(false);
+    if (!result->validate()) return nullptr;
     return result;
 }
 

@@ -153,18 +153,48 @@ bool EditableMesh::validate() const {
         if (he.origin >= m_vertices.size() || m_vertices[he.origin].deleted) return false;
         if (he.face < 0 || he.face >= static_cast<int>(m_faces.size()) || m_faces[he.face].deleted) return false;
 
+        if (he.edge < 0 || he.edge >= static_cast<int>(m_edges.size())) return false;
+        if (he.next < 0 || he.next >= static_cast<int>(m_halfEdges.size())) return false;
+        if (he.prev < 0 || he.prev >= static_cast<int>(m_halfEdges.size())) return false;
+        if (m_halfEdges[he.next].prev != static_cast<int>(i)) return false;
+        if (m_halfEdges[he.prev].next != static_cast<int>(i)) return false;
+        if (m_edges[he.edge].halfEdge0 != static_cast<int>(i) &&
+            m_edges[he.edge].halfEdge1 != static_cast<int>(i)) return false;
+
         if (he.twin != -1) {
             if (he.twin < 0 || he.twin >= static_cast<int>(m_halfEdges.size())) return false;
             if (m_halfEdges[he.twin].twin != static_cast<int>(i)) return false; // Twin symmetry broken
         }
-        if (he.next != -1) {
-            if (he.next < 0 || he.next >= static_cast<int>(m_halfEdges.size())) return false;
-            if (m_halfEdges[he.next].prev != static_cast<int>(i)) return false; // Next/Prev cycle broken
+    }
+
+    // Verify every face's half-edge cycle and edge list agree with its vertex loop.
+    for (size_t f = 0; f < m_faces.size(); ++f) {
+        const auto& face = m_faces[f];
+        if (face.deleted) continue;
+        if (face.firstHalfEdge < 0 || face.firstHalfEdge >= static_cast<int>(m_halfEdges.size())) return false;
+        if (face.edges.size() != face.vertices.size()) return false;
+
+        int heIdx = face.firstHalfEdge;
+        for (size_t i = 0; i < face.vertices.size(); ++i) {
+            if (heIdx < 0 || heIdx >= static_cast<int>(m_halfEdges.size())) return false;
+            const auto& he = m_halfEdges[heIdx];
+            if (he.face != static_cast<int>(f) || he.origin != face.vertices[i]) return false;
+            if (he.edge != static_cast<int>(face.edges[i])) return false;
+            heIdx = he.next;
         }
-        if (he.prev != -1) {
-            if (he.prev < 0 || he.prev >= static_cast<int>(m_halfEdges.size())) return false;
-            if (m_halfEdges[he.prev].next != static_cast<int>(i)) return false; // Prev/Next cycle broken
-        }
+        if (heIdx != face.firstHalfEdge) return false;
+    }
+
+    // An edge can be boundary (one half-edge) or manifold (two), never more.
+    for (size_t e = 0; e < m_edges.size(); ++e) {
+        const auto& edge = m_edges[e];
+        if (edge.deleted) continue;
+        int count = (edge.halfEdge0 != -1 ? 1 : 0) + (edge.halfEdge1 != -1 ? 1 : 0);
+        if (count == 0 || count > 2) return false;
+        if (edge.halfEdge0 != -1 && (edge.halfEdge0 >= static_cast<int>(m_halfEdges.size()) ||
+            m_halfEdges[edge.halfEdge0].edge != static_cast<int>(e))) return false;
+        if (edge.halfEdge1 != -1 && (edge.halfEdge1 >= static_cast<int>(m_halfEdges.size()) ||
+            m_halfEdges[edge.halfEdge1].edge != static_cast<int>(e))) return false;
     }
 
     return true;
@@ -269,15 +299,7 @@ void EditableMesh::recalculateAllNormals(bool smooth, float autoSmoothAngleDeg) 
 void EditableMesh::rebuildTopology() {
     m_halfEdges.clear();
     m_edgeMap.clear();
-
-    // Rebuild edge map and edge list if necessary
-    for (size_t e = 0; e < m_edges.size(); ++e) {
-        if (m_edges[e].deleted) continue;
-        m_edges[e].halfEdge0 = -1;
-        m_edges[e].halfEdge1 = -1;
-        uint64_t key = makeEdgeKey(m_edges[e].v0, m_edges[e].v1);
-        m_edgeMap[key] = static_cast<int>(e);
-    }
+    m_edges.clear();
 
     for (size_t v = 0; v < m_vertices.size(); ++v) {
         m_vertices[v].firstHalfEdge = -1;
@@ -502,6 +524,7 @@ void EditableMesh::generateRenderBuffers(
 
         for (size_t i = 0; i < face.vertices.size(); ++i) {
             uint32_t vIdx = face.vertices[i];
+            if (vIdx >= m_vertices.size()) continue;
             const auto& v = m_vertices[vIdx];
 
             RenderVertex rv;

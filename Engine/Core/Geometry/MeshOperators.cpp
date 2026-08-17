@@ -115,7 +115,7 @@ std::vector<uint32_t> MeshOperators::extrudeFaces(
                     uint32_t b1 = edge.second;
                     uint32_t t1 = oldToNewVertMap[b1];
                     uint32_t t0 = oldToNewVertMap[b0];
-                    mesh.addFace({b0, b1, t1, t0});
+                    mesh.addFace({b1, b0, t0, t1});
                 }
             }
         }
@@ -444,30 +444,82 @@ void MeshOperators::bevelVertices(
 ) {
     if (vertIndices.empty() || width <= 0.0001f) return;
     auto& vertices = mesh.getVertices();
+    (void)segments; // Multi-segment corner arcs are a separate follow-up.
 
     for (uint32_t vIdx : vertIndices) {
         if (vIdx >= vertices.size() || vertices[vIdx].deleted) continue;
 
-        auto adjVerts = mesh.getAdjacentVertices(vIdx);
-        if (adjVerts.size() < 3) continue;
-
         const auto centerPos = vertices[vIdx].position;
-        std::vector<uint32_t> capVerts;
+        auto connectedFaces = mesh.getConnectedFaces(vIdx);
+        if (connectedFaces.size() < 3) continue;
 
-        for (uint32_t adjV : adjVerts) {
-            if (adjV >= vertices.size()) continue;
-            Engine::Math::Vector3 dir = (vertices[adjV].position - centerPos).normalized();
-            uint32_t newV = mesh.addVertex(centerPos + dir * width, vertices[vIdx].u, vertices[vIdx].v);
-            capVerts.push_back(newV);
+        Engine::Math::Vector3 avgNormal(0, 0, 0);
+        for (uint32_t fIdx : connectedFaces) {
+            mesh.calculateFaceNormal(fIdx);
+            avgNormal += mesh.getFaces()[fIdx].normal;
+        }
+        if (avgNormal.length() < 1e-4f) continue;
+        avgNormal = avgNormal.normalized();
+
+        std::vector<uint32_t> capVerts;
+        for (uint32_t fIdx : connectedFaces) {
+            if (fIdx >= mesh.getFaces().size() || mesh.getFaces()[fIdx].deleted) continue;
+            auto& face = mesh.getFaces()[fIdx];
+            auto it = std::find(face.vertices.begin(), face.vertices.end(), vIdx);
+            if (it == face.vertices.end()) continue;
+            const size_t corner = static_cast<size_t>(it - face.vertices.begin());
+            const size_t prev = (corner + face.vertices.size() - 1) % face.vertices.size();
+            const size_t next = (corner + 1) % face.vertices.size();
+            const uint32_t prevV = face.vertices[prev];
+            const uint32_t nextV = face.vertices[next];
+            if (prevV >= vertices.size() || nextV >= vertices.size()) continue;
+
+            const float prevLen = (vertices[prevV].position - centerPos).length();
+            const float nextLen = (vertices[nextV].position - centerPos).length();
+            const float localWidth = std::min(width, 0.45f * std::min(prevLen, nextLen));
+            if (localWidth <= 1e-5f) continue;
+
+            const auto prevDir = (vertices[prevV].position - centerPos).normalized();
+            const auto nextDir = (vertices[nextV].position - centerPos).normalized();
+            const float cornerU = vertices[vIdx].u;
+            const float cornerV = vertices[vIdx].v;
+            const auto faceNormal = face.normal;
+            const uint32_t prevCut = mesh.addVertex(centerPos + prevDir * localWidth,
+                                                    cornerU, cornerV, faceNormal);
+            const uint32_t nextCut = mesh.addVertex(centerPos + nextDir * localWidth,
+                                                    cornerU, cornerV, faceNormal);
+
+            // Replace the corner by the two cut points, preserving the face loop.
+            face.vertices.erase(face.vertices.begin() + static_cast<std::ptrdiff_t>(corner));
+            face.vertices.insert(face.vertices.begin() + static_cast<std::ptrdiff_t>(corner),
+                                 {prevCut, nextCut});
+            capVerts.push_back(prevCut);
+            capVerts.push_back(nextCut);
         }
 
         if (capVerts.size() >= 3) {
+            // Order the cap points around the averaged corner normal.
+            Engine::Math::Vector3 axis = (std::abs(avgNormal.y) < 0.9f)
+                ? Engine::Math::Vector3(0, 1, 0)
+                : Engine::Math::Vector3(1, 0, 0);
+            Engine::Math::Vector3 uAxis = avgNormal.cross(axis).normalized();
+            Engine::Math::Vector3 vAxis = avgNormal.cross(uAxis).normalized();
+            std::sort(capVerts.begin(), capVerts.end(), [&](uint32_t a, uint32_t b) {
+                const auto da = mesh.getVertices()[a].position - centerPos;
+                const auto db = mesh.getVertices()[b].position - centerPos;
+                const float aa = std::atan2(da.dot(vAxis), da.dot(uAxis));
+                const float ab = std::atan2(db.dot(vAxis), db.dot(uAxis));
+                return aa < ab;
+            });
             mesh.addFace(capVerts);
         }
-        mesh.removeVertex(vIdx);
+
+        vertices[vIdx].deleted = true;
+        mesh.rebuildTopology();
     }
 
     mesh.packAndCompact();
+    mesh.recalculateAllNormals(false);
 }
 
 // ── 4. Subdivide ────────────────────────────────────────────────────────────
@@ -677,6 +729,29 @@ void MeshOperators::dissolveEdges(
     auto& edges = mesh.getEdges();
     auto& faces = mesh.getFaces();
 
+    // Merge the two face cycles around each selected manifold edge. The
+    // previous implementation concatenated vertex sets, which destroyed
+    // cyclic ordering and could create bow-tie/self-intersecting n-gons.
+    auto walkWithoutEdge = [](const std::vector<uint32_t>& verts,
+                              uint32_t start, uint32_t end) {
+        std::vector<uint32_t> path;
+        if (verts.empty()) return path;
+        size_t startPos = verts.size();
+        for (size_t i = 0; i < verts.size(); ++i) {
+            if (verts[i] == start) { startPos = i; break; }
+        }
+        if (startPos == verts.size()) return path;
+
+        size_t pos = startPos;
+        for (size_t n = 0; n < verts.size(); ++n) {
+            const uint32_t current = verts[pos];
+            if (current == end) break;
+            path.push_back(current);
+            pos = (pos + 1) % verts.size();
+        }
+        return path;
+    };
+
     for (uint32_t eIdx : edgeIndices) {
         if (eIdx >= edges.size() || edges[eIdx].deleted) continue;
         auto connectedFaces = mesh.getEdgeFaces(eIdx);
@@ -687,23 +762,40 @@ void MeshOperators::dissolveEdges(
             uint32_t v0 = edges[eIdx].v0;
             uint32_t v1 = edges[eIdx].v1;
 
-            // Merge f0 and f1 into a single n-gon face
-            std::vector<uint32_t> combinedVerts;
+            if (f0 >= faces.size() || f1 >= faces.size() ||
+                faces[f0].deleted || faces[f1].deleted) continue;
+
             const auto& f0v = faces[f0].vertices;
             const auto& f1v = faces[f1].vertices;
-
-            for (uint32_t v : f0v) {
-                if (v != v0 && v != v1) combinedVerts.push_back(v);
-                else combinedVerts.push_back(v);
+            bool f0Forward = false;
+            bool f1Forward = false;
+            for (size_t i = 0; i < f0v.size(); ++i) {
+                if (f0v[i] == v0 && f0v[(i + 1) % f0v.size()] == v1) f0Forward = true;
+                if (f0v[i] == v1 && f0v[(i + 1) % f0v.size()] == v0) f0Forward = false;
             }
-            for (uint32_t v : f1v) {
-                if (v != v0 && v != v1 && std::find(combinedVerts.begin(), combinedVerts.end(), v) == combinedVerts.end()) {
-                    combinedVerts.push_back(v);
-                }
+            for (size_t i = 0; i < f1v.size(); ++i) {
+                if (f1v[i] == v0 && f1v[(i + 1) % f1v.size()] == v1) f1Forward = true;
+                if (f1v[i] == v1 && f1v[(i + 1) % f1v.size()] == v0) f1Forward = false;
             }
 
-            if (combinedVerts.size() >= 3) {
-                faces[f0].vertices = combinedVerts;
+            uint32_t a = f0Forward ? v0 : v1;
+            uint32_t b = f0Forward ? v1 : v0;
+            // Walk f0 from b to a and f1 from a to b, omitting the shared edge.
+            auto firstPath = walkWithoutEdge(f0v, b, a);
+            auto secondPath = walkWithoutEdge(f1v, a, b);
+            std::vector<uint32_t> combinedVerts = firstPath;
+            combinedVerts.insert(combinedVerts.end(), secondPath.begin(), secondPath.end());
+
+            std::vector<uint32_t> compactVerts;
+            for (uint32_t v : combinedVerts) {
+                if (compactVerts.empty() || compactVerts.back() != v) compactVerts.push_back(v);
+            }
+            if (compactVerts.size() > 1 && compactVerts.front() == compactVerts.back()) {
+                compactVerts.pop_back();
+            }
+
+            if (compactVerts.size() >= 3) {
+                faces[f0].vertices = std::move(compactVerts);
                 faces[f1].deleted = true;
                 edges[eIdx].deleted = true;
             }
@@ -711,21 +803,32 @@ void MeshOperators::dissolveEdges(
     }
 
     mesh.packAndCompact();
+    mesh.rebuildTopology();
+    mesh.recalculateAllNormals(false);
 }
 
 void MeshOperators::dissolveVertices(
     EditableMesh& mesh,
     const std::vector<uint32_t>& vertIndices
 ) {
+    auto& vertices = mesh.getVertices();
+    auto& faces = mesh.getFaces();
+
     for (uint32_t vIdx : vertIndices) {
+        if (vIdx >= vertices.size() || vertices[vIdx].deleted) continue;
         auto connectedEdges = mesh.getConnectedEdges(vIdx);
         if (connectedEdges.size() == 2) {
-            // Straight vertex between two edges: remove and connect end vertices
-            auto adj = mesh.getAdjacentVertices(vIdx);
-            if (adj.size() == 2) {
-                mesh.addEdge(adj[0], adj[1]);
-                mesh.removeVertex(vIdx);
+            // A valence-two dissolve removes the vertex from each incident
+            // face cycle. RebuildTopology will create the replacement edge;
+            // deleting the vertex first would incorrectly delete all faces.
+            for (auto& face : faces) {
+                if (face.deleted) continue;
+                auto it = std::find(face.vertices.begin(), face.vertices.end(), vIdx);
+                if (it == face.vertices.end()) continue;
+                face.vertices.erase(it);
+                if (face.vertices.size() < 3) face.deleted = true;
             }
+            vertices[vIdx].deleted = true;
         }
     }
     mesh.packAndCompact();
@@ -1040,16 +1143,39 @@ void MeshOperators::solidify(
     auto& faces = mesh.getFaces();
     if (vertices.empty() || faces.empty()) return;
 
+    // Ensure all face normals are up to date
+    for (size_t f = 0; f < faces.size(); ++f) {
+        if (!faces[f].deleted) mesh.calculateFaceNormal(static_cast<uint32_t>(f));
+    }
+
     size_t origVertCount = vertices.size();
     size_t origFaceCount = faces.size();
+
+    // Compute robust per-vertex normal from adjacent faces
+    std::vector<Engine::Math::Vector3> vertNormals(origVertCount, Engine::Math::Vector3(0, 0, 0));
+    for (size_t f = 0; f < origFaceCount; ++f) {
+        if (faces[f].deleted) continue;
+        for (uint32_t v : faces[f].vertices) {
+            if (v < origVertCount) {
+                vertNormals[v] += faces[f].normal;
+            }
+        }
+    }
+    for (size_t i = 0; i < origVertCount; ++i) {
+        if (vertNormals[i].length() > 1e-4f) {
+            vertNormals[i] = vertNormals[i].normalized();
+        } else {
+            vertNormals[i] = vertices[i].normal;
+        }
+    }
 
     // 1. Create inner extruded shell vertices
     std::vector<uint32_t> innerVertMap(origVertCount, 0xFFFFFFFF);
     for (size_t i = 0; i < origVertCount; ++i) {
         if (vertices[i].deleted) continue;
         const auto& src = vertices[i];
-        Engine::Math::Vector3 inPos = src.position - src.normal * thickness;
-        innerVertMap[i] = mesh.addVertex(inPos, src.u, src.v, src.normal * -1.0f);
+        Engine::Math::Vector3 inPos = src.position - vertNormals[i] * thickness;
+        innerVertMap[i] = mesh.addVertex(inPos, src.u, src.v, vertNormals[i] * -1.0f);
     }
 
     // 2. Count directed boundary edges for rim quad walls

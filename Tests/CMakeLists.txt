@@ -16,6 +16,8 @@ set(TEST_SOURCES
     GeometryTests.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../Editor/UI/SelectionManager.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../Editor/Undo/UndoStack.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../Editor/Undo/MeshTopologyCommand.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../Editor/Modeling/ModelingContext.cpp
 )
 
 add_executable(NexusStudioTests ${TEST_SOURCES})

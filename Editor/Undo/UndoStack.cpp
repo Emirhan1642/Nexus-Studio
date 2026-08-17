@@ -17,14 +17,16 @@ void UndoStack::push(std::unique_ptr<ICommand> cmd) {
 
 void UndoStack::undo() {
     if (undoList.empty()) return;
-    undoList.back()->undo();
-    redoList.push_back(std::move(undoList.back()));
+    auto cmd = std::move(undoList.back());
     undoList.pop_back();
+    cmd->undo();
+    redoList.push_back(std::move(cmd));
 }
 
 void UndoStack::redo() {
     if (redoList.empty()) return;
-    redoList.back()->execute();
-    undoList.push_back(std::move(redoList.back()));
+    auto cmd = std::move(redoList.back());
     redoList.pop_back();
+    cmd->execute();
+    undoList.push_back(std::move(cmd));
 }
