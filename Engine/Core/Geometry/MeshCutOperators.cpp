@@ -181,7 +181,7 @@ bool MeshCutOperators::cutMeshWithKnifePolyline(
 ) {
     if (localPoints.size() < 2) return false;
 
-    // Determine which faces are candidates for cutting
+    // Determine candidate faces
     std::vector<uint32_t> initialFaceIndices;
     if (!cutThrough && !targetFaces.empty()) {
         std::set<uint32_t> uniqueTargets(targetFaces.begin(), targetFaces.end());
@@ -203,11 +203,50 @@ bool MeshCutOperators::cutMeshWithKnifePolyline(
     for (size_t i = 0; i + 1 < localPoints.size(); ++i) {
         const auto& p0 = localPoints[i];
         const auto& p1 = localPoints[i + 1];
+        Engine::Math::Vector3 segDir = (p1 - p0);
+        if (segDir.length() < 1e-4f) continue;
 
         for (uint32_t fIdx : initialFaceIndices) {
-            if (fIdx < mesh.getFaces().size() && !mesh.getFaces()[fIdx].deleted) {
-                if (cutFaceWithRaySegment(mesh, fIdx, p0, p1)) {
-                    anyCut = true;
+            if (fIdx >= mesh.getFaces().size() || mesh.getFaces()[fIdx].deleted) continue;
+
+            if (cutFaceWithRaySegment(mesh, fIdx, p0, p1)) {
+                anyCut = true;
+            } else if (cutThrough) {
+                // Cut-through projection: find intersections of the cutting plane with this face's edges
+                auto face = mesh.getFaces()[fIdx];
+                if (face.vertices.size() < 3) continue;
+
+                mesh.calculateFaceNormal(fIdx);
+                Engine::Math::Vector3 fn = face.normal;
+
+                // Cutting plane normal perpendicular to segment and camera/face
+                Engine::Math::Vector3 planeNorm = segDir.cross(fn);
+                if (planeNorm.length() < 1e-4f) {
+                    planeNorm = segDir.cross(Engine::Math::Vector3(0, 1, 0));
+                    if (planeNorm.length() < 1e-4f) planeNorm = segDir.cross(Engine::Math::Vector3(1, 0, 0));
+                }
+                planeNorm = planeNorm.normalized();
+
+                // Find edge-plane intersections
+                std::vector<Engine::Math::Vector3> edgeHits;
+                for (size_t vi = 0; vi < face.vertices.size(); ++vi) {
+                    size_t nextVi = (vi + 1) % face.vertices.size();
+                    Engine::Math::Vector3 ev0 = mesh.getVertices()[face.vertices[vi]].position;
+                    Engine::Math::Vector3 ev1 = mesh.getVertices()[face.vertices[nextVi]].position;
+
+                    float dist0 = (ev0 - p0).dot(planeNorm);
+                    float dist1 = (ev1 - p0).dot(planeNorm);
+
+                    if ((dist0 > 1e-4f && dist1 < -1e-4f) || (dist0 < -1e-4f && dist1 > 1e-4f)) {
+                        float t = dist0 / (dist0 - dist1);
+                        edgeHits.push_back(ev0 + (ev1 - ev0) * t);
+                    }
+                }
+
+                if (edgeHits.size() == 2) {
+                    if (cutFaceWithRaySegment(mesh, fIdx, edgeHits[0], edgeHits[1])) {
+                        anyCut = true;
+                    }
                 }
             }
         }

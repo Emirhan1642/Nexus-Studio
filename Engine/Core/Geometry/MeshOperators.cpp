@@ -160,6 +160,9 @@ void MeshOperators::bevelFaces(
     auto& faces = mesh.getFaces();
     auto& vertices = mesh.getVertices();
 
+    segments = std::max(1, std::min(8, segments));
+    profile = std::max(0.0f, std::min(1.0f, profile));
+
     for (uint32_t fIdx : faceIndices) {
         if (fIdx >= faces.size() || faces[fIdx].deleted) continue;
 
@@ -184,41 +187,49 @@ void MeshOperators::bevelFaces(
         float shrinkRatio = (maxRadius > 0.0001f) ? (1.0f - (actualWidth / maxRadius)) : 0.8f;
         shrinkRatio = std::max(0.05f, std::min(0.95f, shrinkRatio));
 
-        // Create top shrunken vertices and side lowered vertices for every corner
-        std::vector<uint32_t> topVerts(count);
-        std::vector<uint32_t> sideVerts(count);
+        // Generate segmented rings of vertices from side boundary (ring 0) to top inner face (ring segments)
+        std::vector<std::vector<uint32_t>> rings(segments + 1, std::vector<uint32_t>(count));
 
         for (size_t i = 0; i < count; ++i) {
             uint32_t origV = face.vertices[i];
             Engine::Math::Vector3 origPos = vertices[origV].position;
 
             Engine::Math::Vector3 topPos = center + (origPos - center) * shrinkRatio + normal * depth;
-            Engine::Math::Vector3 sidePos = origPos - normal * actualWidth;
 
-            topVerts[i] = mesh.addVertex(topPos, vertices[origV].u, vertices[origV].v, normal);
-            sideVerts[i] = mesh.addVertex(sidePos, vertices[origV].u, vertices[origV].v, normal);
+            for (int s = 0; s <= segments; ++s) {
+                float u = (float)s / (float)segments; // 0.0 (side) to 1.0 (top)
+                float rad = u * 1.5707963f; // 0 to PI/2
+
+                // Trigonometric Superellipse / Arc profile curvature blending
+                float wSide = (1.0f - std::sin(rad)) * (1.0f - profile) + (1.0f - u) * profile;
+                float wTop = (1.0f - std::cos(rad)) * (1.0f - profile) + u * profile;
+
+                Engine::Math::Vector3 ringPos = origPos - normal * (actualWidth * wSide) + (topPos - origPos) * wTop;
+                rings[s][i] = mesh.addVertex(ringPos, vertices[origV].u, vertices[origV].v, normal);
+            }
         }
 
-        // Replace original top face with inner elevated top face
+        // Replace original top face with innermost elevated ring
         mesh.removeFace(fIdx);
-        mesh.addFace(topVerts);
+        mesh.addFace(rings[segments]);
 
-        // Add 4-sided sloping ramp quads connecting side lowered boundary to top inner face for ALL edges
-        for (size_t i = 0; i < count; ++i) {
-            size_t next = (i + 1) % count;
-            uint32_t s0 = sideVerts[i];
-            uint32_t s1 = sideVerts[next];
-            uint32_t t1 = topVerts[next];
-            uint32_t t0 = topVerts[i];
+        // Add 4-sided sloping ramp quads connecting consecutive rings for all segments and all edges
+        for (int s = 0; s < segments; ++s) {
+            for (size_t i = 0; i < count; ++i) {
+                size_t next = (i + 1) % count;
+                uint32_t s0 = rings[s][i];
+                uint32_t s1 = rings[s][next];
+                uint32_t t1 = rings[s + 1][next];
+                uint32_t t0 = rings[s + 1][i];
 
-            // CCW Order: [s0, s1, t1, t0] guarantees outward-facing ramp normal
-            mesh.addFace({ s0, s1, t1, t0 });
+                mesh.addFace({ s0, s1, t1, t0 });
+            }
         }
 
-        // Update all neighboring side faces that shared original corners to use the sideVerts
+        // Update all neighboring side faces that shared original corners to use the outermost ring 0
         for (size_t i = 0; i < count; ++i) {
             uint32_t origV = face.vertices[i];
-            uint32_t newSideV = sideVerts[i];
+            uint32_t newSideV = rings[0][i];
 
             for (size_t otherF = 0; otherF < faces.size(); ++otherF) {
                 if (otherF == fIdx || faces[otherF].deleted) continue;

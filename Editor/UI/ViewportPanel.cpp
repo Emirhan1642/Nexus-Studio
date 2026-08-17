@@ -582,7 +582,7 @@ void ViewportPanel::draw(Engine::Renderer::Camera& camera) {
                         bool has1 = (e1 >= 0 && loopEdgeSet.count((uint32_t)e1));
                         bool has3 = (e3 >= 0 && loopEdgeSet.count((uint32_t)e3));
 
-                        if (has0 || has2) {
+                        if (has0 && has2) {
                             for (int k = 0; k < cuts; ++k) {
                                 float baseT = (float)(k + 1) / (float)(cuts + 1);
                                 float t = std::clamp(baseT + mCtx.opSlide * (0.40f / (float)(cuts + 1)), 0.02f, 0.98f);
@@ -598,7 +598,7 @@ void ViewportPanel::draw(Engine::Renderer::Camera& camera) {
                                     dl->AddCircleFilled(sB, 5.0f, IM_COL32(255, 200, 0, 255));
                                 }
                             }
-                        } else if (has1 || has3) {
+                        } else if (has1 && has3) {
                             for (int k = 0; k < cuts; ++k) {
                                 float baseT = (float)(k + 1) / (float)(cuts + 1);
                                 float t = std::clamp(baseT + mCtx.opSlide * (0.40f / (float)(cuts + 1)), 0.02f, 0.98f);
