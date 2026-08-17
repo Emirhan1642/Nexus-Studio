@@ -132,20 +132,27 @@ bool EditableMesh::validate() const {
     for (size_t f = 0; f < m_faces.size(); ++f) {
         if (m_faces[f].deleted) continue;
         const auto& face = m_faces[f];
-        if (face.vertices.size() < 3) return false;
+        size_t vCount = face.vertices.size();
+        if (vCount < 3) return false;
 
         std::unordered_set<uint32_t> seen;
-        for (size_t i = 0; i < face.vertices.size(); ++i) {
+        for (size_t i = 0; i < vCount; ++i) {
             uint32_t v = face.vertices[i];
             if (v >= m_vertices.size() || m_vertices[v].deleted) return false;
             if (seen.count(v)) return false; // Duplicate vertex in same face
             seen.insert(v);
         }
+
+        if (!face.uvs.empty() && face.uvs.size() != vCount) return false;
+        if (!face.normals.empty() && face.normals.size() != vCount) return false;
     }
 
     // 3. Verify half-edges
     for (size_t i = 0; i < m_halfEdges.size(); ++i) {
         const auto& he = m_halfEdges[i];
+        if (he.origin >= m_vertices.size() || m_vertices[he.origin].deleted) return false;
+        if (he.face < 0 || he.face >= static_cast<int>(m_faces.size()) || m_faces[he.face].deleted) return false;
+
         if (he.twin != -1) {
             if (he.twin < 0 || he.twin >= static_cast<int>(m_halfEdges.size())) return false;
             if (m_halfEdges[he.twin].twin != static_cast<int>(i)) return false; // Twin symmetry broken
@@ -153,6 +160,10 @@ bool EditableMesh::validate() const {
         if (he.next != -1) {
             if (he.next < 0 || he.next >= static_cast<int>(m_halfEdges.size())) return false;
             if (m_halfEdges[he.next].prev != static_cast<int>(i)) return false; // Next/Prev cycle broken
+        }
+        if (he.prev != -1) {
+            if (he.prev < 0 || he.prev >= static_cast<int>(m_halfEdges.size())) return false;
+            if (m_halfEdges[he.prev].next != static_cast<int>(i)) return false; // Prev/Next cycle broken
         }
     }
 
@@ -197,46 +208,61 @@ void EditableMesh::recalculateAllNormals(bool smooth, float autoSmoothAngleDeg) 
         calculateFaceNormal(static_cast<uint32_t>(f));
     }
 
-    if (!smooth) {
-        for (auto& v : m_vertices) {
-            v.normal = {0.0f, 1.0f, 0.0f};
-        }
-        for (const auto& f : m_faces) {
-            if (f.deleted) continue;
-            for (uint32_t v : f.vertices) {
-                m_vertices[v].normal = f.normal;
+    // Build vertex-to-face adjacency
+    std::vector<std::vector<uint32_t>> vertFaces(m_vertices.size());
+    for (size_t f = 0; f < m_faces.size(); ++f) {
+        if (m_faces[f].deleted) continue;
+        for (uint32_t v : m_faces[f].vertices) {
+            if (v < vertFaces.size()) {
+                vertFaces[v].push_back(static_cast<uint32_t>(f));
             }
         }
-    } else {
-        float cosThreshold = std::cos(autoSmoothAngleDeg * (3.14159265f / 180.0f));
-        std::vector<std::vector<Engine::Math::Vector3>> vertFaceNormals(m_vertices.size());
-        for (const auto& f : m_faces) {
-            if (f.deleted) continue;
-            for (uint32_t v : f.vertices) {
-                vertFaceNormals[v].push_back(f.normal);
+    }
+
+    float cosThreshold = std::cos(autoSmoothAngleDeg * (3.14159265f / 180.0f));
+
+    // Calculate face-corner normals for every corner of every face
+    for (size_t f = 0; f < m_faces.size(); ++f) {
+        auto& face = m_faces[f];
+        if (face.deleted) continue;
+
+        size_t count = face.vertices.size();
+        face.normals.resize(count);
+
+        if (!smooth) {
+            for (size_t i = 0; i < count; ++i) {
+                face.normals[i] = face.normal;
             }
-        }
+        } else {
+            for (size_t i = 0; i < count; ++i) {
+                uint32_t v = face.vertices[i];
+                Engine::Math::Vector3 cornerNormal(0, 0, 0);
 
-        for (size_t v = 0; v < m_vertices.size(); ++v) {
-            if (m_vertices[v].deleted || vertFaceNormals[v].empty()) continue;
-            
-            // Cluster normals within auto-smooth angle threshold
-            const auto& fnList = vertFaceNormals[v];
-            Engine::Math::Vector3 avgNormal(0, 0, 0);
-            Engine::Math::Vector3 refNormal = fnList[0];
+                // Cluster connected face normals sharing same smoothing angle
+                for (uint32_t connFaceIdx : vertFaces[v]) {
+                    const auto& connFace = m_faces[connFaceIdx];
+                    if (connFace.normal.dot(face.normal) >= cosThreshold) {
+                        cornerNormal += connFace.normal;
+                    }
+                }
 
-            for (const auto& fn : fnList) {
-                if (fn.dot(refNormal) >= cosThreshold) {
-                    avgNormal += fn;
+                if (cornerNormal.length() > 1e-3f) {
+                    face.normals[i] = cornerNormal.normalized();
+                } else {
+                    face.normals[i] = face.normal;
                 }
             }
-
-            if (avgNormal.length() > 1e-3f) {
-                m_vertices[v].normal = avgNormal.normalized();
-            } else {
-                m_vertices[v].normal = refNormal;
-            }
         }
+    }
+
+    // Update vertex primary normal for general queries
+    for (size_t v = 0; v < m_vertices.size(); ++v) {
+        if (m_vertices[v].deleted || vertFaces[v].empty()) continue;
+        Engine::Math::Vector3 avg(0, 0, 0);
+        for (uint32_t fIdx : vertFaces[v]) {
+            avg += m_faces[fIdx].normal;
+        }
+        if (avg.length() > 1e-3f) m_vertices[v].normal = avg.normalized();
     }
 }
 
@@ -472,6 +498,8 @@ void EditableMesh::generateRenderBuffers(
 
         // Emit vertices for this face
         bool hasFaceUVs = (face.uvs.size() == face.vertices.size());
+        bool hasCornerNormals = (face.normals.size() == face.vertices.size());
+
         for (size_t i = 0; i < face.vertices.size(); ++i) {
             uint32_t vIdx = face.vertices[i];
             const auto& v = m_vertices[vIdx];
@@ -481,9 +509,9 @@ void EditableMesh::generateRenderBuffers(
             rv.y = v.position.y;
             rv.z = v.position.z;
             rv.abgr = v.color;
-            rv.nx = face.normal.x;
-            rv.ny = face.normal.y;
-            rv.nz = face.normal.z;
+            rv.nx = hasCornerNormals ? face.normals[i].x : face.normal.x;
+            rv.ny = hasCornerNormals ? face.normals[i].y : face.normal.y;
+            rv.nz = hasCornerNormals ? face.normals[i].z : face.normal.z;
             rv.u = hasFaceUVs ? face.uvs[i].first : v.u;
             rv.v = hasFaceUVs ? face.uvs[i].second : v.v;
             outVertices.push_back(rv);
@@ -516,6 +544,17 @@ void EditableMesh::generateRenderBuffers(
                 const auto& p = m_vertices[face.vertices[i]].position;
                 poly2D[i] = { p.dot(uAxis), p.dot(vAxis) };
                 polyIndices[i] = static_cast<int>(i);
+            }
+
+            // Normalize winding to CCW
+            float signedArea = 0.0f;
+            for (size_t i = 0; i < vCount; ++i) {
+                size_t next = (i + 1) % vCount;
+                signedArea += poly2D[i].first * poly2D[next].second - poly2D[next].first * poly2D[i].second;
+            }
+            if (signedArea < 0.0f) {
+                std::reverse(poly2D.begin(), poly2D.end());
+                std::reverse(polyIndices.begin(), polyIndices.end());
             }
 
             auto isConvex = [&](int prev, int curr, int next) -> bool {

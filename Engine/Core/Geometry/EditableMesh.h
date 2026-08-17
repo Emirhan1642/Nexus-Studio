@@ -43,6 +43,7 @@ struct MeshFace {
     std::vector<uint32_t> vertices; // Vertex indices in CCW order
     std::vector<uint32_t> edges;    // Edge indices
     std::vector<std::pair<float, float>> uvs; // Face-corner UVs corresponding to vertices
+    std::vector<Engine::Math::Vector3> normals; // Face-corner Normals for auto-smooth / hard edges
     int materialId = 0;
     Engine::Math::Vector3 normal{0.0f, 1.0f, 0.0f};
     Engine::Math::Vector3 center{0.0f, 0.0f, 0.0f};

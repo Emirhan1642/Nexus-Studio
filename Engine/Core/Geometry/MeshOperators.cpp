@@ -192,18 +192,22 @@ std::vector<uint32_t> MeshOperators::insetFaces(
             const auto& pCurr = vertices[vCurr].position;
             const auto& pNext = vertices[vNext].position;
 
-            Engine::Math::Vector3 ePrev = (pCurr - pPrev);
-            Engine::Math::Vector3 eNext = (pNext - pCurr);
+            Engine::Math::Vector3 ePrev = (pCurr - pPrev).normalized();
+            Engine::Math::Vector3 eNext = (pNext - pCurr).normalized();
 
             Engine::Math::Vector3 nPrev = normal.cross(ePrev).normalized();
             Engine::Math::Vector3 nNext = normal.cross(eNext).normalized();
 
-            Engine::Math::Vector3 bisect = (nPrev + nNext);
-            if (bisect.length() < 1e-4f) bisect = nPrev;
-            else bisect = bisect.normalized();
+            float dotNorm = nPrev.dot(nNext);
+            Engine::Math::Vector3 miterBisect = (nPrev + nNext);
+            if (dotNorm > -0.999f && (1.0f + dotNorm) > 1e-4f) {
+                miterBisect = miterBisect * (1.0f / (1.0f + dotNorm));
+            } else {
+                miterBisect = nPrev;
+            }
 
             // Offset inwards by thickness + depth along normal
-            Engine::Math::Vector3 inPos = pCurr + bisect * thickness + normal * depth;
+            Engine::Math::Vector3 inPos = pCurr + miterBisect * thickness + normal * depth;
             innerVerts[i] = mesh.addVertex(inPos, vertices[vCurr].u, vertices[vCurr].v, normal);
         }
 
@@ -476,18 +480,11 @@ void MeshOperators::subdivideFaces(
     if (faceIndices.empty()) return;
     cuts = std::max(1, std::min(4, cuts));
 
+    std::vector<uint32_t> currentFaces = faceIndices;
+
     for (int c = 0; c < cuts; ++c) {
         auto& faces = mesh.getFaces();
-        auto& vertices = mesh.getVertices();
-
-        std::vector<uint32_t> currentFaces;
-        if (c == 0) {
-            currentFaces = faceIndices;
-        } else {
-            for (size_t i = 0; i < faces.size(); ++i) {
-                if (!faces[i].deleted) currentFaces.push_back(static_cast<uint32_t>(i));
-            }
-        }
+        std::vector<uint32_t> nextFaces;
 
         // Shared edge midpoint map to avoid duplicate split vertices and holes
         std::map<std::pair<uint32_t, uint32_t>, uint32_t> sharedMidpoints;
@@ -532,10 +529,12 @@ void MeshOperators::subdivideFaces(
                 uint32_t midCur = edgeMidpoints[i];
                 uint32_t midPrev = edgeMidpoints[prev];
 
-                mesh.addFace({corner, midCur, centerVertIdx, midPrev});
+                int newFIdx = mesh.addFace({corner, midCur, centerVertIdx, midPrev});
+                if (newFIdx >= 0) nextFaces.push_back(static_cast<uint32_t>(newFIdx));
             }
         }
 
+        currentFaces = nextFaces;
         mesh.rebuildTopology();
     }
 
@@ -828,6 +827,17 @@ void MeshOperators::triangulateFaces(
                 const auto& p = vertices[face.vertices[i]].position;
                 poly2D[i] = { p.dot(uAxis), p.dot(vAxis) };
                 polyIndices[i] = face.vertices[i];
+            }
+
+            // Normalize winding to CCW
+            float signedArea = 0.0f;
+            for (size_t i = 0; i < count; ++i) {
+                size_t next = (i + 1) % count;
+                signedArea += poly2D[i].first * poly2D[next].second - poly2D[next].first * poly2D[i].second;
+            }
+            if (signedArea < 0.0f) {
+                std::reverse(poly2D.begin(), poly2D.end());
+                std::reverse(polyIndices.begin(), polyIndices.end());
             }
 
             auto isConvex = [&](size_t prev, size_t curr, size_t next) -> bool {

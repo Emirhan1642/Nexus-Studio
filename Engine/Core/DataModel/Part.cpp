@@ -9,6 +9,7 @@
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/ConvexHullShape.h>
+#include <Jolt/Physics/Collision/Shape/MeshShape.h>
 
 void Part::setPosition(const Engine::Math::Vector3& newPos) {
     position = newPos;
@@ -224,6 +225,33 @@ void Part::markRenderDirty() {
 namespace {
     JPH::RefConst<JPH::Shape> createPartShape(Part& part) {
         if (auto mesh = part.getEditableMesh()) {
+            if (part.getAnchored()) {
+                // Static / Anchored mesh -> True Concave Triangle Mesh Shape
+                std::vector<Engine::Geometry::RenderVertex> rverts;
+                std::vector<uint32_t> indices;
+                std::vector<uint32_t> lines;
+                mesh->generateRenderBuffers(rverts, indices, lines);
+
+                if (rverts.size() >= 3 && indices.size() >= 3) {
+                    JPH::VertexList vertices;
+                    vertices.reserve(rverts.size());
+                    for (const auto& rv : rverts) {
+                        vertices.push_back(JPH::Float3(rv.x, rv.y, rv.z));
+                    }
+
+                    JPH::IndexedTriangleList triangles;
+                    triangles.reserve(indices.size() / 3);
+                    for (size_t i = 0; i + 2 < indices.size(); i += 3) {
+                        triangles.push_back(JPH::IndexedTriangle(indices[i], indices[i + 1], indices[i + 2]));
+                    }
+
+                    JPH::MeshShapeSettings meshSettings(vertices, triangles);
+                    auto result = meshSettings.Create();
+                    if (result.IsValid()) return result.Get();
+                }
+            }
+
+            // Dynamic mesh -> Convex Hull
             JPH::Array<JPH::Vec3> points;
             for (const auto& v : mesh->getVertices()) {
                 if (!v.deleted) {
