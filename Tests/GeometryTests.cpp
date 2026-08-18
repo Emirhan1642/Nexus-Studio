@@ -543,3 +543,95 @@ TEST_F(GeometryTests, BisectPlaneClippingAndCap) {
     // Should have split faces crossing the bisect plane Y=0
     EXPECT_GT(cube->getFaces().size(), 6u);
 }
+
+// 24. Extrude Region: verify side wall normals point strictly OUTWARD
+TEST_F(GeometryTests, ExtrudeRegionNormalsOutward) {
+    auto cube = MeshPrimitives::createCube(Vector3(2, 2, 2));
+    ASSERT_NE(cube, nullptr);
+
+    // Find top face (+Y)
+    uint32_t topFace = 0;
+    for (size_t f = 0; f < cube->getFaces().size(); ++f) {
+        cube->calculateFaceNormal((uint32_t)f);
+        if (cube->getFaces()[f].normal.y > 0.9f) {
+            topFace = (uint32_t)f;
+            break;
+        }
+    }
+
+    size_t facesBefore = cube->getFaces().size();
+    auto newFaces = MeshOperators::extrudeFaces(*cube, {topFace}, 1.0f, Vector3(0, 1, 0), false);
+    EXPECT_TRUE(cube->validate());
+    EXPECT_EQ(newFaces.size(), 1u);
+
+    // Check that every generated side wall face has its outward normal pointing away from the Y-axis center
+    for (size_t f = facesBefore; f < cube->getFaces().size(); ++f) {
+        if (f == topFace || cube->getFaces()[f].deleted) continue;
+        cube->calculateFaceNormal((uint32_t)f);
+        const auto& fn = cube->getFaces()[f].normal;
+        // Side walls around a +Y extrusion must have horizontal normal (X or Z != 0, Y ~= 0)
+        EXPECT_NEAR(fn.y, 0.0f, 0.1f);
+        // And normal dot position from center must be strictly positive (pointing outward)
+        Vector3 faceCenter(0, 0, 0);
+        for (uint32_t v : cube->getFaces()[f].vertices) faceCenter += cube->getVertices()[v].position;
+        faceCenter = faceCenter * (1.0f / (float)cube->getFaces()[f].vertices.size());
+        EXPECT_GT(faceCenter.dot(fn), 0.0f);
+    }
+}
+
+// 25. Inset Face: Large thickness collapses to center without geometry inversion
+TEST_F(GeometryTests, InsetFacesThicknessCenterCollapse) {
+    auto cube = MeshPrimitives::createCube(Vector3(2, 2, 2));
+    ASSERT_NE(cube, nullptr);
+
+    // Face 0 is a 2x2 quad (radius from center = 1.0)
+    // Thickness = 2.0 (exceeds radius -> should trigger clean center collapse)
+    auto newFaces = MeshOperators::insetFaces(*cube, {0}, 2.0f, 0.0f, true);
+    EXPECT_TRUE(cube->validate());
+    EXPECT_EQ(newFaces.size(), 4u); // 4 triangle fan faces meeting at center
+}
+
+// 26. Bevel Profile: Concave (<0.5) and Convex (>0.5) curvatures
+TEST_F(GeometryTests, BevelProfileConcaveAndConvex) {
+    auto meshConvex = MeshPrimitives::createCube(Vector3(2, 2, 2));
+    auto meshConcave = MeshPrimitives::createCube(Vector3(2, 2, 2));
+
+    // Bevel top edge on both with segments = 4
+    int e0 = meshConvex->findEdge(0, 1);
+    ASSERT_GE(e0, 0);
+
+    MeshOperators::bevelEdges(*meshConvex, {static_cast<uint32_t>(e0)}, 0.4f, 4, 1.0f); // Convex round
+    MeshOperators::bevelEdges(*meshConcave, {static_cast<uint32_t>(e0)}, 0.4f, 4, 0.0f); // Concave fillet
+
+    EXPECT_TRUE(meshConvex->validate());
+    EXPECT_TRUE(meshConcave->validate());
+}
+
+// 27. Knife Tool: Crossing 'X' Cuts on a Face
+TEST_F(GeometryTests, KnifeCrossingXCuts) {
+    auto mesh = std::make_shared<EditableMesh>();
+    uint32_t v0 = mesh->addVertex(Vector3(-1, -1, 0));
+    uint32_t v1 = mesh->addVertex(Vector3( 1, -1, 0));
+    uint32_t v2 = mesh->addVertex(Vector3( 1,  1, 0));
+    uint32_t v3 = mesh->addVertex(Vector3(-1,  1, 0));
+    mesh->addFace({v0, v1, v2, v3});
+    mesh->rebuildTopology();
+
+    // First diagonal cut: v0 -> v2
+    bool cut1 = MeshCutOperators::cutFaceWithRaySegment(*mesh, 0, Vector3(-1, -1, 0), Vector3(1, 1, 0), false);
+    EXPECT_TRUE(cut1);
+    EXPECT_EQ(mesh->getFaces().size(), 3u); // original deleted + 2 triangles
+
+    // Second diagonal cut across: v1 -> v3 (crosses both triangles)
+    bool cut2 = false;
+    for (size_t f = 0; f < mesh->getFaces().size(); ++f) {
+        if (!mesh->getFaces()[f].deleted) {
+            if (MeshCutOperators::cutFaceWithRaySegment(*mesh, (uint32_t)f, Vector3(1, -1, 0), Vector3(-1, 1, 0), false)) {
+                cut2 = true;
+            }
+        }
+    }
+    EXPECT_TRUE(cut2);
+    EXPECT_TRUE(mesh->validate());
+}
+

@@ -462,7 +462,7 @@ void ModelingContext::reapplyLastOperation() {
             selectedVertices = Engine::Geometry::MeshOperators::extrudeVertices(*workingMesh, opTargetVertices, opDistance);
         }
     } else if (lastOp == LastOpType::Inset) {
-        opThickness = std::clamp(opThickness, 0.0f, 0.95f);
+        opThickness = std::max(0.0f, opThickness);
         selectedVertices.clear();
         selectedEdges.clear();
         selectedFaces = Engine::Geometry::MeshOperators::insetFaces(*workingMesh, opTargetFaces, opThickness, opDepth, opIndividual);

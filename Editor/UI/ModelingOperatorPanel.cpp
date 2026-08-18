@@ -64,19 +64,19 @@ void ModelingOperatorPanel::render(const ImVec2& viewportPos, const ImVec2& view
 
             if (ctx.lastOp == LastOpType::Extrude) {
                 DrawRowHeader("Distance");
-                changed |= ImGui::DragFloat("##Distance", &ctx.opDistance, 0.02f, -50.0f, 50.0f, "%.2f m");
+                changed |= ImGui::DragFloat("##Distance", &ctx.opDistance, 0.02f, 0.0f, 0.0f, "%.2f m");
                 DrawRowHeader("Individual Faces");
                 changed |= ImGui::Checkbox("##IndividualExtrude", &ctx.opIndividual);
             } else if (ctx.lastOp == LastOpType::Inset) {
                 DrawRowHeader("Thickness");
-                changed |= ImGui::SliderFloat("##Thickness", &ctx.opThickness, 0.0f, 0.95f, "%.2f");
+                changed |= ImGui::DragFloat("##Thickness", &ctx.opThickness, 0.01f, 0.0f, 0.0f, "%.3f m");
                 DrawRowHeader("Depth");
-                changed |= ImGui::DragFloat("##Depth", &ctx.opDepth, 0.02f, -10.0f, 10.0f, "%.2f m");
+                changed |= ImGui::DragFloat("##Depth", &ctx.opDepth, 0.02f, 0.0f, 0.0f, "%.2f m");
                 DrawRowHeader("Individual Faces");
                 changed |= ImGui::Checkbox("##IndividualInset", &ctx.opIndividual);
             } else if (ctx.lastOp == LastOpType::Bevel) {
                 DrawRowHeader("Width");
-                changed |= ImGui::DragFloat("##Width", &ctx.opWidth, 0.01f, 0.001f, 10.0f, "%.3f m");
+                changed |= ImGui::DragFloat("##Width", &ctx.opWidth, 0.01f, 0.0f, 0.0f, "%.3f m");
                 DrawRowHeader("Segments");
                 changed |= ImGui::SliderInt("##Segments", &ctx.opSegments, 1, 8);
                 DrawRowHeader("Profile");
