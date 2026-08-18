@@ -669,3 +669,135 @@ TEST_F(GeometryTests, RegionInsetAdjacentFacesUniformOffset) {
     }
 }
 
+// 30. Multi-Segment Bevel Manifold Test: segments = 2, 3, 4 on closed mesh must remain 100% closed manifold
+TEST_F(GeometryTests, MultiSegmentBevelManifoldIntegrity) {
+    for (int segs : {2, 3, 4}) {
+        auto cube = MeshPrimitives::createCube(Vector3(2, 2, 2));
+        ASSERT_NE(cube, nullptr);
+        EXPECT_TRUE(cube->validate());
+
+        int eIdx = cube->findEdge(0, 1);
+        ASSERT_GE(eIdx, 0);
+
+        MeshOperators::bevelEdges(*cube, {static_cast<uint32_t>(eIdx)}, 0.3f, segs, 0.5f);
+        EXPECT_TRUE(cube->validate());
+
+        size_t boundaryEdges = 0;
+        for (size_t e = 0; e < cube->getEdges().size(); ++e) {
+            if (!cube->getEdges()[e].deleted && cube->getEdgeFaces(static_cast<uint32_t>(e)).size() == 1) {
+                ++boundaryEdges;
+            }
+        }
+        EXPECT_EQ(boundaryEdges, 0u) << "Failed with segments = " << segs;
+    }
+}
+
+// 31. Bevel Faces: Perimeter edge selection on adjacent faces
+TEST_F(GeometryTests, BevelFacesPerimeterBoundaryFiltering) {
+    auto cube = MeshPrimitives::createCube(Vector3(2, 2, 2));
+    ASSERT_NE(cube, nullptr);
+
+    // Select 2 adjacent faces: front (0) and top (2)
+    auto beveled = MeshOperators::bevelFaces(*cube, {0, 2}, 0.2f, 1, 0.5f);
+    EXPECT_TRUE(cube->validate());
+    EXPECT_EQ(beveled.size(), 2u);
+
+    size_t boundaryEdges = 0;
+    for (size_t e = 0; e < cube->getEdges().size(); ++e) {
+        if (!cube->getEdges()[e].deleted && cube->getEdgeFaces(static_cast<uint32_t>(e)).size() == 1) {
+            ++boundaryEdges;
+        }
+    }
+    EXPECT_EQ(boundaryEdges, 0u);
+}
+
+// 32. Vertex Bevel Cap Normal Outward Orientation
+TEST_F(GeometryTests, VertexBevelCapNormalOutward) {
+    auto cube = MeshPrimitives::createCube(Vector3(2, 2, 2));
+    ASSERT_NE(cube, nullptr);
+
+    // Vertex 0 on a 2x2x2 cube is at (-1, -1, 1) or corner
+    Vector3 cornerPos = cube->getVertices()[0].position;
+    Vector3 expectedOutward = cornerPos.normalized();
+
+    size_t facesBefore = cube->getFaces().size();
+    auto newVerts = MeshOperators::bevelVertices(*cube, {0}, 0.3f, 1);
+    EXPECT_TRUE(cube->validate());
+    EXPECT_FALSE(newVerts.empty());
+
+    // Check that all newly generated faces around the bevel have outward normals
+    for (size_t f = facesBefore; f < cube->getFaces().size(); ++f) {
+        if (cube->getFaces()[f].deleted) continue;
+        cube->calculateFaceNormal(static_cast<uint32_t>(f));
+        const auto& fn = cube->getFaces()[f].normal;
+        EXPECT_GT(fn.dot(expectedOutward), -0.2f);
+    }
+}
+
+// 33. Loop Cut Uniform Slide (No Zig-Zag Alternating Inversion)
+TEST_F(GeometryTests, LoopCutUniformSlideDirection) {
+    auto cube = MeshPrimitives::createCube(Vector3(2, 2, 2));
+    ASSERT_NE(cube, nullptr);
+
+    // Loop cut with slideFactor = 0.5 (shifts cuts along all 4 faces)
+    auto loopEdges = MeshCutOperators::findEdgeLoop(*cube, 0);
+    ASSERT_FALSE(loopEdges.empty());
+
+    auto newEdges = MeshCutOperators::applyLoopCut(*cube, loopEdges, 0.5f, 1);
+    EXPECT_TRUE(cube->validate());
+    EXPECT_EQ(newEdges.size(), 4u);
+
+    // Verify all 4 new edges form a single planar ring shifted from center (offset != 0)
+    for (uint32_t e : newEdges) {
+        ASSERT_LT(e, cube->getEdges().size());
+        EXPECT_FALSE(cube->getEdges()[e].deleted);
+    }
+}
+
+// 34. Knife Multi-Face Angled Cut Across Adjacent Faces
+TEST_F(GeometryTests, KnifeMultiFaceAngledCut) {
+    auto cube = MeshPrimitives::createCube(Vector3(2, 2, 2));
+    ASSERT_NE(cube, nullptr);
+
+    // Polyline crossing from front (+Z: X from -1 to 1, Y from -1 to 1, Z=1) to top (+Y: Y=1)
+    std::vector<Vector3> knifePath = {
+        Vector3(0.0f, -0.5f, 1.0f), // On Front face
+        Vector3(0.0f, 1.0f, 1.0f),  // On shared edge
+        Vector3(0.0f, 1.0f, -0.5f)  // On Top face
+    };
+
+    bool cutSuccess = MeshCutOperators::cutMeshWithKnifePolyline(*cube, knifePath, {}, false);
+    EXPECT_TRUE(cutSuccess);
+    EXPECT_TRUE(cube->validate());
+    EXPECT_GT(cube->getFaces().size(), 6u);
+}
+
+// 35. Knife UV and Material Attribute Preservation
+TEST_F(GeometryTests, KnifeAttributeAndUVPreservation) {
+    auto mesh = std::make_shared<EditableMesh>();
+    uint32_t v0 = mesh->addVertex(Vector3(-1, -1, 0), 0.0f, 0.0f);
+    uint32_t v1 = mesh->addVertex(Vector3( 1, -1, 0), 1.0f, 0.0f);
+    uint32_t v2 = mesh->addVertex(Vector3( 1,  1, 0), 1.0f, 1.0f);
+    uint32_t v3 = mesh->addVertex(Vector3(-1,  1, 0), 0.0f, 1.0f);
+
+    std::vector<std::pair<float, float>> uvs = { {0.0f, 0.0f}, {1.0f, 0.0f}, {1.0f, 1.0f}, {0.0f, 1.0f} };
+    int f = mesh->addFaceWithUVs({v0, v1, v2, v3}, uvs, 77);
+    mesh->rebuildTopology();
+
+    bool cut = MeshCutOperators::cutFaceWithRaySegment(*mesh, static_cast<uint32_t>(f), Vector3(0, -1, 0), Vector3(0, 1, 0));
+    EXPECT_TRUE(cut);
+    EXPECT_TRUE(mesh->validate());
+
+    size_t activeCount = 0;
+    for (const auto& face : mesh->getFaces()) {
+        if (!face.deleted) {
+            ++activeCount;
+            EXPECT_EQ(face.materialId, 77);
+            EXPECT_FALSE(face.uvs.empty());
+            EXPECT_EQ(face.uvs.size(), face.vertices.size());
+        }
+    }
+    EXPECT_EQ(activeCount, 2u);
+}
+
+

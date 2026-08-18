@@ -694,6 +694,8 @@ void ViewportPanel::draw(Engine::Renderer::Camera& camera) {
                 if (mCtx.activeModal == Editor::Modeling::ModalTool::Knife && isSelected && isHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
                     if (hoveredVertex != -1) {
                         mCtx.knifePoints.push_back(vertices[hoveredVertex].position);
+                        auto connFaces = mesh->getConnectedFaces(static_cast<uint32_t>(hoveredVertex));
+                        for (uint32_t f : connFaces) mCtx.knifeTargetFaces.push_back(f);
                         if (hoveredFace != -1) mCtx.knifeTargetFaces.push_back((uint32_t)hoveredFace);
                     } else if (hoveredEdge != -1) {
                         uint32_t ev0 = edges[hoveredEdge].v0;
@@ -703,6 +705,8 @@ void ViewportPanel::draw(Engine::Renderer::Camera& camera) {
                         float t = (l2 > 0.0f) ? std::clamp(((mousePos.x - p0.x) * (p1.x - p0.x) + (mousePos.y - p0.y) * (p1.y - p0.y)) / l2, 0.0f, 1.0f) : 0.5f;
                         Engine::Math::Vector3 edgePt = vertices[ev0].position + (vertices[ev1].position - vertices[ev0].position) * t;
                         mCtx.knifePoints.push_back(edgePt);
+                        auto eFaces = mesh->getEdgeFaces(static_cast<uint32_t>(hoveredEdge));
+                        for (uint32_t f : eFaces) mCtx.knifeTargetFaces.push_back(f);
                         if (hoveredFace != -1) mCtx.knifeTargetFaces.push_back((uint32_t)hoveredFace);
                     } else if (hoveredFace != -1) {
                         float ndcX = ((mousePos.x - screenPos.x) / avail.x) * 2.0f - 1.0f;

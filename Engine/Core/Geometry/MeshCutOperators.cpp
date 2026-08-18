@@ -190,18 +190,21 @@ std::vector<uint32_t> MeshCutOperators::applyLoopCut(
     vertices.reserve(vertices.size() + edgeLoop.size() * static_cast<size_t>(numCuts * 3));
     faces.reserve(faces.size() + edgeLoop.size() * static_cast<size_t>((numCuts + 2) * 4));
 
-    // Pre-generate shared split vertices for every directed edge in edgeLoop
-    // Key: (vA, vB) -> split vertices ordered from vA towards vB
-    std::map<std::pair<uint32_t, uint32_t>, std::vector<uint32_t>> directedSplitMap;
+    struct CanonicalEdgeSplits {
+        uint32_t fromVert = 0;
+        std::vector<uint32_t> splits;
+    };
+    std::map<std::pair<uint32_t, uint32_t>, CanonicalEdgeSplits> canonicalSplitMap;
 
     auto getSplits = [&](uint32_t vA, uint32_t vB) -> std::vector<uint32_t> {
-        if (directedSplitMap.count({vA, vB})) {
-            return directedSplitMap[{vA, vB}];
-        }
-        if (directedSplitMap.count({vB, vA})) {
-            auto rev = directedSplitMap[{vB, vA}];
-            std::reverse(rev.begin(), rev.end());
-            return rev;
+        auto key = std::make_pair(std::min(vA, vB), std::max(vA, vB));
+        auto it = canonicalSplitMap.find(key);
+        if (it != canonicalSplitMap.end()) {
+            auto splits = it->second.splits;
+            if (vA != it->second.fromVert) {
+                std::reverse(splits.begin(), splits.end());
+            }
+            return splits;
         }
         std::vector<uint32_t> splits(numCuts);
         for (int k = 0; k < numCuts; ++k) {
@@ -212,7 +215,7 @@ std::vector<uint32_t> MeshCutOperators::applyLoopCut(
             float v = vertices[vA].v + (vertices[vB].v - vertices[vA].v) * t;
             splits[k] = mesh.addVertex(p, u, v);
         }
-        directedSplitMap[{vA, vB}] = splits;
+        canonicalSplitMap[key] = {vA, splits};
         return splits;
     };
 
@@ -330,7 +333,6 @@ bool MeshCutOperators::cutMeshWithKnifePolyline(
     if (localPoints.size() < 2) return false;
     bool anyCut = false;
 
-    std::vector<uint32_t> candidateFaces;
     auto collectLiveFaces = [&]() {
         std::vector<uint32_t> live;
         for (size_t f = 0; f < mesh.getFaces().size(); ++f) {
@@ -341,6 +343,7 @@ bool MeshCutOperators::cutMeshWithKnifePolyline(
         return live;
     };
 
+    std::vector<uint32_t> candidateFaces;
     if (!cutThrough && !targetFaces.empty()) {
         std::set<uint32_t> uniqueTargets(targetFaces.begin(), targetFaces.end());
         for (uint32_t f : uniqueTargets) {
@@ -370,7 +373,7 @@ bool MeshCutOperators::cutMeshWithKnifePolyline(
                         if (!mesh.getFaces()[f].deleted) nextTargetFaces.push_back(static_cast<uint32_t>(f));
                     }
                 }
-            } else if (cutThrough) {
+            } else {
                 auto face = mesh.getFaces()[fIdx];
                 if (face.vertices.size() < 3) continue;
 
@@ -396,8 +399,14 @@ bool MeshCutOperators::cutMeshWithKnifePolyline(
                     }
                 }
                 if (edgeHits.size() == 2) {
+                    const size_t preCount = mesh.getFaces().size();
                     if (cutFaceWithRaySegment(mesh, fIdx, edgeHits[0], edgeHits[1], false)) {
                         anyCut = true;
+                        if (!cutThrough && !targetFaces.empty()) {
+                            for (size_t f = preCount; f < mesh.getFaces().size(); ++f) {
+                                if (!mesh.getFaces()[f].deleted) nextTargetFaces.push_back(static_cast<uint32_t>(f));
+                            }
+                        }
                     }
                 }
             }
@@ -430,185 +439,225 @@ bool MeshCutOperators::cutFaceWithRaySegment(
     auto& vertices = mesh.getVertices();
     if (faceIndex >= faces.size() || faces[faceIndex].deleted) return false;
 
-    auto face = faces[faceIndex];
-    size_t fvCount = face.vertices.size();
+    const auto face = faces[faceIndex];
+    const size_t fvCount = face.vertices.size();
     if (fvCount < 3) return false;
+    const int origMatId = face.materialId;
 
     mesh.calculateFaceNormal(faceIndex);
-    Engine::Math::Vector3 fn = face.normal;
-    Engine::Math::Vector3 fp = vertices[face.vertices[0]].position;
+    const Engine::Math::Vector3 fn = face.normal;
+    const Engine::Math::Vector3 fp = vertices[face.vertices[0]].position;
 
-    const float d0 = std::abs((p0 - fp).dot(fn));
-    const float d1 = std::abs((p1 - fp).dot(fn));
-    if (d0 > 0.05f || d1 > 0.05f) return false;
+    // Project p0 and p1 onto the face plane
+    const float d0 = (p0 - fp).dot(fn);
+    const float d1 = (p1 - fp).dot(fn);
+    const Engine::Math::Vector3 p0Proj = p0 - fn * d0;
+    const Engine::Math::Vector3 p1Proj = p1 - fn * d1;
 
-    Engine::Math::Vector3 segDir = p1 - p0;
-    float segLen = segDir.length();
-    if (segLen < 1e-4f) return false;
-    segDir = segDir * (1.0f / segLen);
+    Engine::Math::Vector3 seg = p1Proj - p0Proj;
+    const float segLen = seg.length();
+    if (segLen < 1e-5f) return false;
+    const Engine::Math::Vector3 segDir = seg * (1.0f / segLen);
 
-    Engine::Math::Vector3 uAxis = segDir;
-    Engine::Math::Vector3 vAxis = fn.cross(uAxis).normalized();
+    const Engine::Math::Vector3 uAxis = segDir;
+    const Engine::Math::Vector3 vAxis = fn.cross(uAxis).normalized();
 
     auto to2D = [&](const Engine::Math::Vector3& p) -> std::pair<float, float> {
-        return { (p - p0).dot(uAxis), (p - p0).dot(vAxis) };
+        return { (p - p0Proj).dot(uAxis), (p - p0Proj).dot(vAxis) };
     };
 
-    struct Intersection {
-        uint32_t vertex = 0xFFFFFFFF;
-        uint32_t a = 0xFFFFFFFF;
-        uint32_t b = 0xFFFFFFFF;
-        Engine::Math::Vector3 pos;
+    float maxEdgeLen = 0.0f;
+    std::vector<std::pair<float, float>> poly2D(fvCount);
+    for (size_t i = 0; i < fvCount; ++i) {
+        poly2D[i] = to2D(vertices[face.vertices[i]].position);
+        size_t nextI = (i + 1) % fvCount;
+        float el = (vertices[face.vertices[nextI]].position - vertices[face.vertices[i]].position).length();
+        maxEdgeLen = std::max(maxEdgeLen, el);
+    }
+    const float tol = std::max(1e-5f, maxEdgeLen * 0.005f);
+
+    struct CutHit {
+        uint32_t existingVertex = 0xFFFFFFFFu;
+        uint32_t edgeV0 = 0xFFFFFFFFu;
+        uint32_t edgeV1 = 0xFFFFFFFFu;
+        float edgeT = 0.0f;
+        Engine::Math::Vector3 pos{0.0f, 0.0f, 0.0f};
         float uVal = 0.0f;
+        float u_uv = 0.0f;
+        float v_uv = 0.0f;
+        std::pair<float, float> cornerUV{0.0f, 0.0f};
     };
-    std::vector<Intersection> hits;
+    std::vector<CutHit> hits;
 
-    float maxEdgeLength = 0.0f;
+    // 1. Check existing vertices
     for (size_t i = 0; i < fvCount; ++i) {
-        const auto& a = vertices[face.vertices[i]].position;
-        const auto& b = vertices[face.vertices[(i + 1) % fvCount]].position;
-        maxEdgeLength = std::max(maxEdgeLength, (b - a).length());
-    }
-    const float tol = std::max(1e-4f, maxEdgeLength * 0.02f);
-
-    auto pointInPolygon2D = [&](float px, float py) -> bool {
-        bool inside = false;
-        for (size_t i = 0, j = fvCount - 1; i < fvCount; j = i++) {
-            auto [xi, yi] = to2D(vertices[face.vertices[i]].position);
-            auto [xj, yj] = to2D(vertices[face.vertices[j]].position);
-            if (((yi > py) != (yj > py)) && (px < (xj - xi) * (py - yi) / (yj - yi) + xi)) {
-                inside = !inside;
-            }
-        }
-        return inside;
-    };
-
-    // 1. Check if polygon vertices lie on the cut line within segment span
-    for (uint32_t v : face.vertices) {
-        auto [u, vCoord] = to2D(vertices[v].position);
-        if (std::abs(vCoord) <= tol && u >= -tol && u <= segLen + tol) {
-            hits.push_back({v, v, v, vertices[v].position, u});
+        uint32_t v = face.vertices[i];
+        auto [u, vCoord] = poly2D[i];
+        if (std::abs(vCoord) <= tol) {
+            CutHit h;
+            h.existingVertex = v;
+            h.edgeV0 = v;
+            h.edgeV1 = v;
+            h.edgeT = 0.0f;
+            h.pos = vertices[v].position;
+            h.uVal = u;
+            h.u_uv = vertices[v].u;
+            h.v_uv = vertices[v].v;
+            if (face.uvs.size() == fvCount) h.cornerUV = face.uvs[i];
+            else h.cornerUV = {vertices[v].u, vertices[v].v};
+            hits.push_back(h);
         }
     }
 
-    // 2. Check each polygon edge for intersection with the cut line within segment span
+    // 2. Check edges for intersection with the cut line (v = 0)
     for (size_t i = 0; i < fvCount; ++i) {
-        uint32_t a = face.vertices[i];
-        uint32_t b = face.vertices[(i + 1) % fvCount];
-        auto [uA, vA] = to2D(vertices[a].position);
-        auto [uB, vB] = to2D(vertices[b].position);
-
+        size_t nextI = (i + 1) % fvCount;
+        auto [uA, vA] = poly2D[i];
+        auto [uB, vB] = poly2D[nextI];
         if (std::abs(vA) <= tol || std::abs(vB) <= tol) continue;
 
         if ((vA > 0.0f && vB < 0.0f) || (vA < 0.0f && vB > 0.0f)) {
             float t = -vA / (vB - vA);
             if (t > 1e-4f && t < 1.0f - 1e-4f) {
                 float uInterp = uA + (uB - uA) * t;
-                if (uInterp >= -tol && uInterp <= segLen + tol) {
-                    Engine::Math::Vector3 pos = vertices[a].position + (vertices[b].position - vertices[a].position) * t;
-                    hits.push_back({0xFFFFFFFF, a, b, pos, uInterp});
+                uint32_t vA_idx = face.vertices[i];
+                uint32_t vB_idx = face.vertices[nextI];
+                Engine::Math::Vector3 pos = vertices[vA_idx].position + (vertices[vB_idx].position - vertices[vA_idx].position) * t;
+                float u_uv = vertices[vA_idx].u + (vertices[vB_idx].u - vertices[vA_idx].u) * t;
+                float v_uv = vertices[vA_idx].v + (vertices[vB_idx].v - vertices[vA_idx].v) * t;
+
+                CutHit h;
+                h.existingVertex = 0xFFFFFFFFu;
+                h.edgeV0 = vA_idx;
+                h.edgeV1 = vB_idx;
+                h.edgeT = t;
+                h.pos = pos;
+                h.uVal = uInterp;
+                h.u_uv = u_uv;
+                h.v_uv = v_uv;
+                if (face.uvs.size() == fvCount) {
+                    h.cornerUV.first = face.uvs[i].first + (face.uvs[nextI].first - face.uvs[i].first) * t;
+                    h.cornerUV.second = face.uvs[i].second + (face.uvs[nextI].second - face.uvs[i].second) * t;
+                } else {
+                    h.cornerUV = {u_uv, v_uv};
                 }
+                hits.push_back(h);
             }
         }
     }
 
-    // 3. Check if endpoints are inside the face
-    if (pointInPolygon2D(0.0f, 0.0f)) {
-        hits.push_back({0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, p0, 0.0f});
-    }
-    if (pointInPolygon2D(segLen, 0.0f)) {
-        hits.push_back({0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, p1, segLen});
-    }
-
     if (hits.size() < 2) return false;
 
-    // Deduplicate hits that are too close to each other
-    std::sort(hits.begin(), hits.end(), [](const Intersection& h1, const Intersection& h2) {
-        return h1.uVal < h2.uVal;
+    // Deduplicate hits
+    std::sort(hits.begin(), hits.end(), [](const CutHit& a, const CutHit& b) {
+        return a.uVal < b.uVal;
     });
 
-    std::vector<Intersection> uniqueHits;
-    for (const auto& hit : hits) {
-        if (uniqueHits.empty() || (hit.pos - uniqueHits.back().pos).length() > tol) {
-            uniqueHits.push_back(hit);
+    std::vector<CutHit> uniqueHits;
+    for (const auto& h : hits) {
+        if (uniqueHits.empty() || (h.pos - uniqueHits.back().pos).length() > tol) {
+            uniqueHits.push_back(h);
         }
     }
     if (uniqueHits.size() < 2) return false;
 
-    Intersection h0 = uniqueHits.front();
-    Intersection h1 = uniqueHits.back();
+    CutHit h0 = uniqueHits.front();
+    CutHit h1 = uniqueHits.back();
 
-    if (h0.vertex == 0xFFFFFFFF) {
-        h0.vertex = mesh.addVertex(h0.pos, 0.5f, 0.5f, fn);
+    if (h0.existingVertex != 0xFFFFFFFFu && h1.existingVertex != 0xFFFFFFFFu) {
+        if (h0.existingVertex == h1.existingVertex) return false;
+        size_t idx0 = static_cast<size_t>(std::find(face.vertices.begin(), face.vertices.end(), h0.existingVertex) - face.vertices.begin());
+        size_t idx1 = static_cast<size_t>(std::find(face.vertices.begin(), face.vertices.end(), h1.existingVertex) - face.vertices.begin());
+        if ((idx0 + 1) % fvCount == idx1 || (idx1 + 1) % fvCount == idx0) {
+            return false;
+        }
     }
-    if (h1.vertex == 0xFFFFFFFF) {
-        h1.vertex = mesh.addVertex(h1.pos, 0.5f, 0.5f, fn);
+
+    uint32_t vHit0 = h0.existingVertex;
+    if (vHit0 == 0xFFFFFFFFu) {
+        vHit0 = mesh.addVertex(h0.pos, h0.u_uv, h0.v_uv, fn);
     }
+    uint32_t vHit1 = h1.existingVertex;
+    if (vHit1 == 0xFFFFFFFFu) {
+        vHit1 = mesh.addVertex(h1.pos, h1.u_uv, h1.v_uv, fn);
+    }
+    if (vHit0 == vHit1) return false;
 
-    if (h0.vertex == h1.vertex) return false;
-
-    auto insertOnAdjacentFaces = [&](const Intersection& hit) {
-        if (hit.a == hit.b) return;
+    auto insertOnAdjacentFaces = [&](const CutHit& hit, uint32_t newV) {
+        if (hit.existingVertex != 0xFFFFFFFFu) return;
         for (size_t f = 0; f < faces.size(); ++f) {
             if (f == faceIndex || faces[f].deleted) continue;
-            auto& verts = faces[f].vertices;
-            for (size_t i = 0; i < verts.size(); ++i) {
-                const uint32_t a = verts[i];
-                const uint32_t b = verts[(i + 1) % verts.size()];
-                if ((a == hit.a && b == hit.b) || (a == hit.b && b == hit.a)) {
-                    verts.insert(verts.begin() + static_cast<std::ptrdiff_t>(i + 1), hit.vertex);
+            auto& fVerts = faces[f].vertices;
+            auto& fUVs = faces[f].uvs;
+            for (size_t i = 0; i < fVerts.size(); ++i) {
+                uint32_t a = fVerts[i];
+                uint32_t b = fVerts[(i + 1) % fVerts.size()];
+                if ((a == hit.edgeV0 && b == hit.edgeV1) || (a == hit.edgeV1 && b == hit.edgeV0)) {
+                    fVerts.insert(fVerts.begin() + static_cast<std::ptrdiff_t>(i + 1), newV);
+                    if (fUVs.size() == fVerts.size() - 1) {
+                        float tAdj = (a == hit.edgeV0) ? hit.edgeT : (1.0f - hit.edgeT);
+                        std::pair<float, float> newUV = {
+                            fUVs[i].first + (fUVs[(i + 1) % fUVs.size()].first - fUVs[i].first) * tAdj,
+                            fUVs[i].second + (fUVs[(i + 1) % fUVs.size()].second - fUVs[i].second) * tAdj
+                        };
+                        fUVs.insert(fUVs.begin() + static_cast<std::ptrdiff_t>(i + 1), newUV);
+                    }
                     break;
                 }
             }
         }
     };
-    insertOnAdjacentFaces(h0);
-    insertOnAdjacentFaces(h1);
+    insertOnAdjacentFaces(h0, vHit0);
+    insertOnAdjacentFaces(h1, vHit1);
 
-    std::vector<uint32_t> expanded;
+    std::vector<uint32_t> expandedVerts;
+    std::vector<std::pair<float, float>> expandedUVs;
     for (size_t i = 0; i < fvCount; ++i) {
-        const uint32_t a = face.vertices[i];
-        const uint32_t b = face.vertices[(i + 1) % fvCount];
-        expanded.push_back(a);
-        if (h0.a != h0.b && ((a == h0.a && b == h0.b) || (a == h0.b && b == h0.a))) expanded.push_back(h0.vertex);
-        if (h1.a != h1.b && ((a == h1.a && b == h1.b) || (a == h1.b && b == h1.a))) expanded.push_back(h1.vertex);
-    }
+        uint32_t a = face.vertices[i];
+        uint32_t b = face.vertices[(i + 1) % fvCount];
+        expandedVerts.push_back(a);
+        if (face.uvs.size() == fvCount) expandedUVs.push_back(face.uvs[i]);
+        else expandedUVs.emplace_back(vertices[a].u, vertices[a].v);
 
-    std::vector<uint32_t> cleanExpanded;
-    for (uint32_t v : expanded) {
-        if (cleanExpanded.empty() || cleanExpanded.back() != v) {
-            cleanExpanded.push_back(v);
+        if (h0.existingVertex == 0xFFFFFFFFu && ((a == h0.edgeV0 && b == h0.edgeV1) || (a == h0.edgeV1 && b == h0.edgeV0))) {
+            expandedVerts.push_back(vHit0);
+            expandedUVs.push_back(h0.cornerUV);
+        }
+        if (h1.existingVertex == 0xFFFFFFFFu && ((a == h1.edgeV0 && b == h1.edgeV1) || (a == h1.edgeV1 && b == h1.edgeV0))) {
+            expandedVerts.push_back(vHit1);
+            expandedUVs.push_back(h1.cornerUV);
         }
     }
-    if (cleanExpanded.size() > 1 && cleanExpanded.front() == cleanExpanded.back()) {
-        cleanExpanded.pop_back();
+
+    auto findIdx = [&](uint32_t v) -> size_t {
+        return static_cast<size_t>(std::find(expandedVerts.begin(), expandedVerts.end(), v) - expandedVerts.begin());
+    };
+    const size_t idx0 = findIdx(vHit0);
+    const size_t idx1 = findIdx(vHit1);
+    if (idx0 >= expandedVerts.size() || idx1 >= expandedVerts.size() || idx0 == idx1) return false;
+
+    std::vector<uint32_t> poly1_verts, poly2_verts;
+    std::vector<std::pair<float, float>> poly1_uvs, poly2_uvs;
+    size_t cur = idx0;
+    while (true) {
+        poly1_verts.push_back(expandedVerts[cur]);
+        poly1_uvs.push_back(expandedUVs[cur]);
+        if (cur == idx1) break;
+        cur = (cur + 1) % expandedVerts.size();
     }
-    expanded = cleanExpanded;
+    cur = idx1;
+    while (true) {
+        poly2_verts.push_back(expandedVerts[cur]);
+        poly2_uvs.push_back(expandedUVs[cur]);
+        if (cur == idx0) break;
+        cur = (cur + 1) % expandedVerts.size();
+    }
 
-    auto findIndex = [&](uint32_t v) -> size_t {
-        return static_cast<size_t>(std::find(expanded.begin(), expanded.end(), v) - expanded.begin());
-    };
-    const size_t i0 = findIndex(h0.vertex);
-    const size_t i1 = findIndex(h1.vertex);
-    if (i0 >= expanded.size() || i1 >= expanded.size() || i0 == i1) return false;
-
-    auto path = [&](size_t start, size_t end) {
-        std::vector<uint32_t> result;
-        size_t i = start;
-        for (size_t n = 0; n <= expanded.size(); ++n) {
-            result.push_back(expanded[i]);
-            if (i == end) break;
-            i = (i + 1) % expanded.size();
-        }
-        return result;
-    };
-    const auto first = path(i0, i1);
-    const auto second = path(i1, i0);
-    if (first.size() < 3 || second.size() < 3) return false;
+    if (poly1_verts.size() < 3 || poly2_verts.size() < 3) return false;
 
     mesh.removeFace(faceIndex);
-    mesh.addFace(first);
-    mesh.addFace(second);
+    mesh.addFaceWithUVs(poly1_verts, poly1_uvs, origMatId);
+    mesh.addFaceWithUVs(poly2_verts, poly2_uvs, origMatId);
     mesh.rebuildTopology();
     mesh.recalculateAllNormals(false);
     if (compactResult) mesh.packAndCompact();
