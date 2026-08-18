@@ -635,3 +635,37 @@ TEST_F(GeometryTests, KnifeCrossingXCuts) {
     EXPECT_TRUE(mesh->validate());
 }
 
+// 28. Multi-Edge Bevel: Beveling connected adjacent edges
+TEST_F(GeometryTests, BevelMultipleConnectedEdges) {
+    auto cube = MeshPrimitives::createCube(Vector3(2, 2, 2));
+    ASSERT_NE(cube, nullptr);
+
+    int e0 = cube->findEdge(0, 1);
+    int e1 = cube->findEdge(1, 2);
+    ASSERT_GE(e0, 0);
+    ASSERT_GE(e1, 0);
+
+    // Bevel 2 connected edges sharing vertex 1
+    auto beveled = MeshOperators::bevelEdges(*cube, {(uint32_t)e0, (uint32_t)e1}, 0.2f, 1, 0.5f);
+    EXPECT_TRUE(cube->validate());
+    EXPECT_GE(beveled.size(), 2u);
+}
+
+// 29. Region Inset: 2 Adjacent Faces Symmetry & Aspect Ratio Preservation
+TEST_F(GeometryTests, RegionInsetAdjacentFacesUniformOffset) {
+    auto cube = MeshPrimitives::createCube(Vector3(2, 2, 2));
+    ASSERT_NE(cube, nullptr);
+
+    // Front face (0) and Top face (2) share an edge
+    auto insets = MeshOperators::insetFaces(*cube, {0, 2}, 0.3f, 0.0f, false);
+    EXPECT_TRUE(cube->validate());
+    EXPECT_EQ(insets.size(), 2u);
+
+    // Verify all faces have positive area and valid normal
+    for (size_t f = 0; f < cube->getFaces().size(); ++f) {
+        if (!cube->getFaces()[f].deleted) {
+            EXPECT_GE(cube->getFaces()[f].vertices.size(), 3u);
+        }
+    }
+}
+

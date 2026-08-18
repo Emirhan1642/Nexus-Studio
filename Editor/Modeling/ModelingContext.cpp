@@ -281,7 +281,7 @@ void ModelingContext::updateModal(float mouseX, float mouseY, bool shiftHeld, bo
         }
         part->setEditableMesh(workingMesh);
     } else if (activeModal == ModalTool::Inset) {
-        float newThickness = std::max(0.0f, std::min(0.95f, (dx - dy) * factor));
+        float newThickness = std::max(0.0f, (dx - dy) * factor);
         if (std::abs(newThickness - opThickness) < 1e-5f && lastCalculatedParam != -999999.0f) {
             return;
         }
