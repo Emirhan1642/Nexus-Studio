@@ -493,3 +493,53 @@ TEST_F(GeometryTests, UVAndMaterialPreservation) {
     }
     EXPECT_TRUE(foundInterpolatedUV);
 }
+
+// 20. Extrude Vertices: create new vertices and connecting edges
+TEST_F(GeometryTests, ExtrudeVerticesValidation) {
+    auto cube = MeshPrimitives::createCube(Vector3(1, 1, 1));
+    ASSERT_NE(cube, nullptr);
+    size_t initialVertCount = cube->getVertices().size();
+
+    auto newVerts = MeshOperators::extrudeVertices(*cube, {0, 1}, 2.0f, Vector3(0, 1, 0));
+    EXPECT_EQ(newVerts.size(), 2u);
+    EXPECT_EQ(cube->getVertices().size(), initialVertCount + 2);
+    EXPECT_TRUE(cube->validate());
+
+    // Verify positions of extruded vertices
+    EXPECT_FLOAT_EQ(cube->getVertices()[newVerts[0]].position.y, cube->getVertices()[0].position.y + 2.0f);
+    EXPECT_FLOAT_EQ(cube->getVertices()[newVerts[1]].position.y, cube->getVertices()[1].position.y + 2.0f);
+}
+
+// 21. Shrink / Fatten: displaces vertices along normals
+TEST_F(GeometryTests, ShrinkFattenNormalsOffset) {
+    auto cube = MeshPrimitives::createCube(Vector3(1, 1, 1));
+    ASSERT_NE(cube, nullptr);
+
+    Vector3 origPos = cube->getVertices()[0].position;
+    MeshOperators::shrinkFatten(*cube, {0}, 0.5f);
+
+    Vector3 newPos = cube->getVertices()[0].position;
+    EXPECT_GT((newPos - origPos).length(), 0.1f);
+    EXPECT_TRUE(cube->validate());
+}
+
+// 22. Face Loop Selection: traverses quad loops across opposite edges
+TEST_F(GeometryTests, FindFaceLoopQuadTraversal) {
+    auto cube = MeshPrimitives::createCube(Vector3(1, 1, 1));
+    ASSERT_NE(cube, nullptr);
+
+    auto loop = MeshCutOperators::findFaceLoop(*cube, 0);
+    // On a 6-sided cube made of quads, a face loop forms a ring of 4 quads!
+    EXPECT_EQ(loop.size(), 4u);
+}
+
+// 23. Bisect Plane: cuts mesh across plane and caps
+TEST_F(GeometryTests, BisectPlaneClippingAndCap) {
+    auto cube = MeshPrimitives::createCube(Vector3(2, 2, 2));
+    ASSERT_NE(cube, nullptr);
+
+    MeshOperators::bisectPlane(*cube, Vector3(0, 0, 0), Vector3(0, 1, 0), false, false, true);
+    EXPECT_TRUE(cube->validate());
+    // Should have split faces crossing the bisect plane Y=0
+    EXPECT_GT(cube->getFaces().size(), 6u);
+}

@@ -252,8 +252,8 @@ void ViewportPanel::draw(Engine::Renderer::Camera& camera) {
             if ((ImGui::IsKeyDown(ImGuiMod_Ctrl) || ImGui::IsKeyDown(ImGuiMod_Alt)) && ImGui::IsKeyPressed(ImGuiKey_E) && mCtx.activeModal == Editor::Modeling::ModalTool::None) {
                 mCtx.startExtrude(selPart);
             }
-            // Inset: I or Ctrl + I
-            if (ImGui::IsKeyPressed(ImGuiKey_I) && mCtx.activeModal == Editor::Modeling::ModalTool::None) {
+            // Inset: I (without Ctrl to avoid conflict with Ctrl+I Select Invert)
+            if (!ImGui::IsKeyDown(ImGuiMod_Ctrl) && ImGui::IsKeyPressed(ImGuiKey_I) && mCtx.activeModal == Editor::Modeling::ModalTool::None) {
                 mCtx.startInset(selPart);
             }
             // Bevel: Ctrl + B
@@ -268,9 +268,17 @@ void ViewportPanel::draw(Engine::Renderer::Camera& camera) {
             if (ImGui::IsKeyPressed(ImGuiKey_K) && mCtx.activeModal == Editor::Modeling::ModalTool::None) {
                 mCtx.startKnife(selPart);
             }
+            // Shrink / Fatten: Alt + S
+            if (ImGui::IsKeyDown(ImGuiMod_Alt) && ImGui::IsKeyPressed(ImGuiKey_S) && mCtx.activeModal == Editor::Modeling::ModalTool::None) {
+                mCtx.startShrinkFatten(selPart);
+            }
+            // Edge Slide: Shift + V
+            if (ImGui::IsKeyDown(ImGuiMod_Shift) && ImGui::IsKeyPressed(ImGuiKey_V) && mCtx.activeModal == Editor::Modeling::ModalTool::None) {
+                mCtx.startEdgeSlide(selPart);
+            }
             // Merge: M
             if (ImGui::IsKeyPressed(ImGuiKey_M)) {
-                mCtx.executeMerge(selPart, Engine::Geometry::MergeMode::Center);
+                ImGui::OpenPopup("MergeVerticesPopup");
             }
             // Delete / Dissolve: X or Delete
             if (ImGui::IsKeyPressed(ImGuiKey_X) || ImGui::IsKeyPressed(ImGuiKey_Delete)) {
@@ -374,7 +382,85 @@ void ViewportPanel::draw(Engine::Renderer::Camera& camera) {
     if (mCtx.activeModal != Editor::Modeling::ModalTool::None) {
         bool shiftHeld = ImGui::GetIO().KeyShift;
         bool ctrlHeld  = ImGui::GetIO().KeyCtrl;
-        mCtx.updateModal(mousePos.x, mousePos.y, shiftHeld, ctrlHeld);
+
+        // Mouse Wheel adjustments during modal
+        float wheel = ImGui::GetIO().MouseWheel;
+        if (wheel != 0.0f) {
+            if (mCtx.activeModal == Editor::Modeling::ModalTool::Bevel) {
+                mCtx.opSegments = std::clamp(mCtx.opSegments + (int)wheel, 1, 8);
+                mCtx.lastCalculatedParam = -999999.0f;
+            } else if (mCtx.activeModal == Editor::Modeling::ModalTool::LoopCut) {
+                mCtx.opCuts = std::clamp(mCtx.opCuts + (int)wheel, 1, 6);
+                mCtx.lastCalculatedParam = -999999.0f;
+            }
+        }
+
+        // Direct numeric typing during modal
+        for (int k = ImGuiKey_0; k <= ImGuiKey_9; ++k) {
+            if (ImGui::IsKeyPressed((ImGuiKey)k)) {
+                mCtx.modalNumericBuffer += ('0' + (k - ImGuiKey_0));
+                mCtx.modalHasNumericInput = true;
+            }
+        }
+        for (int k = ImGuiKey_Keypad0; k <= ImGuiKey_Keypad9; ++k) {
+            if (ImGui::IsKeyPressed((ImGuiKey)k)) {
+                mCtx.modalNumericBuffer += ('0' + (k - ImGuiKey_Keypad0));
+                mCtx.modalHasNumericInput = true;
+            }
+        }
+        if (ImGui::IsKeyPressed(ImGuiKey_Period) || ImGui::IsKeyPressed(ImGuiKey_KeypadDecimal)) {
+            if (mCtx.modalNumericBuffer.find('.') == std::string::npos) {
+                mCtx.modalNumericBuffer += '.';
+                mCtx.modalHasNumericInput = true;
+            }
+        }
+        if (ImGui::IsKeyPressed(ImGuiKey_Minus) || ImGui::IsKeyPressed(ImGuiKey_KeypadSubtract)) {
+            if (mCtx.modalNumericBuffer.empty()) {
+                mCtx.modalNumericBuffer += '-';
+                mCtx.modalHasNumericInput = true;
+            }
+        }
+        if (ImGui::IsKeyPressed(ImGuiKey_Backspace) && !mCtx.modalNumericBuffer.empty()) {
+            mCtx.modalNumericBuffer.pop_back();
+            if (mCtx.modalNumericBuffer.empty()) mCtx.modalHasNumericInput = false;
+        }
+
+        if (mCtx.modalHasNumericInput && !mCtx.modalNumericBuffer.empty() && mCtx.modalNumericBuffer != "-") {
+            try {
+                float val = std::stof(mCtx.modalNumericBuffer);
+                if (mCtx.activeModal == Editor::Modeling::ModalTool::Extrude) mCtx.opDistance = val;
+                else if (mCtx.activeModal == Editor::Modeling::ModalTool::Inset) mCtx.opThickness = std::clamp(val, 0.0f, 0.95f);
+                else if (mCtx.activeModal == Editor::Modeling::ModalTool::Bevel) mCtx.opWidth = std::max(0.001f, val);
+                else if (mCtx.activeModal == Editor::Modeling::ModalTool::LoopCut) mCtx.opSlide = std::clamp(val, -0.9f, 0.9f);
+                else if (mCtx.activeModal == Editor::Modeling::ModalTool::ShrinkFatten) mCtx.opDistance = val;
+                else if (mCtx.activeModal == Editor::Modeling::ModalTool::EdgeSlide) mCtx.opSlide = std::clamp(val, -1.0f, 1.0f);
+
+                auto part = mCtx.activePart.lock();
+                if (part && mCtx.baseSnapshotMesh) {
+                    auto workingMesh = mCtx.baseSnapshotMesh->clone();
+                    if (mCtx.activeModal == Editor::Modeling::ModalTool::Extrude) {
+                        if (!mCtx.opTargetFaces.empty()) Engine::Geometry::MeshOperators::extrudeFaces(*workingMesh, mCtx.opTargetFaces, mCtx.opDistance, {0, 0, 0}, mCtx.opIndividual);
+                        else if (!mCtx.opTargetEdges.empty()) Engine::Geometry::MeshOperators::extrudeEdges(*workingMesh, mCtx.opTargetEdges, mCtx.opDistance);
+                        else if (!mCtx.opTargetVertices.empty()) Engine::Geometry::MeshOperators::extrudeVertices(*workingMesh, mCtx.opTargetVertices, mCtx.opDistance);
+                    } else if (mCtx.activeModal == Editor::Modeling::ModalTool::Inset) {
+                        Engine::Geometry::MeshOperators::insetFaces(*workingMesh, mCtx.opTargetFaces, mCtx.opThickness, mCtx.opDepth, mCtx.opIndividual);
+                    } else if (mCtx.activeModal == Editor::Modeling::ModalTool::Bevel) {
+                        if (!mCtx.opTargetFaces.empty()) Engine::Geometry::MeshOperators::bevelFaces(*workingMesh, mCtx.opTargetFaces, mCtx.opWidth, mCtx.opSegments, mCtx.opProfile, mCtx.opDepth);
+                        else if (!mCtx.opTargetEdges.empty()) Engine::Geometry::MeshOperators::bevelEdges(*workingMesh, mCtx.opTargetEdges, mCtx.opWidth, mCtx.opSegments, mCtx.opProfile);
+                        else if (!mCtx.opTargetVertices.empty()) Engine::Geometry::MeshOperators::bevelVertices(*workingMesh, mCtx.opTargetVertices, mCtx.opWidth, mCtx.opSegments);
+                    } else if (mCtx.activeModal == Editor::Modeling::ModalTool::LoopCut && !mCtx.previewLoopEdges.empty()) {
+                        Engine::Geometry::MeshCutOperators::applyLoopCut(*workingMesh, mCtx.previewLoopEdges, mCtx.opSlide, mCtx.opCuts);
+                    } else if (mCtx.activeModal == Editor::Modeling::ModalTool::ShrinkFatten) {
+                        Engine::Geometry::MeshOperators::shrinkFatten(*workingMesh, mCtx.opTargetVertices, mCtx.opDistance);
+                    } else if (mCtx.activeModal == Editor::Modeling::ModalTool::EdgeSlide) {
+                        Engine::Geometry::MeshOperators::slideVertices(*workingMesh, mCtx.opTargetVertices, mCtx.opSlide);
+                    }
+                    part->setEditableMesh(workingMesh);
+                }
+            } catch (...) {}
+        } else {
+            mCtx.updateModal(mousePos.x, mousePos.y, shiftHeld, ctrlHeld);
+        }
 
         if (mCtx.activeModal == Editor::Modeling::ModalTool::Knife) {
             // Knife Tool: 'C' toggles Cut-Through mode, Enter / Space confirms, Right Click / Esc cancels
@@ -388,8 +474,8 @@ void ViewportPanel::draw(Engine::Renderer::Camera& camera) {
                 mCtx.cancelModal();
             }
         } else {
-            // Standard Modal: Left Click confirms, Right Click / Esc cancels
-            if (isHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+            // Standard Modal: Left Click / Enter confirms, Right Click / Esc cancels
+            if ((isHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) || ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter)) {
                 mCtx.confirmModal();
                 s_justConfirmedModal = true;
             } else if (ImGui::IsMouseClicked(ImGuiMouseButton_Right) || ImGui::IsKeyPressed(ImGuiKey_Escape)) {
@@ -399,11 +485,13 @@ void ViewportPanel::draw(Engine::Renderer::Camera& camera) {
 
         // Draw On-Screen Modal Tool HUD
         const char* modalName = "MODAL TOOL";
-        const char* modalHelp = "[Left Click: Confirm | Right Click/ESC: Cancel]";
+        const char* modalHelp = "[Left Click/Enter: Confirm | Right Click/ESC: Cancel]";
         if (mCtx.activeModal == Editor::Modeling::ModalTool::Extrude) modalName = "EXTRUDE (Ctrl+E)";
         else if (mCtx.activeModal == Editor::Modeling::ModalTool::Inset) modalName = "INSET FACES (I)";
-        else if (mCtx.activeModal == Editor::Modeling::ModalTool::Bevel) modalName = "BEVEL (Ctrl+B)";
-        else if (mCtx.activeModal == Editor::Modeling::ModalTool::LoopCut) modalName = "LOOP CUT (Ctrl+R)";
+        else if (mCtx.activeModal == Editor::Modeling::ModalTool::Bevel) modalName = "BEVEL (Ctrl+B) [Wheel: Segments]";
+        else if (mCtx.activeModal == Editor::Modeling::ModalTool::LoopCut) modalName = "LOOP CUT (Ctrl+R) [Wheel: Cuts]";
+        else if (mCtx.activeModal == Editor::Modeling::ModalTool::ShrinkFatten) modalName = "SHRINK / FATTEN (Alt+S)";
+        else if (mCtx.activeModal == Editor::Modeling::ModalTool::EdgeSlide) modalName = "EDGE SLIDE (Shift+V)";
         else if (mCtx.activeModal == Editor::Modeling::ModalTool::Knife) {
             modalName = "KNIFE CUT (K)";
             modalHelp = mCtx.opCutThrough 
@@ -412,10 +500,40 @@ void ViewportPanel::draw(Engine::Renderer::Camera& camera) {
         }
 
         char hudText[256];
-        std::snprintf(hudText, sizeof(hudText), "%s | %s", modalName, modalHelp);
-        dl->AddRectFilled(ImVec2(screenPos.x + 20, screenPos.y + 40), ImVec2(screenPos.x + 600, screenPos.y + 70), COLA(0x0a1018, 0.92f), 6.0f);
-        dl->AddRect(ImVec2(screenPos.x + 20, screenPos.y + 40), ImVec2(screenPos.x + 600, screenPos.y + 70), IM_COL32(0, 200, 255, 220), 6.0f);
-        dl->AddText(ImVec2(screenPos.x + 32, screenPos.y + 46), IM_COL32(255, 255, 255, 255), hudText);
+        if (mCtx.modalHasNumericInput) {
+            std::snprintf(hudText, sizeof(hudText), "%s | Value: %s | [Enter: Confirm | ESC: Cancel]", modalName, mCtx.modalNumericBuffer.c_str());
+        } else {
+            std::snprintf(hudText, sizeof(hudText), "%s | %s", modalName, modalHelp);
+        }
+
+        ImVec2 textSize = ImGui::CalcTextSize(hudText);
+        float boxW = std::min(textSize.x + 28.0f, std::max(200.0f, avail.x - 40.0f));
+        float boxH = 32.0f;
+        ImVec2 hudMin = ImVec2(screenPos.x + 20.0f, screenPos.y + 40.0f);
+        ImVec2 hudMax = ImVec2(hudMin.x + boxW, hudMin.y + boxH);
+
+        dl->AddRectFilled(hudMin, hudMax, COLA(0x0a1018, 0.92f), 6.0f);
+        dl->AddRect(hudMin, hudMax, IM_COL32(0, 200, 255, 220), 6.0f);
+        dl->AddText(ImVec2(hudMin.x + 14.0f, hudMin.y + 8.0f), IM_COL32(255, 255, 255, 255), hudText);
+    }
+
+    if (ImGui::BeginPopup("MergeVerticesPopup")) {
+        auto selPart = std::dynamic_pointer_cast<Part>(SelectionManager::instance().getSelected());
+        ImGui::TextDisabled("Merge Options (M)");
+        ImGui::Separator();
+        if (ImGui::MenuItem("At Center")) {
+            if (selPart) mCtx.executeMerge(selPart, Engine::Geometry::MergeMode::Center);
+        }
+        if (ImGui::MenuItem("At 3D Cursor")) {
+            if (selPart) mCtx.executeMerge(selPart, Engine::Geometry::MergeMode::Cursor, EditorLayout::instance().cursor3DPosition);
+        }
+        if (ImGui::MenuItem("Collapse")) {
+            if (selPart) mCtx.executeMerge(selPart, Engine::Geometry::MergeMode::Collapse);
+        }
+        if (ImGui::MenuItem("By Distance (0.001 m)")) {
+            if (selPart) mCtx.executeWeldByDistance(selPart, 0.001f);
+        }
+        ImGui::EndPopup();
     }
 
     // ── Sub-Element Edit Modes (Face, Edge, Vertex) Overlays & Picking ───────
@@ -833,7 +951,14 @@ void ViewportPanel::draw(Engine::Renderer::Camera& camera) {
                 }
             } else if (isFaceMode) {
                 if (hoveredFace != -1) {
-                    if (shiftHeld) {
+                    if (altHeld && sel) {
+                        if (auto p = std::dynamic_pointer_cast<Part>(sel)) {
+                            p->ensureEditableMesh();
+                            auto loop = Engine::Geometry::MeshCutOperators::findFaceLoop(*p->getEditableMesh(), (uint32_t)hoveredFace);
+                            if (!shiftHeld) mCtx.selectedFaces = loop;
+                            else mCtx.selectedFaces.insert(mCtx.selectedFaces.end(), loop.begin(), loop.end());
+                        }
+                    } else if (shiftHeld) {
                         auto it = std::find(mCtx.selectedFaces.begin(), mCtx.selectedFaces.end(), (uint32_t)hoveredFace);
                         if (it != mCtx.selectedFaces.end()) mCtx.selectedFaces.erase(it);
                         else mCtx.selectedFaces.push_back((uint32_t)hoveredFace);

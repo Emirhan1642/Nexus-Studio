@@ -19,10 +19,16 @@ enum class BooleanOperation {
 
 class MeshCutOperators {
 public:
-    // ── Loop Cut & Slide ────────────────────────────────────────────────────
+    // ── Loop Cut & Slide & Face Loops ──────────────────────────────────────
     static std::vector<uint32_t> findEdgeLoop(
         const EditableMesh& mesh,
         uint32_t startEdgeIdx
+    );
+
+    static std::vector<uint32_t> findFaceLoop(
+        const EditableMesh& mesh,
+        uint32_t startFaceIdx,
+        uint32_t edgeHintIdx = 0xFFFFFFFFu
     );
 
     static std::vector<uint32_t> applyLoopCut(

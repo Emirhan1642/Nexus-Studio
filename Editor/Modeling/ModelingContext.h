@@ -17,7 +17,9 @@ enum class ModalTool {
     Inset,
     Bevel,
     LoopCut,
-    Knife
+    Knife,
+    ShrinkFatten,
+    EdgeSlide
 };
 
 enum class LastOpType {
@@ -27,7 +29,10 @@ enum class LastOpType {
     Bevel,
     LoopCut,
     Subdivide,
-    Merge
+    Merge,
+    ShrinkFatten,
+    EdgeSlide,
+    Bisect
 };
 
 class ModelingContext {
@@ -47,6 +52,10 @@ public:
     ModalTool activeModal = ModalTool::None;
     float modalStartMouseX = 0.0f;
     float modalStartMouseY = 0.0f;
+    bool modalStarted = false;
+    float lastCalculatedParam = -999999.0f;
+    std::string modalNumericBuffer = "";
+    bool modalHasNumericInput = false;
     std::shared_ptr<Engine::Geometry::EditableMesh> preModalMesh;
 
     // Loop Cut Preview Edge Loop
@@ -74,6 +83,7 @@ public:
     int opCuts = 1;
     float opSlide = 0.0f;
     float opSmoothness = 0.0f;
+    bool opIndividual = false;
 
     // Actions & Modal triggers
     void clearSelection();
@@ -84,13 +94,15 @@ public:
     bool startBevel(std::shared_ptr<Part> part);
     bool startLoopCut(std::shared_ptr<Part> part);
     bool startKnife(std::shared_ptr<Part> part);
+    bool startShrinkFatten(std::shared_ptr<Part> part);
+    bool startEdgeSlide(std::shared_ptr<Part> part);
 
     void updateModal(float mouseX, float mouseY, bool shiftHeld, bool ctrlHeld);
     void confirmModal();
     void cancelModal();
 
     void executeSubdivide(std::shared_ptr<Part> part, int cuts = 1, float smoothness = 0.0f);
-    void executeMerge(std::shared_ptr<Part> part, Engine::Geometry::MergeMode mode);
+    void executeMerge(std::shared_ptr<Part> part, Engine::Geometry::MergeMode mode, const Engine::Math::Vector3& targetPos = {0, 0, 0});
     void executeDelete(std::shared_ptr<Part> part, Engine::Geometry::SubElementType type);
     void executeDissolve(std::shared_ptr<Part> part, Engine::Geometry::SubElementType type);
     void executeFill(std::shared_ptr<Part> part);
@@ -104,6 +116,7 @@ public:
     void executeFlipNormals(std::shared_ptr<Part> part);
     void executeEdgeSplit(std::shared_ptr<Part> part);
     void executeWeldByDistance(std::shared_ptr<Part> part, float threshold = 0.001f);
+    void executeBisect(std::shared_ptr<Part> part, const Engine::Math::Vector3& point, const Engine::Math::Vector3& normal, bool clearInner = false, bool clearOuter = false, bool fillCut = true);
 
     // Advanced Selection Actions
     void selectLinked(const std::shared_ptr<Part>& part, int mode);

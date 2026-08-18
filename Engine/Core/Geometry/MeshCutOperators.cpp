@@ -78,6 +78,98 @@ std::vector<uint32_t> MeshCutOperators::findEdgeLoop(
     return loop;
 }
 
+std::vector<uint32_t> MeshCutOperators::findFaceLoop(
+    const EditableMesh& mesh,
+    uint32_t startFaceIdx,
+    uint32_t edgeHintIdx
+) {
+    std::vector<uint32_t> loop;
+    const auto& faces = mesh.getFaces();
+    const auto& edges = mesh.getEdges();
+
+    if (startFaceIdx >= faces.size() || faces[startFaceIdx].deleted || faces[startFaceIdx].vertices.size() != 4) {
+        return loop;
+    }
+
+    std::set<uint32_t> visitedFaces;
+    loop.push_back(startFaceIdx);
+    visitedFaces.insert(startFaceIdx);
+
+    const auto& fVerts = faces[startFaceIdx].vertices;
+    uint32_t forwardEdge = 0xFFFFFFFFu;
+    uint32_t backwardEdge = 0xFFFFFFFFu;
+
+    if (edgeHintIdx < edges.size() && !edges[edgeHintIdx].deleted) {
+        forwardEdge = edgeHintIdx;
+        int edgePos = -1;
+        uint32_t ev0 = edges[edgeHintIdx].v0;
+        uint32_t ev1 = edges[edgeHintIdx].v1;
+        for (int i = 0; i < 4; ++i) {
+            uint32_t vA = fVerts[i];
+            uint32_t vB = fVerts[(i + 1) % 4];
+            if ((vA == ev0 && vB == ev1) || (vA == ev1 && vB == ev0)) {
+                edgePos = i;
+                break;
+            }
+        }
+        if (edgePos != -1) {
+            int oppPos = (edgePos + 2) % 4;
+            int oppE = mesh.findEdge(fVerts[oppPos], fVerts[(oppPos + 1) % 4]);
+            if (oppE >= 0) backwardEdge = static_cast<uint32_t>(oppE);
+        }
+    } else {
+        int e0 = mesh.findEdge(fVerts[0], fVerts[1]);
+        int e2 = mesh.findEdge(fVerts[2], fVerts[3]);
+        if (e0 >= 0) forwardEdge = static_cast<uint32_t>(e0);
+        if (e2 >= 0) backwardEdge = static_cast<uint32_t>(e2);
+    }
+
+    auto traverseFrom = [&](uint32_t inEdge, uint32_t fromFace) {
+        uint32_t curEdge = inEdge;
+        uint32_t curFace = fromFace;
+        while (curEdge < edges.size()) {
+            auto connectedFaces = mesh.getEdgeFaces(curEdge);
+            uint32_t nextFace = 0xFFFFFFFFu;
+            for (uint32_t f : connectedFaces) {
+                if (f != curFace && f < faces.size() && !faces[f].deleted && faces[f].vertices.size() == 4) {
+                    nextFace = f;
+                    break;
+                }
+            }
+            if (nextFace == 0xFFFFFFFFu || visitedFaces.count(nextFace)) break;
+
+            visitedFaces.insert(nextFace);
+            loop.push_back(nextFace);
+
+            const auto& nVerts = faces[nextFace].vertices;
+            uint32_t ev0 = edges[curEdge].v0;
+            uint32_t ev1 = edges[curEdge].v1;
+            int edgePos = -1;
+            for (int i = 0; i < 4; ++i) {
+                uint32_t vA = nVerts[i];
+                uint32_t vB = nVerts[(i + 1) % 4];
+                if ((vA == ev0 && vB == ev1) || (vA == ev1 && vB == ev0)) {
+                    edgePos = i;
+                    break;
+                }
+            }
+            if (edgePos == -1) break;
+
+            int oppPos = (edgePos + 2) % 4;
+            int oppE = mesh.findEdge(nVerts[oppPos], nVerts[(oppPos + 1) % 4]);
+            if (oppE < 0) break;
+
+            curFace = nextFace;
+            curEdge = static_cast<uint32_t>(oppE);
+        }
+    };
+
+    if (forwardEdge != 0xFFFFFFFFu) traverseFrom(forwardEdge, startFaceIdx);
+    if (backwardEdge != 0xFFFFFFFFu) traverseFrom(backwardEdge, startFaceIdx);
+
+    return loop;
+}
+
 std::vector<uint32_t> MeshCutOperators::applyLoopCut(
     EditableMesh& mesh,
     const std::vector<uint32_t>& edgeLoop,

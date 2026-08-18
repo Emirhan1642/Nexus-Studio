@@ -18,6 +18,8 @@ void ModelingOperatorPanel::render(const ImVec2& viewportPos, const ImVec2& view
     else if (ctx.lastOp == LastOpType::Bevel) opTitle = "Bevel / Chamfer Parameters";
     else if (ctx.lastOp == LastOpType::LoopCut) opTitle = "Loop Cut Parameters";
     else if (ctx.lastOp == LastOpType::Subdivide) opTitle = "Subdivide Parameters";
+    else if (ctx.lastOp == LastOpType::ShrinkFatten) opTitle = "Shrink / Fatten Parameters";
+    else if (ctx.lastOp == LastOpType::EdgeSlide) opTitle = "Edge Slide Parameters";
 
     ImVec2 panelPos = ImVec2(viewportPos.x + 20.0f, viewportPos.y + viewportSize.y - 195.0f);
     ImGui::SetNextWindowPos(panelPos, ImGuiCond_Always);
@@ -63,11 +65,15 @@ void ModelingOperatorPanel::render(const ImVec2& viewportPos, const ImVec2& view
             if (ctx.lastOp == LastOpType::Extrude) {
                 DrawRowHeader("Distance");
                 changed |= ImGui::DragFloat("##Distance", &ctx.opDistance, 0.02f, -50.0f, 50.0f, "%.2f m");
+                DrawRowHeader("Individual Faces");
+                changed |= ImGui::Checkbox("##IndividualExtrude", &ctx.opIndividual);
             } else if (ctx.lastOp == LastOpType::Inset) {
                 DrawRowHeader("Thickness");
                 changed |= ImGui::SliderFloat("##Thickness", &ctx.opThickness, 0.0f, 0.95f, "%.2f");
                 DrawRowHeader("Depth");
                 changed |= ImGui::DragFloat("##Depth", &ctx.opDepth, 0.02f, -10.0f, 10.0f, "%.2f m");
+                DrawRowHeader("Individual Faces");
+                changed |= ImGui::Checkbox("##IndividualInset", &ctx.opIndividual);
             } else if (ctx.lastOp == LastOpType::Bevel) {
                 DrawRowHeader("Width");
                 changed |= ImGui::DragFloat("##Width", &ctx.opWidth, 0.01f, 0.001f, 10.0f, "%.3f m");
@@ -85,6 +91,12 @@ void ModelingOperatorPanel::render(const ImVec2& viewportPos, const ImVec2& view
                 changed |= ImGui::SliderInt("##SubdivCuts", &ctx.opCuts, 1, 4);
                 DrawRowHeader("Smoothness");
                 changed |= ImGui::SliderFloat("##Smoothness", &ctx.opSmoothness, 0.0f, 1.0f, "%.2f");
+            } else if (ctx.lastOp == LastOpType::ShrinkFatten) {
+                DrawRowHeader("Offset");
+                changed |= ImGui::DragFloat("##Offset", &ctx.opDistance, 0.01f, -10.0f, 10.0f, "%.3f m");
+            } else if (ctx.lastOp == LastOpType::EdgeSlide) {
+                DrawRowHeader("Slide Factor");
+                changed |= ImGui::SliderFloat("##SlideFactor", &ctx.opSlide, -1.0f, 1.0f, "%.2f");
             }
 
             ImGui::EndTable();
@@ -93,6 +105,10 @@ void ModelingOperatorPanel::render(const ImVec2& viewportPos, const ImVec2& view
         ImGui::Spacing();
         if (ImGui::Button("Apply & Close", ImVec2(-1.0f, 24.0f))) {
             ctx.lastOp = LastOpType::None;
+            ctx.baseSnapshotMesh = nullptr;
+            ctx.opTargetVertices.clear();
+            ctx.opTargetEdges.clear();
+            ctx.opTargetFaces.clear();
         }
 
         if (changed) {
@@ -103,6 +119,10 @@ void ModelingOperatorPanel::render(const ImVec2& viewportPos, const ImVec2& view
 
     if (!isOpen) {
         ctx.lastOp = LastOpType::None;
+        ctx.baseSnapshotMesh = nullptr;
+        ctx.opTargetVertices.clear();
+        ctx.opTargetEdges.clear();
+        ctx.opTargetFaces.clear();
     }
 
     ImGui::PopStyleVar(4);

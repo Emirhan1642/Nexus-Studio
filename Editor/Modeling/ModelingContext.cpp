@@ -37,7 +37,8 @@ void ModelingContext::selectAll(const std::shared_ptr<Part>& part, int mode) {
 }
 
 bool ModelingContext::startExtrude(std::shared_ptr<Part> part) {
-    if (!part || selectedFaces.empty()) return false;
+    if (!part) return false;
+    if (selectedFaces.empty() && selectedEdges.empty() && selectedVertices.empty()) return false;
     part->ensureEditableMesh();
     auto mesh = part->getEditableMesh();
     if (!mesh) return false;
@@ -46,10 +47,14 @@ bool ModelingContext::startExtrude(std::shared_ptr<Part> part) {
     preModalMesh = mesh->clone();
     baseSnapshotMesh = mesh->clone();
     opTargetFaces = selectedFaces;
+    opTargetEdges = selectedEdges;
+    opTargetVertices = selectedVertices;
 
     activeModal = ModalTool::Extrude;
     modalStartMouseX = 0.0f;
     modalStartMouseY = 0.0f;
+    modalStarted = false;
+    lastCalculatedParam = -999999.0f;
     opDistance = 0.0f;
     lastOp = LastOpType::Extrude;
 
@@ -70,6 +75,8 @@ bool ModelingContext::startInset(std::shared_ptr<Part> part) {
     activeModal = ModalTool::Inset;
     modalStartMouseX = 0.0f;
     modalStartMouseY = 0.0f;
+    modalStarted = false;
+    lastCalculatedParam = -999999.0f;
     opThickness = 0.0f;
     opDepth = 0.0f;
     lastOp = LastOpType::Inset;
@@ -95,6 +102,8 @@ bool ModelingContext::startBevel(std::shared_ptr<Part> part) {
     activeModal = ModalTool::Bevel;
     modalStartMouseX = 0.0f;
     modalStartMouseY = 0.0f;
+    modalStarted = false;
+    lastCalculatedParam = -999999.0f;
     opWidth = 0.05f;
     opSegments = 1;
     opProfile = 0.5f;
@@ -118,6 +127,8 @@ bool ModelingContext::startLoopCut(std::shared_ptr<Part> part) {
     activeModal = ModalTool::LoopCut;
     modalStartMouseX = 0.0f;
     modalStartMouseY = 0.0f;
+    modalStarted = false;
+    lastCalculatedParam = -999999.0f;
     opSlide = 0.0f;
     opCuts = 1;
     lastOp = LastOpType::LoopCut;
@@ -135,7 +146,99 @@ bool ModelingContext::startKnife(std::shared_ptr<Part> part) {
     preModalMesh = mesh->clone();
     baseSnapshotMesh = mesh->clone();
     knifePoints.clear();
+    modalStarted = false;
+    lastCalculatedParam = -999999.0f;
+    modalNumericBuffer = "";
+    modalHasNumericInput = false;
     activeModal = ModalTool::Knife;
+
+    return true;
+}
+
+bool ModelingContext::startShrinkFatten(std::shared_ptr<Part> part) {
+    if (!part) return false;
+    part->ensureEditableMesh();
+    auto mesh = part->getEditableMesh();
+    if (!mesh) return false;
+
+    if (selectedFaces.empty() && selectedEdges.empty() && selectedVertices.empty()) return false;
+
+    activePart = part;
+    preModalMesh = mesh->clone();
+    baseSnapshotMesh = mesh->clone();
+    opTargetFaces = selectedFaces;
+    opTargetEdges = selectedEdges;
+    opTargetVertices = selectedVertices;
+
+    std::set<uint32_t> verts;
+    if (!selectedVertices.empty()) {
+        verts.insert(selectedVertices.begin(), selectedVertices.end());
+    }
+    if (!selectedEdges.empty()) {
+        const auto& edges = mesh->getEdges();
+        for (uint32_t e : selectedEdges) {
+            if (e < edges.size() && !edges[e].deleted) {
+                verts.insert(edges[e].v0);
+                verts.insert(edges[e].v1);
+            }
+        }
+    }
+    if (!selectedFaces.empty()) {
+        const auto& faces = mesh->getFaces();
+        for (uint32_t f : selectedFaces) {
+            if (f < faces.size() && !faces[f].deleted) {
+                verts.insert(faces[f].vertices.begin(), faces[f].vertices.end());
+            }
+        }
+    }
+    opTargetVertices.assign(verts.begin(), verts.end());
+
+    activeModal = ModalTool::ShrinkFatten;
+    modalStartMouseX = 0.0f;
+    modalStartMouseY = 0.0f;
+    modalStarted = false;
+    lastCalculatedParam = -999999.0f;
+    modalNumericBuffer = "";
+    modalHasNumericInput = false;
+    opDistance = 0.0f;
+    lastOp = LastOpType::ShrinkFatten;
+
+    return true;
+}
+
+bool ModelingContext::startEdgeSlide(std::shared_ptr<Part> part) {
+    if (!part || (selectedVertices.empty() && selectedEdges.empty())) return false;
+    part->ensureEditableMesh();
+    auto mesh = part->getEditableMesh();
+    if (!mesh) return false;
+
+    activePart = part;
+    preModalMesh = mesh->clone();
+    baseSnapshotMesh = mesh->clone();
+    opTargetEdges = selectedEdges;
+    opTargetVertices = selectedVertices;
+
+    if (opTargetVertices.empty() && !selectedEdges.empty()) {
+        std::set<uint32_t> verts;
+        const auto& edges = mesh->getEdges();
+        for (uint32_t e : selectedEdges) {
+            if (e < edges.size() && !edges[e].deleted) {
+                verts.insert(edges[e].v0);
+                verts.insert(edges[e].v1);
+            }
+        }
+        opTargetVertices.assign(verts.begin(), verts.end());
+    }
+
+    activeModal = ModalTool::EdgeSlide;
+    modalStartMouseX = 0.0f;
+    modalStartMouseY = 0.0f;
+    modalStarted = false;
+    lastCalculatedParam = -999999.0f;
+    modalNumericBuffer = "";
+    modalHasNumericInput = false;
+    opSlide = 0.0f;
+    lastOp = LastOpType::EdgeSlide;
 
     return true;
 }
@@ -144,9 +247,14 @@ void ModelingContext::updateModal(float mouseX, float mouseY, bool shiftHeld, bo
     auto part = activePart.lock();
     if (!part || !baseSnapshotMesh || activeModal == ModalTool::None) return;
 
-    if (modalStartMouseX == 0.0f && modalStartMouseY == 0.0f) {
+    if (!modalStarted) {
         modalStartMouseX = mouseX;
         modalStartMouseY = mouseY;
+        modalStarted = true;
+    }
+
+    if (activeModal == ModalTool::Knife) {
+        return; // Knife interacts via mouse clicks, not drag
     }
 
     float dx = (mouseX - modalStartMouseX);
@@ -154,19 +262,43 @@ void ModelingContext::updateModal(float mouseX, float mouseY, bool shiftHeld, bo
     float factor = shiftHeld ? 0.002f : 0.015f;
 
     if (activeModal == ModalTool::Extrude) {
-        opDistance = (dx - dy) * factor;
-        if (ctrlHeld) opDistance = std::round(opDistance * 4.0f) / 4.0f; // Snap to 0.25 increments
+        float newDistance = (dx - dy) * factor;
+        if (ctrlHeld) newDistance = std::round(newDistance * 4.0f) / 4.0f; // Snap to 0.25 increments
+
+        if (std::abs(newDistance - opDistance) < 1e-5f && lastCalculatedParam != -999999.0f) {
+            return;
+        }
+        opDistance = newDistance;
+        lastCalculatedParam = opDistance;
 
         auto workingMesh = baseSnapshotMesh->clone();
-        auto newFaces = Engine::Geometry::MeshOperators::extrudeFaces(*workingMesh, opTargetFaces, opDistance);
+        if (!opTargetFaces.empty()) {
+            Engine::Geometry::MeshOperators::extrudeFaces(*workingMesh, opTargetFaces, opDistance, {0, 0, 0}, opIndividual);
+        } else if (!opTargetEdges.empty()) {
+            Engine::Geometry::MeshOperators::extrudeEdges(*workingMesh, opTargetEdges, opDistance);
+        } else if (!opTargetVertices.empty()) {
+            Engine::Geometry::MeshOperators::extrudeVertices(*workingMesh, opTargetVertices, opDistance);
+        }
         part->setEditableMesh(workingMesh);
     } else if (activeModal == ModalTool::Inset) {
-        opThickness = std::max(0.0f, std::min(0.95f, (dx - dy) * factor));
+        float newThickness = std::max(0.0f, std::min(0.95f, (dx - dy) * factor));
+        if (std::abs(newThickness - opThickness) < 1e-5f && lastCalculatedParam != -999999.0f) {
+            return;
+        }
+        opThickness = newThickness;
+        lastCalculatedParam = opThickness;
+
         auto workingMesh = baseSnapshotMesh->clone();
-        Engine::Geometry::MeshOperators::insetFaces(*workingMesh, opTargetFaces, opThickness, opDepth);
+        Engine::Geometry::MeshOperators::insetFaces(*workingMesh, opTargetFaces, opThickness, opDepth, opIndividual);
         part->setEditableMesh(workingMesh);
     } else if (activeModal == ModalTool::Bevel) {
-        opWidth = std::max(0.001f, std::abs(dx - dy) * factor);
+        float newWidth = std::max(0.001f, std::abs(dx - dy) * factor);
+        if (std::abs(newWidth - opWidth) < 1e-5f && lastCalculatedParam != -999999.0f) {
+            return;
+        }
+        opWidth = newWidth;
+        lastCalculatedParam = opWidth;
+
         auto workingMesh = baseSnapshotMesh->clone();
         if (!opTargetFaces.empty()) {
             Engine::Geometry::MeshOperators::bevelFaces(*workingMesh, opTargetFaces, opWidth, opSegments, opProfile, opDepth);
@@ -177,12 +309,40 @@ void ModelingContext::updateModal(float mouseX, float mouseY, bool shiftHeld, bo
         }
         part->setEditableMesh(workingMesh);
     } else if (activeModal == ModalTool::LoopCut) {
-        opSlide = std::max(-0.90f, std::min(0.90f, dx * factor));
+        float newSlide = std::max(-0.90f, std::min(0.90f, dx * factor));
+        if (std::abs(newSlide - opSlide) < 1e-5f && lastCalculatedParam != -999999.0f) {
+            return;
+        }
+        opSlide = newSlide;
+        lastCalculatedParam = opSlide;
+
         if (!previewLoopEdges.empty()) {
             auto workingMesh = baseSnapshotMesh->clone();
             Engine::Geometry::MeshCutOperators::applyLoopCut(*workingMesh, previewLoopEdges, opSlide, opCuts);
             part->setEditableMesh(workingMesh);
         }
+    } else if (activeModal == ModalTool::ShrinkFatten) {
+        float newDistance = (dx - dy) * factor;
+        if (std::abs(newDistance - opDistance) < 1e-5f && lastCalculatedParam != -999999.0f) {
+            return;
+        }
+        opDistance = newDistance;
+        lastCalculatedParam = opDistance;
+
+        auto workingMesh = baseSnapshotMesh->clone();
+        Engine::Geometry::MeshOperators::shrinkFatten(*workingMesh, opTargetVertices, opDistance);
+        part->setEditableMesh(workingMesh);
+    } else if (activeModal == ModalTool::EdgeSlide) {
+        float newSlide = std::max(-1.0f, std::min(1.0f, dx * factor));
+        if (std::abs(newSlide - opSlide) < 1e-5f && lastCalculatedParam != -999999.0f) {
+            return;
+        }
+        opSlide = newSlide;
+        lastCalculatedParam = opSlide;
+
+        auto workingMesh = baseSnapshotMesh->clone();
+        Engine::Geometry::MeshOperators::slideVertices(*workingMesh, opTargetVertices, opSlide);
+        part->setEditableMesh(workingMesh);
     }
 }
 
@@ -204,14 +364,20 @@ void ModelingContext::confirmModal() {
             selectedEdges = std::move(newEdges);
         } else if (activeModal == ModalTool::Extrude) {
             auto workingMesh = baseSnapshotMesh->clone();
-            auto newFaces = Engine::Geometry::MeshOperators::extrudeFaces(*workingMesh, opTargetFaces, opDistance);
-            part->setEditableMesh(workingMesh);
             selectedVertices.clear();
             selectedEdges.clear();
-            selectedFaces = std::move(newFaces);
+            selectedFaces.clear();
+            if (!opTargetFaces.empty()) {
+                selectedFaces = Engine::Geometry::MeshOperators::extrudeFaces(*workingMesh, opTargetFaces, opDistance, {0, 0, 0}, opIndividual);
+            } else if (!opTargetEdges.empty()) {
+                selectedFaces = Engine::Geometry::MeshOperators::extrudeEdges(*workingMesh, opTargetEdges, opDistance);
+            } else if (!opTargetVertices.empty()) {
+                selectedVertices = Engine::Geometry::MeshOperators::extrudeVertices(*workingMesh, opTargetVertices, opDistance);
+            }
+            part->setEditableMesh(workingMesh);
         } else if (activeModal == ModalTool::Inset) {
             auto workingMesh = baseSnapshotMesh->clone();
-            auto newFaces = Engine::Geometry::MeshOperators::insetFaces(*workingMesh, opTargetFaces, opThickness, opDepth);
+            auto newFaces = Engine::Geometry::MeshOperators::insetFaces(*workingMesh, opTargetFaces, opThickness, opDepth, opIndividual);
             part->setEditableMesh(workingMesh);
             selectedVertices.clear();
             selectedEdges.clear();
@@ -232,6 +398,14 @@ void ModelingContext::confirmModal() {
                     *workingMesh, opTargetVertices, opWidth, opSegments);
             }
             part->setEditableMesh(workingMesh);
+        } else if (activeModal == ModalTool::ShrinkFatten) {
+            auto workingMesh = baseSnapshotMesh->clone();
+            Engine::Geometry::MeshOperators::shrinkFatten(*workingMesh, opTargetVertices, opDistance);
+            part->setEditableMesh(workingMesh);
+        } else if (activeModal == ModalTool::EdgeSlide) {
+            auto workingMesh = baseSnapshotMesh->clone();
+            Engine::Geometry::MeshOperators::slideVertices(*workingMesh, opTargetVertices, opSlide);
+            part->setEditableMesh(workingMesh);
         }
 
         if (part->getEditableMesh()) {
@@ -245,6 +419,10 @@ void ModelingContext::confirmModal() {
         }
     }
     activeModal = ModalTool::None;
+    modalStarted = false;
+    lastCalculatedParam = -999999.0f;
+    modalNumericBuffer = "";
+    modalHasNumericInput = false;
     preModalMesh = nullptr;
     previewLoopEdges.clear();
     knifeTargetFaces.clear();
@@ -257,6 +435,10 @@ void ModelingContext::cancelModal() {
         part->rebuildProceduralMesh();
     }
     activeModal = ModalTool::None;
+    modalStarted = false;
+    lastCalculatedParam = -999999.0f;
+    modalNumericBuffer = "";
+    modalHasNumericInput = false;
     preModalMesh = nullptr;
     previewLoopEdges.clear();
     knifeTargetFaces.clear();
@@ -271,12 +453,23 @@ void ModelingContext::reapplyLastOperation() {
     if (lastOp == LastOpType::Extrude) {
         selectedVertices.clear();
         selectedEdges.clear();
-        selectedFaces = Engine::Geometry::MeshOperators::extrudeFaces(*workingMesh, opTargetFaces, opDistance);
+        selectedFaces.clear();
+        if (!opTargetFaces.empty()) {
+            selectedFaces = Engine::Geometry::MeshOperators::extrudeFaces(*workingMesh, opTargetFaces, opDistance, {0, 0, 0}, opIndividual);
+        } else if (!opTargetEdges.empty()) {
+            selectedFaces = Engine::Geometry::MeshOperators::extrudeEdges(*workingMesh, opTargetEdges, opDistance);
+        } else if (!opTargetVertices.empty()) {
+            selectedVertices = Engine::Geometry::MeshOperators::extrudeVertices(*workingMesh, opTargetVertices, opDistance);
+        }
     } else if (lastOp == LastOpType::Inset) {
+        opThickness = std::clamp(opThickness, 0.0f, 0.95f);
         selectedVertices.clear();
         selectedEdges.clear();
-        selectedFaces = Engine::Geometry::MeshOperators::insetFaces(*workingMesh, opTargetFaces, opThickness, opDepth);
+        selectedFaces = Engine::Geometry::MeshOperators::insetFaces(*workingMesh, opTargetFaces, opThickness, opDepth, opIndividual);
     } else if (lastOp == LastOpType::Bevel) {
+        opWidth = std::max(0.0001f, opWidth);
+        opSegments = std::clamp(opSegments, 1, 8);
+        opProfile = std::clamp(opProfile, 0.0f, 1.0f);
         selectedVertices.clear();
         selectedEdges.clear();
         selectedFaces.clear();
@@ -288,15 +481,24 @@ void ModelingContext::reapplyLastOperation() {
             selectedVertices = Engine::Geometry::MeshOperators::bevelVertices(*workingMesh, opTargetVertices, opWidth, opSegments);
         }
     } else if (lastOp == LastOpType::LoopCut) {
+        opSlide = std::clamp(opSlide, -0.90f, 0.90f);
+        opCuts = std::clamp(opCuts, 1, 6);
         if (!opTargetEdges.empty()) {
             selectedVertices.clear();
             selectedFaces.clear();
             selectedEdges = Engine::Geometry::MeshCutOperators::applyLoopCut(*workingMesh, opTargetEdges, opSlide, opCuts);
         }
     } else if (lastOp == LastOpType::Subdivide) {
+        opCuts = std::clamp(opCuts, 1, 4);
+        opSmoothness = std::clamp(opSmoothness, 0.0f, 1.0f);
         selectedVertices.clear();
         selectedEdges.clear();
         selectedFaces = Engine::Geometry::MeshOperators::subdivideFaces(*workingMesh, opTargetFaces, opCuts, opSmoothness);
+    } else if (lastOp == LastOpType::ShrinkFatten) {
+        Engine::Geometry::MeshOperators::shrinkFatten(*workingMesh, opTargetVertices, opDistance);
+    } else if (lastOp == LastOpType::EdgeSlide) {
+        opSlide = std::clamp(opSlide, -1.0f, 1.0f);
+        Engine::Geometry::MeshOperators::slideVertices(*workingMesh, opTargetVertices, opSlide);
     }
 
     part->setEditableMesh(workingMesh);
@@ -346,7 +548,7 @@ void ModelingContext::executeSubdivide(std::shared_ptr<Part> part, int cuts, flo
     UndoStack::instance().push(std::move(cmd));
 }
 
-void ModelingContext::executeMerge(std::shared_ptr<Part> part, Engine::Geometry::MergeMode mode) {
+void ModelingContext::executeMerge(std::shared_ptr<Part> part, Engine::Geometry::MergeMode mode, const Engine::Math::Vector3& targetPos) {
     if (!part || selectedVertices.size() < 2) return;
     part->ensureEditableMesh();
     auto mesh = part->getEditableMesh();
@@ -357,7 +559,30 @@ void ModelingContext::executeMerge(std::shared_ptr<Part> part, Engine::Geometry:
     auto beforeEdges = selectedEdges;
     auto beforeFaces = selectedFaces;
 
-    Engine::Geometry::MeshOperators::mergeVertices(*mesh, selectedVertices, mode);
+    Engine::Geometry::MeshOperators::mergeVertices(*mesh, selectedVertices, mode, targetPos);
+    part->rebuildProceduralMesh();
+    clearSelection();
+
+    auto cmd = std::make_unique<MeshTopologyCommand>(
+        part, before, mesh->clone(),
+        beforeVerts, beforeEdges, beforeFaces,
+        selectedVertices, selectedEdges, selectedFaces
+    );
+    UndoStack::instance().push(std::move(cmd));
+}
+
+void ModelingContext::executeBisect(std::shared_ptr<Part> part, const Engine::Math::Vector3& point, const Engine::Math::Vector3& normal, bool clearInner, bool clearOuter, bool fillCut) {
+    if (!part) return;
+    part->ensureEditableMesh();
+    auto mesh = part->getEditableMesh();
+    if (!mesh) return;
+
+    auto before = mesh->clone();
+    auto beforeVerts = selectedVertices;
+    auto beforeEdges = selectedEdges;
+    auto beforeFaces = selectedFaces;
+
+    Engine::Geometry::MeshOperators::bisectPlane(*mesh, point, normal, clearInner, clearOuter, fillCut);
     part->rebuildProceduralMesh();
     clearSelection();
 
@@ -676,6 +901,23 @@ void ModelingContext::selectMore(const std::shared_ptr<Part>& part, int mode) {
             }
         }
         selectedFaces.assign(newFaces.begin(), newFaces.end());
+    } else if (mode == 2) {
+        const auto& edges = mesh->getEdges();
+        std::set<uint32_t> selVerts;
+        for (uint32_t e : selectedEdges) {
+            if (e < edges.size() && !edges[e].deleted) {
+                selVerts.insert(edges[e].v0);
+                selVerts.insert(edges[e].v1);
+            }
+        }
+        std::set<uint32_t> newEdges(selectedEdges.begin(), selectedEdges.end());
+        for (size_t e = 0; e < edges.size(); ++e) {
+            if (edges[e].deleted) continue;
+            if (selVerts.count(edges[e].v0) || selVerts.count(edges[e].v1)) {
+                newEdges.insert(static_cast<uint32_t>(e));
+            }
+        }
+        selectedEdges.assign(newEdges.begin(), newEdges.end());
     } else if (mode == 1) {
         std::set<uint32_t> newVerts(selectedVertices.begin(), selectedVertices.end());
         for (uint32_t v : selectedVertices) {
@@ -713,6 +955,28 @@ void ModelingContext::selectLess(const std::shared_ptr<Part>& part, int mode) {
             if (!isBoundary) keptFaces.push_back(f);
         }
         selectedFaces = keptFaces;
+    } else if (mode == 2) {
+        const auto& edges = mesh->getEdges();
+        std::set<uint32_t> selEdgeSet(selectedEdges.begin(), selectedEdges.end());
+        std::vector<uint32_t> keptEdges;
+        for (uint32_t e : selectedEdges) {
+            if (e >= edges.size() || edges[e].deleted) continue;
+            uint32_t v0 = edges[e].v0;
+            uint32_t v1 = edges[e].v1;
+            auto conn0 = mesh->getConnectedEdges(v0);
+            auto conn1 = mesh->getConnectedEdges(v1);
+            bool isBoundary = false;
+            for (uint32_t ce : conn0) {
+                if (!selEdgeSet.count(ce)) { isBoundary = true; break; }
+            }
+            if (!isBoundary) {
+                for (uint32_t ce : conn1) {
+                    if (!selEdgeSet.count(ce)) { isBoundary = true; break; }
+                }
+            }
+            if (!isBoundary) keptEdges.push_back(e);
+        }
+        selectedEdges = keptEdges;
     } else if (mode == 1) {
         std::set<uint32_t> selVertSet(selectedVertices.begin(), selectedVertices.end());
         std::vector<uint32_t> keptVerts;
@@ -769,7 +1033,7 @@ void ModelingContext::selectBoundaryLoop(const std::shared_ptr<Part>& part) {
     if (!mesh) return;
 
     std::set<uint32_t> selFaceSet(selectedFaces.begin(), selectedFaces.end());
-    std::map<std::pair<uint32_t, uint32_t>, int> edgeCount;
+    std::map<std::pair<uint32_t, uint32_t>, int> edgeOccurrences;
     auto& faces = mesh->getFaces();
 
     for (uint32_t f : selectedFaces) {
@@ -779,14 +1043,15 @@ void ModelingContext::selectBoundaryLoop(const std::shared_ptr<Part>& part) {
         for (size_t i = 0; i < count; ++i) {
             uint32_t v0 = fv[i];
             uint32_t v1 = fv[(i + 1) % count];
-            edgeCount[{v0, v1}]++;
+            auto key = std::minmax(v0, v1);
+            edgeOccurrences[key]++;
         }
     }
 
     selectedEdges.clear();
-    for (const auto& [edge, count] : edgeCount) {
-        if (count == 1 && edgeCount.find({edge.second, edge.first}) == edgeCount.end()) {
-            int e = mesh->findEdge(edge.first, edge.second);
+    for (const auto& [edgeKey, count] : edgeOccurrences) {
+        if (count == 1) {
+            int e = mesh->findEdge(edgeKey.first, edgeKey.second);
             if (e >= 0) selectedEdges.push_back(static_cast<uint32_t>(e));
         }
     }
@@ -878,11 +1143,26 @@ void ModelingContext::executeJoin(std::vector<std::shared_ptr<Instance>> selecte
     auto before = mainMesh->clone();
     Engine::Math::Vector3 mainPos = mainPart->getPosition();
 
+    std::vector<std::shared_ptr<Instance>> hierarchyInstances;
+    std::vector<std::shared_ptr<Instance>> beforeParents;
+    std::vector<std::shared_ptr<Instance>> afterParents;
+    hierarchyInstances.reserve(parts.size());
+    beforeParents.reserve(parts.size());
+    afterParents.reserve(parts.size());
+
+    hierarchyInstances.push_back(mainPart);
+    beforeParents.push_back(mainPart->getParent());
+    afterParents.push_back(mainPart->getParent());
+
     for (size_t i = 1; i < parts.size(); ++i) {
         auto otherPart = parts[i];
         otherPart->ensureEditableMesh();
         auto otherMesh = otherPart->getEditableMesh();
         if (!otherMesh) continue;
+
+        hierarchyInstances.push_back(otherPart);
+        beforeParents.push_back(otherPart->getParent());
+        afterParents.push_back(nullptr);
 
         Engine::Math::Vector3 otherPos = otherPart->getPosition();
         Engine::Math::Vector3 offset = otherPos - mainPos;
@@ -912,8 +1192,6 @@ void ModelingContext::executeJoin(std::vector<std::shared_ptr<Instance>> selecte
             }
         }
 
-        // Detach rather than destroy: the hierarchy command must retain the
-        // instance so Undo can restore it and Redo can detach it again.
         otherPart->setParent(nullptr);
     }
 
@@ -924,23 +1202,6 @@ void ModelingContext::executeJoin(std::vector<std::shared_ptr<Instance>> selecte
     auto cmd = std::make_unique<MeshTopologyCommand>(mainPart, before, mainMesh->clone());
     UndoStack::instance().push(std::move(cmd));
 
-    std::vector<std::shared_ptr<Instance>> hierarchyInstances;
-    std::vector<std::shared_ptr<Instance>> beforeParents;
-    std::vector<std::shared_ptr<Instance>> afterParents;
-    hierarchyInstances.reserve(parts.size());
-    beforeParents.reserve(parts.size());
-    afterParents.reserve(parts.size());
-    auto mainParent = mainPart->getParent();
-    hierarchyInstances.push_back(mainPart);
-    beforeParents.push_back(mainParent);
-    afterParents.push_back(mainParent);
-    for (size_t i = 1; i < parts.size(); ++i) {
-        hierarchyInstances.push_back(parts[i]);
-        // These were detached above; their original parent is the workspace
-        // model container captured from the selected part.
-        beforeParents.push_back(mainParent);
-        afterParents.push_back(nullptr);
-    }
     UndoStack::instance().push(std::make_unique<InstanceHierarchyCommand>(
         std::move(hierarchyInstances), std::move(beforeParents), std::move(afterParents)));
 }

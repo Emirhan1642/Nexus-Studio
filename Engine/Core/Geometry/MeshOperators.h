@@ -38,6 +38,19 @@ public:
         const Engine::Math::Vector3& direction = {0, 1, 0}
     );
 
+    static std::vector<uint32_t> extrudeVertices(
+        EditableMesh& mesh,
+        const std::vector<uint32_t>& vertIndices,
+        float distance = 1.0f,
+        const Engine::Math::Vector3& direction = {0, 1, 0}
+    );
+
+    static void shrinkFatten(
+        EditableMesh& mesh,
+        const std::vector<uint32_t>& vertIndices,
+        float offset = 0.1f
+    );
+
     // ── 2. Inset Faces ──────────────────────────────────────────────────────
     static std::vector<uint32_t> insetFaces(
         EditableMesh& mesh,
