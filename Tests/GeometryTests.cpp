@@ -800,4 +800,60 @@ TEST_F(GeometryTests, KnifeAttributeAndUVPreservation) {
     EXPECT_EQ(activeCount, 2u);
 }
 
+// 36. Bevel All 12 Edges of a Cube Simultaneously
+TEST_F(GeometryTests, BevelAllCubeEdgesSimultaneously) {
+    auto cube = MeshPrimitives::createCube(Vector3(2, 2, 2));
+    ASSERT_NE(cube, nullptr);
+
+    std::vector<uint32_t> allEdges;
+    for (size_t e = 0; e < cube->getEdges().size(); ++e) {
+        if (!cube->getEdges()[e].deleted) {
+            allEdges.push_back(static_cast<uint32_t>(e));
+        }
+    }
+    ASSERT_EQ(allEdges.size(), 12u);
+
+    auto beveled = MeshOperators::bevelEdges(*cube, allEdges, 0.15f, 1, 0.5f);
+    EXPECT_TRUE(cube->validate());
+    EXPECT_GE(beveled.size(), 12u);
+
+    // Verify 0 boundary edges (completely closed manifold)
+    size_t boundaryEdges = 0;
+    for (size_t e = 0; e < cube->getEdges().size(); ++e) {
+        if (!cube->getEdges()[e].deleted && cube->getEdgeFaces(static_cast<uint32_t>(e)).size() == 1) {
+            ++boundaryEdges;
+        }
+    }
+    EXPECT_EQ(boundaryEdges, 0u);
+}
+
+// 37. Bevel 4 Edges of a Face Loop
+TEST_F(GeometryTests, BevelFaceLoopFourEdges) {
+    auto cube = MeshPrimitives::createCube(Vector3(2, 2, 2));
+    ASSERT_NE(cube, nullptr);
+
+    // Top face (2) has 4 edges
+    const auto& topVerts = cube->getFaces()[2].vertices;
+    std::vector<uint32_t> topEdges;
+    for (size_t i = 0; i < topVerts.size(); ++i) {
+        int e = cube->findEdge(topVerts[i], topVerts[(i + 1) % topVerts.size()]);
+        ASSERT_GE(e, 0);
+        topEdges.push_back(static_cast<uint32_t>(e));
+    }
+    ASSERT_EQ(topEdges.size(), 4u);
+
+    auto beveled = MeshOperators::bevelEdges(*cube, topEdges, 0.2f, 1, 0.5f);
+    EXPECT_TRUE(cube->validate());
+    EXPECT_GE(beveled.size(), 4u);
+
+    size_t boundaryEdges = 0;
+    for (size_t e = 0; e < cube->getEdges().size(); ++e) {
+        if (!cube->getEdges()[e].deleted && cube->getEdgeFaces(static_cast<uint32_t>(e)).size() == 1) {
+            ++boundaryEdges;
+        }
+    }
+    EXPECT_EQ(boundaryEdges, 0u);
+}
+
+
 

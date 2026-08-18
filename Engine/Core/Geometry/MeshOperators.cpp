@@ -627,192 +627,390 @@ std::vector<uint32_t> MeshOperators::bevelEdges(
 ) {
     std::vector<uint32_t> newEdges;
     if (edgeIndices.empty() || width <= 0.0001f) return newEdges;
-    auto& edges = mesh.getEdges();
-    auto& faces = mesh.getFaces();
-    auto& vertices = mesh.getVertices();
 
     segments = std::max(1, std::min(8, segments));
     profile = std::max(0.0f, std::min(1.0f, profile));
     std::set<uint32_t> generatedVertices;
 
-    std::vector<uint32_t> workEdges;
+    // 1. Collect and snapshot original mesh state
+    const size_t numOrigVerts = mesh.getVertices().size();
+    const size_t numOrigFaces = mesh.getFaces().size();
+    const size_t numOrigEdges = mesh.getEdges().size();
+
+    std::set<uint32_t> selEdgeSet;
     for (uint32_t eIdx : edgeIndices) {
-        if (eIdx >= edges.size() || edges[eIdx].deleted) continue;
-        workEdges.push_back(eIdx);
+        if (eIdx < numOrigEdges && !mesh.getEdges()[eIdx].deleted) {
+            selEdgeSet.insert(eIdx);
+        }
     }
-    if (workEdges.empty()) return newEdges;
+    if (selEdgeSet.empty()) return newEdges;
 
-    for (uint32_t eIdx : workEdges) {
-        if (eIdx >= edges.size() || edges[eIdx].deleted) continue;
+    std::vector<Engine::Math::Vector3> origVertPos(numOrigVerts);
+    for (size_t i = 0; i < numOrigVerts; ++i) {
+        origVertPos[i] = mesh.getVertices()[i].position;
+    }
 
-        uint32_t v0 = edges[eIdx].v0;
-        uint32_t v1 = edges[eIdx].v1;
-        if (v0 >= vertices.size() || v1 >= vertices.size()) continue;
+    std::vector<MeshFace> origFaces(numOrigFaces);
+    for (size_t f = 0; f < numOrigFaces; ++f) {
+        if (!mesh.getFaces()[f].deleted) {
+            mesh.calculateFaceNormal(static_cast<uint32_t>(f));
+            origFaces[f] = mesh.getFaces()[f];
+        }
+    }
 
-        const auto p0 = vertices[v0].position;
-        const auto p1 = vertices[v1].position;
-        Engine::Math::Vector3 edgeDir = (p1 - p0);
-        float edgeLen = edgeDir.length();
-        if (edgeLen < 0.0001f) continue;
-        edgeDir = edgeDir * (1.0f / edgeLen);
+    // 2. Compute unit tangents for each selected edge on each incident face
+    auto getEdgeFaceTangent = [&](uint32_t eIdx, uint32_t fIdx) -> Engine::Math::Vector3 {
+        const auto& edge = mesh.getEdges()[eIdx];
+        uint32_t v0 = edge.v0;
+        uint32_t v1 = edge.v1;
+        Engine::Math::Vector3 edgeDir = (origVertPos[v1] - origVertPos[v0]);
+        float len = edgeDir.length();
+        if (len < 1e-5f) return Engine::Math::Vector3(0, 0, 0);
+        edgeDir = edgeDir * (1.0f / len);
 
-        float bevelWidth = width;
+        const auto& fn = origFaces[fIdx].normal;
+        Engine::Math::Vector3 tan = fn.cross(edgeDir).normalized();
 
-        auto connectedFaces = mesh.getEdgeFaces(eIdx);
-        if (connectedFaces.empty()) continue;
+        Engine::Math::Vector3 faceCenter(0, 0, 0);
+        for (uint32_t v : origFaces[fIdx].vertices) faceCenter += origVertPos[v];
+        if (!origFaces[fIdx].vertices.empty()) faceCenter = faceCenter * (1.0f / (float)origFaces[fIdx].vertices.size());
 
-        uint32_t fA_idx = connectedFaces[0];
-        if (fA_idx >= faces.size()) continue;
+        if ((faceCenter - origVertPos[v0]).dot(tan) < 0.0f) tan = tan * -1.0f;
+        return tan;
+    };
 
-        const bool hasFaceB = (connectedFaces.size() >= 2 && connectedFaces[1] < faces.size());
-        uint32_t fB_idx = hasFaceB ? connectedFaces[1] : fA_idx;
+    // 3. Track edge split vertices
+    struct EdgeSplitPair {
+        uint32_t fA = 0, fB = 0;
+        bool hasFaceB = false;
+        std::vector<uint32_t> splitA0;
+        std::vector<uint32_t> splitA1;
+    };
+    std::map<uint32_t, EdgeSplitPair> edgeSplits;
 
-        mesh.calculateFaceNormal(fA_idx);
-        const MeshFace sourceFaceA = faces[fA_idx];
-        auto nA = faces[fA_idx].normal;
+    for (uint32_t eIdx : selEdgeSet) {
+        auto edgeFaces = mesh.getEdgeFaces(eIdx);
+        if (edgeFaces.empty()) continue;
+        uint32_t fA = edgeFaces[0];
+        bool hasFaceB = (edgeFaces.size() >= 2);
+        uint32_t fB = hasFaceB ? edgeFaces[1] : fA;
+        edgeSplits[eIdx] = {fA, fB, hasFaceB, std::vector<uint32_t>(segments + 1, 0), std::vector<uint32_t>(segments + 1, 0)};
+    }
 
-        Engine::Math::Vector3 centerA(0, 0, 0);
-        for (uint32_t v : faces[fA_idx].vertices) centerA += vertices[v].position;
-        if (!faces[fA_idx].vertices.empty()) centerA = centerA * (1.0f / (float)faces[fA_idx].vertices.size());
+    // Map vertex -> list of incident beveled edges
+    std::map<uint32_t, std::vector<uint32_t>> vertBeveledEdges;
+    for (uint32_t eIdx : selEdgeSet) {
+        vertBeveledEdges[mesh.getEdges()[eIdx].v0].push_back(eIdx);
+        vertBeveledEdges[mesh.getEdges()[eIdx].v1].push_back(eIdx);
+    }
 
-        Engine::Math::Vector3 tanA = nA.cross(edgeDir).normalized();
-        if ((centerA - p0).dot(tanA) < 0.0f) tanA = tanA * -1.0f;
+    // Map: (faceIdx, vertexIdx) -> list of replacement vertices for that corner
+    std::map<std::pair<uint32_t, uint32_t>, std::vector<uint32_t>> faceCornerVerts;
 
-        Engine::Math::Vector3 tanB(0, 0, 0);
-        Engine::Math::Vector3 nB(0, 0, 0);
-        MeshFace sourceFaceB = sourceFaceA;
-        if (hasFaceB) {
-            mesh.calculateFaceNormal(fB_idx);
-            sourceFaceB = faces[fB_idx];
-            nB = faces[fB_idx].normal;
-            Engine::Math::Vector3 centerB(0, 0, 0);
-            for (uint32_t v : faces[fB_idx].vertices) centerB += vertices[v].position;
-            if (!faces[fB_idx].vertices.empty()) centerB = centerB * (1.0f / (float)faces[fB_idx].vertices.size());
+    // First pass: generate split vertices on faces with beveled edges
+    for (size_t f = 0; f < numOrigFaces; ++f) {
+        if (origFaces[f].deleted || origFaces[f].vertices.size() < 3) continue;
+        const auto& fVerts = origFaces[f].vertices;
+        size_t count = fVerts.size();
 
-            tanB = nB.cross(edgeDir).normalized();
-            if ((centerB - p0).dot(tanB) < 0.0f) tanB = tanB * -1.0f;
+        for (size_t i = 0; i < count; ++i) {
+            uint32_t v = fVerts[i];
+            uint32_t vPrev = fVerts[(i + count - 1) % count];
+            uint32_t vNext = fVerts[(i + 1) % count];
+
+            int inEdge = mesh.findEdge(vPrev, v);
+            int outEdge = mesh.findEdge(v, vNext);
+
+            bool inBeveled = (inEdge >= 0 && selEdgeSet.count(static_cast<uint32_t>(inEdge)));
+            bool outBeveled = (outEdge >= 0 && selEdgeSet.count(static_cast<uint32_t>(outEdge)));
+
+            if (inBeveled && outBeveled) {
+                Engine::Math::Vector3 tanIn = getEdgeFaceTangent(static_cast<uint32_t>(inEdge), static_cast<uint32_t>(f));
+                Engine::Math::Vector3 tanOut = getEdgeFaceTangent(static_cast<uint32_t>(outEdge), static_cast<uint32_t>(f));
+
+                Engine::Math::Vector3 newPos = origVertPos[v] + (tanIn + tanOut) * width;
+                uint32_t newV = mesh.addVertex(newPos, mesh.getVertices()[v].u, mesh.getVertices()[v].v, origFaces[f].normal);
+                generatedVertices.insert(newV);
+                faceCornerVerts[{static_cast<uint32_t>(f), v}] = { newV };
+
+                auto& spIn = edgeSplits[static_cast<uint32_t>(inEdge)];
+                int sIn = (f == spIn.fA) ? 0 : segments;
+                (mesh.getEdges()[inEdge].v0 == v ? spIn.splitA0[sIn] : spIn.splitA1[sIn]) = newV;
+
+                auto& spOut = edgeSplits[static_cast<uint32_t>(outEdge)];
+                int sOut = (f == spOut.fA) ? 0 : segments;
+                (mesh.getEdges()[outEdge].v0 == v ? spOut.splitA0[sOut] : spOut.splitA1[sOut]) = newV;
+            } else if (inBeveled) {
+                Engine::Math::Vector3 tanIn = getEdgeFaceTangent(static_cast<uint32_t>(inEdge), static_cast<uint32_t>(f));
+                Engine::Math::Vector3 newPos = origVertPos[v] + tanIn * width;
+                uint32_t newV = mesh.addVertex(newPos, mesh.getVertices()[v].u, mesh.getVertices()[v].v, origFaces[f].normal);
+                generatedVertices.insert(newV);
+
+                auto vit = vertBeveledEdges.find(v);
+                if (vit != vertBeveledEdges.end() && vit->second.size() == 2) {
+                    faceCornerVerts[{static_cast<uint32_t>(f), v}] = { newV, v };
+                } else {
+                    faceCornerVerts[{static_cast<uint32_t>(f), v}] = { newV };
+                }
+
+                auto& spIn = edgeSplits[static_cast<uint32_t>(inEdge)];
+                int sIn = (f == spIn.fA) ? 0 : segments;
+                (mesh.getEdges()[inEdge].v0 == v ? spIn.splitA0[sIn] : spIn.splitA1[sIn]) = newV;
+            } else if (outBeveled) {
+                Engine::Math::Vector3 tanOut = getEdgeFaceTangent(static_cast<uint32_t>(outEdge), static_cast<uint32_t>(f));
+                Engine::Math::Vector3 newPos = origVertPos[v] + tanOut * width;
+                uint32_t newV = mesh.addVertex(newPos, mesh.getVertices()[v].u, mesh.getVertices()[v].v, origFaces[f].normal);
+                generatedVertices.insert(newV);
+
+                auto vit = vertBeveledEdges.find(v);
+                if (vit != vertBeveledEdges.end() && vit->second.size() == 2) {
+                    faceCornerVerts[{static_cast<uint32_t>(f), v}] = { v, newV };
+                } else {
+                    faceCornerVerts[{static_cast<uint32_t>(f), v}] = { newV };
+                }
+
+                auto& spOut = edgeSplits[static_cast<uint32_t>(outEdge)];
+                int sOut = (f == spOut.fA) ? 0 : segments;
+                (mesh.getEdges()[outEdge].v0 == v ? spOut.splitA0[sOut] : spOut.splitA1[sOut]) = newV;
+            }
+        }
+    }
+
+    // Fill missing split endpoints and intermediate arc vertices
+    for (uint32_t eIdx : selEdgeSet) {
+        auto& sp = edgeSplits[eIdx];
+        uint32_t v0 = mesh.getEdges()[eIdx].v0;
+        uint32_t v1 = mesh.getEdges()[eIdx].v1;
+
+        if (sp.splitA0[0] == 0) {
+            Engine::Math::Vector3 tanA = getEdgeFaceTangent(eIdx, sp.fA);
+            sp.splitA0[0] = mesh.addVertex(origVertPos[v0] + tanA * width, mesh.getVertices()[v0].u, mesh.getVertices()[v0].v, origFaces[sp.fA].normal);
+            generatedVertices.insert(sp.splitA0[0]);
+        }
+        if (sp.splitA1[0] == 0) {
+            Engine::Math::Vector3 tanA = getEdgeFaceTangent(eIdx, sp.fA);
+            sp.splitA1[0] = mesh.addVertex(origVertPos[v1] + tanA * width, mesh.getVertices()[v1].u, mesh.getVertices()[v1].v, origFaces[sp.fA].normal);
+            generatedVertices.insert(sp.splitA1[0]);
         }
 
-        std::vector<uint32_t> splitA0(segments + 1);
-        std::vector<uint32_t> splitA1(segments + 1);
+        if (sp.hasFaceB) {
+            if (sp.splitA0[segments] == 0) {
+                Engine::Math::Vector3 tanB = getEdgeFaceTangent(eIdx, sp.fB);
+                sp.splitA0[segments] = mesh.addVertex(origVertPos[v0] + tanB * width, mesh.getVertices()[v0].u, mesh.getVertices()[v0].v, origFaces[sp.fB].normal);
+                generatedVertices.insert(sp.splitA0[segments]);
+            }
+            if (sp.splitA1[segments] == 0) {
+                Engine::Math::Vector3 tanB = getEdgeFaceTangent(eIdx, sp.fB);
+                sp.splitA1[segments] = mesh.addVertex(origVertPos[v1] + tanB * width, mesh.getVertices()[v1].u, mesh.getVertices()[v1].v, origFaces[sp.fB].normal);
+                generatedVertices.insert(sp.splitA1[segments]);
+            }
+        } else {
+            sp.splitA0[segments] = sp.splitA0[0];
+            sp.splitA1[segments] = sp.splitA1[0];
+        }
 
-        for (int s = 0; s <= segments; ++s) {
+        const auto pos0_A = mesh.getVertices()[sp.splitA0[0]].position;
+        const auto pos0_B = mesh.getVertices()[sp.splitA0[segments]].position;
+        const auto pos1_A = mesh.getVertices()[sp.splitA1[0]].position;
+        const auto pos1_B = mesh.getVertices()[sp.splitA1[segments]].position;
+        const auto origPos0 = origVertPos[v0];
+        const auto origPos1 = origVertPos[v1];
+
+        const auto dA0 = pos0_A - origPos0;
+        const auto dB0 = pos0_B - origPos0;
+        const auto dA1 = pos1_A - origPos1;
+        const auto dB1 = pos1_B - origPos1;
+
+        for (int s = 1; s < segments; ++s) {
             float u = (float)s / (float)segments;
-            float linA = 1.0f - u;
-            float linB = u;
+            float theta = u * 1.57079632679f;
+            float cosT = std::cos(theta);
+            float sinT = std::sin(theta);
 
-            float rad = u * 1.57079632679f;
-            float circA = std::cos(rad);
-            float circB = std::sin(rad);
-
-            float delta = (profile - 0.5f) * 2.0f;
             float wA, wB;
-            if (delta >= 0.0f) {
-                wA = linA + delta * (circA - linA);
-                wB = linB + delta * (circB - linB);
+            if (profile >= 0.5f) {
+                float tSharp = (profile - 0.5f) * 2.0f;
+                float roundA = cosT;
+                float roundB = sinT;
+                float sharpA = std::pow(std::max(0.0f, 1.0f - std::pow(u, 4.0f)), 0.25f);
+                float sharpB = std::pow(std::max(0.0f, 1.0f - std::pow(1.0f - u, 4.0f)), 0.25f);
+                wA = roundA + tSharp * (sharpA - roundA);
+                wB = roundB + tSharp * (sharpB - roundB);
+            } else if (profile >= 0.25f) {
+                float tRound = (profile - 0.25f) * 4.0f;
+                float linA = 1.0f - u;
+                float linB = u;
+                float roundA = cosT;
+                float roundB = sinT;
+                wA = linA + tRound * (roundA - linA);
+                wB = linB + tRound * (roundB - linB);
             } else {
-                float invDelta = -delta;
-                float concaveA = 1.0f - circB;
-                float concaveB = 1.0f - circA;
-                wA = linA + invDelta * (concaveA - linA);
-                wB = linB + invDelta * (concaveB - linB);
+                float tLin = profile * 4.0f;
+                float concaveA = 1.0f - sinT;
+                float concaveB = 1.0f - cosT;
+                float linA = 1.0f - u;
+                float linB = u;
+                wA = concaveA + tLin * (linA - concaveA);
+                wB = concaveB + tLin * (linB - concaveB);
             }
 
-            Engine::Math::Vector3 pt0 = hasFaceB
-                ? (p0 + tanA * (bevelWidth * wA) + tanB * (bevelWidth * wB))
-                : (p0 + tanA * (bevelWidth * (1.0f - wA)));
-            Engine::Math::Vector3 pt1 = hasFaceB
-                ? (p1 + tanA * (bevelWidth * wA) + tanB * (bevelWidth * wB))
-                : (p1 + tanA * (bevelWidth * (1.0f - wA)));
-
-            splitA0[s] = mesh.addVertex(pt0, vertices[v0].u, vertices[v0].v);
-            splitA1[s] = mesh.addVertex(pt1, vertices[v1].u, vertices[v1].v);
-            generatedVertices.insert(splitA0[s]);
-            generatedVertices.insert(splitA1[s]);
+            auto pt0 = origPos0 + dA0 * wA + dB0 * wB;
+            auto pt1 = origPos1 + dA1 * wA + dB1 * wB;
+            sp.splitA0[s] = mesh.addVertex(pt0, mesh.getVertices()[v0].u, mesh.getVertices()[v0].v);
+            sp.splitA1[s] = mesh.addVertex(pt1, mesh.getVertices()[v1].u, mesh.getVertices()[v1].v);
+            generatedVertices.insert(sp.splitA0[s]);
+            generatedVertices.insert(sp.splitA1[s]);
         }
+    }
 
-        size_t sourceCornerV0 = 0;
-        size_t sourceCornerV1 = 0;
-        for (size_t i = 0; i < sourceFaceA.vertices.size(); ++i) {
-            if (sourceFaceA.vertices[i] == v0) sourceCornerV0 = i;
-            if (sourceFaceA.vertices[i] == v1) sourceCornerV1 = i;
-        }
+    // Update all existing faces
+    for (size_t f = 0; f < numOrigFaces; ++f) {
+        if (origFaces[f].deleted || origFaces[f].vertices.size() < 3) continue;
+        const auto& fVerts = origFaces[f].vertices;
+        size_t count = fVerts.size();
+        std::vector<uint32_t> newFVerts;
+        newFVerts.reserve(count * 2);
 
-        // Replace v0, v1 in Face A
-        auto& fA = faces[fA_idx];
-        for (auto& v : fA.vertices) {
-            if (v == v0) v = splitA0[0];
-            else if (v == v1) v = splitA1[0];
-        }
+        for (size_t i = 0; i < count; ++i) {
+            uint32_t v = fVerts[i];
+            auto it = faceCornerVerts.find({static_cast<uint32_t>(f), v});
+            if (it != faceCornerVerts.end() && !it->second.empty()) {
+                newFVerts.insert(newFVerts.end(), it->second.begin(), it->second.end());
+            } else {
+                auto vit = vertBeveledEdges.find(v);
+                if (vit != vertBeveledEdges.end() && vit->second.size() == 1) {
+                    uint32_t eIdx = vit->second[0];
+                    const auto& sp = edgeSplits[eIdx];
+                    bool isV0 = (mesh.getEdges()[eIdx].v0 == v);
+                    const auto& arc = isV0 ? sp.splitA0 : sp.splitA1;
 
-        // Replace v0, v1 in Face B if manifold
-        if (hasFaceB) {
-            auto& fB = faces[fB_idx];
-            for (auto& v : fB.vertices) {
-                if (v == v0) v = splitA0[segments];
-                else if (v == v1) v = splitA1[segments];
+                    uint32_t vPrev = fVerts[(i + count - 1) % count];
+                    Engine::Math::Vector3 tanA = getEdgeFaceTangent(eIdx, sp.fA);
+                    Engine::Math::Vector3 tanB = getEdgeFaceTangent(eIdx, sp.fB);
+                    float dotA = (origVertPos[vPrev] - origVertPos[v]).dot(tanA);
+                    float dotB = (origVertPos[vPrev] - origVertPos[v]).dot(tanB);
+
+                    if (dotA >= dotB) {
+                        for (int s = 0; s <= segments; ++s) newFVerts.push_back(arc[s]);
+                    } else {
+                        for (int s = segments; s >= 0; --s) newFVerts.push_back(arc[s]);
+                    }
+                } else {
+                    newFVerts.push_back(v);
+                }
             }
         }
+        mesh.getFaces()[f].vertices = std::move(newFVerts);
+    }
 
-        // Connect intermediate segments with quads and ensure outward normal winding
-        const Engine::Math::Vector3 avgNorm = hasFaceB ? (nA + nB) : nA;
+    // 4. Build Bevel Quads for all beveled edges
+    for (uint32_t eIdx : selEdgeSet) {
+        const auto& sp = edgeSplits[eIdx];
+        const Engine::Math::Vector3 avgNorm = sp.hasFaceB ? (origFaces[sp.fA].normal + origFaces[sp.fB].normal) : origFaces[sp.fA].normal;
         for (int s = 0; s < segments; ++s) {
-            uint32_t p0_s  = splitA0[s];
-            uint32_t p1_s  = splitA1[s];
-            uint32_t p0_s1 = splitA0[s + 1];
-            uint32_t p1_s1 = splitA1[s + 1];
+            uint32_t p0_s  = sp.splitA0[s];
+            uint32_t p1_s  = sp.splitA1[s];
+            uint32_t p0_s1 = sp.splitA0[s + 1];
+            uint32_t p1_s1 = sp.splitA1[s + 1];
 
             Engine::Math::Vector3 qNorm = (mesh.getVertices()[p1_s].position - mesh.getVertices()[p0_s].position)
                 .cross(mesh.getVertices()[p0_s1].position - mesh.getVertices()[p0_s].position);
 
             if (qNorm.dot(avgNorm) >= 0.0f) {
-                addFaceWithAttributes(mesh, { p0_s, p1_s, p1_s1, p0_s1 }, sourceFaceA,
-                                      {sourceCornerV0, sourceCornerV1, sourceCornerV1, sourceCornerV0});
+                addFaceWithAttributes(mesh, { p0_s, p1_s, p1_s1, p0_s1 }, origFaces[sp.fA]);
             } else {
-                addFaceWithAttributes(mesh, { p0_s, p0_s1, p1_s1, p1_s }, sourceFaceA,
-                                      {sourceCornerV0, sourceCornerV0, sourceCornerV1, sourceCornerV1});
+                addFaceWithAttributes(mesh, { p0_s, p0_s1, p1_s1, p1_s }, origFaces[sp.fA]);
             }
         }
+    }
 
-        // For all other adjacent faces meeting at endpoints, replace endpoint with all arc vertices in correct traversal order
-        const size_t curFaceCount = faces.size();
-        for (size_t f = 0; f < curFaceCount; ++f) {
-            if (f == fA_idx || (hasFaceB && f == fB_idx) || faces[f].deleted) continue;
-            auto& fVerts = faces[f].vertices;
-            for (size_t vi = 0; vi < fVerts.size(); ++vi) {
-                if (fVerts[vi] == v0) {
-                    size_t prevVi = (vi + fVerts.size() - 1) % fVerts.size();
-                    uint32_t prevV = fVerts[prevVi];
-                    float dotA = (vertices[prevV].position - p0).dot(tanA);
-                    float dotB = (vertices[prevV].position - p0).dot(tanB);
+    // 5. Corner Caps for vertices where 2 or more beveled edges meet
+    for (const auto& [v, incEdges] : vertBeveledEdges) {
+        if (incEdges.size() == 2) {
+            uint32_t e0 = incEdges[0];
+            uint32_t e1 = incEdges[1];
+            const auto& sp0 = edgeSplits[e0];
+            const auto& sp1 = edgeSplits[e1];
 
-                    std::vector<uint32_t> arc;
-                    if (dotA >= dotB) {
-                        for (int s = 0; s <= segments; ++s) arc.push_back(splitA0[s]);
-                    } else {
-                        for (int s = segments; s >= 0; --s) arc.push_back(splitA0[s]);
-                    }
+            // Find shared face between e0 and e1
+            uint32_t sharedFace = sp0.fA;
+            if (sp0.fA == sp1.fA || sp0.fA == sp1.fB) sharedFace = sp0.fA;
+            else sharedFace = sp0.fB;
 
-                    fVerts.erase(fVerts.begin() + static_cast<std::ptrdiff_t>(vi));
-                    fVerts.insert(fVerts.begin() + static_cast<std::ptrdiff_t>(vi), arc.begin(), arc.end());
-                    break;
-                } else if (fVerts[vi] == v1) {
-                    size_t prevVi = (vi + fVerts.size() - 1) % fVerts.size();
-                    uint32_t prevV = fVerts[prevVi];
-                    float dotA = (vertices[prevV].position - p1).dot(tanA);
-                    float dotB = (vertices[prevV].position - p1).dot(tanB);
+            bool e0IsV0 = (mesh.getEdges()[e0].v0 == v);
+            bool e1IsV0 = (mesh.getEdges()[e1].v0 == v);
 
-                    std::vector<uint32_t> arc;
-                    if (dotA >= dotB) {
-                        for (int s = 0; s <= segments; ++s) arc.push_back(splitA1[s]);
-                    } else {
-                        for (int s = segments; s >= 0; --s) arc.push_back(splitA1[s]);
-                    }
+            int s0_shared = (sharedFace == sp0.fA) ? 0 : segments;
+            int s1_shared = (sharedFace == sp1.fA) ? 0 : segments;
+            int s0_other  = (sharedFace == sp0.fA) ? segments : 0;
+            int s1_other  = (sharedFace == sp1.fA) ? segments : 0;
 
-                    fVerts.erase(fVerts.begin() + static_cast<std::ptrdiff_t>(vi));
-                    fVerts.insert(fVerts.begin() + static_cast<std::ptrdiff_t>(vi), arc.begin(), arc.end());
+            uint32_t newV_shared = e0IsV0 ? sp0.splitA0[s0_shared] : sp0.splitA1[s0_shared];
+            uint32_t s0_side     = e0IsV0 ? sp0.splitA0[s0_other]  : sp0.splitA1[s0_other];
+            uint32_t s1_side     = e1IsV0 ? sp1.splitA0[s1_other]  : sp1.splitA1[s1_other];
+
+            // Check which edge is incoming vs outgoing on sharedFace to set exact twin winding
+            const auto& sfVerts = origFaces[sharedFace].vertices;
+            size_t sfCount = sfVerts.size();
+            bool e0IsOut = false;
+            for (size_t i = 0; i < sfCount; ++i) {
+                if (sfVerts[i] == v) {
+                    uint32_t vNext = sfVerts[(i + 1) % sfCount];
+                    int outEdge = mesh.findEdge(v, vNext);
+                    if (outEdge == (int)e0) e0IsOut = true;
                     break;
                 }
+            }
+
+            if (e0IsOut) {
+                addFaceWithAttributes(mesh, { s0_side, newV_shared, v }, origFaces[sharedFace]);
+                addFaceWithAttributes(mesh, { v, newV_shared, s1_side }, origFaces[sharedFace]);
+            } else {
+                addFaceWithAttributes(mesh, { s1_side, newV_shared, v }, origFaces[sharedFace]);
+                addFaceWithAttributes(mesh, { v, newV_shared, s0_side }, origFaces[sharedFace]);
+            }
+        } else if (incEdges.size() >= 3) {
+            std::vector<uint32_t> capVerts;
+            Engine::Math::Vector3 avgNorm(0, 0, 0);
+
+            for (uint32_t eIdx : incEdges) {
+                const auto& sp = edgeSplits[eIdx];
+                uint32_t sA = (mesh.getEdges()[eIdx].v0 == v ? sp.splitA0[0] : sp.splitA1[0]);
+                uint32_t sB = (mesh.getEdges()[eIdx].v0 == v ? sp.splitA0[segments] : sp.splitA1[segments]);
+                if (sA != 0 && std::find(capVerts.begin(), capVerts.end(), sA) == capVerts.end()) capVerts.push_back(sA);
+                if (sB != 0 && std::find(capVerts.begin(), capVerts.end(), sB) == capVerts.end()) capVerts.push_back(sB);
+                avgNorm += origFaces[sp.fA].normal + (sp.hasFaceB ? origFaces[sp.fB].normal : origFaces[sp.fA].normal);
+            }
+
+            if (capVerts.size() >= 3) {
+                avgNorm = avgNorm.normalized();
+                Engine::Math::Vector3 center(0, 0, 0);
+                for (uint32_t cv : capVerts) center += mesh.getVertices()[cv].position;
+                center = center * (1.0f / (float)capVerts.size());
+
+                Engine::Math::Vector3 axisU = avgNorm.cross(std::abs(avgNorm.y) < 0.9f ? Engine::Math::Vector3(0, 1, 0) : Engine::Math::Vector3(1, 0, 0)).normalized();
+                Engine::Math::Vector3 axisV = avgNorm.cross(axisU).normalized();
+
+                std::sort(capVerts.begin(), capVerts.end(), [&](uint32_t a, uint32_t b) {
+                    auto da = mesh.getVertices()[a].position - center;
+                    auto db = mesh.getVertices()[b].position - center;
+                    float angleA = std::atan2(da.dot(axisV), da.dot(axisU));
+                    float angleB = std::atan2(db.dot(axisV), db.dot(axisU));
+                    return angleA < angleB;
+                });
+
+                Engine::Math::Vector3 capNorm(0, 0, 0);
+                for (size_t i = 0; i < capVerts.size(); ++i) {
+                    const auto& a = mesh.getVertices()[capVerts[i]].position;
+                    const auto& b = mesh.getVertices()[capVerts[(i + 1) % capVerts.size()]].position;
+                    capNorm.x += (a.y - b.y) * (a.z + b.z);
+                    capNorm.y += (a.z - b.z) * (a.x + b.x);
+                    capNorm.z += (a.x - b.x) * (a.y + b.y);
+                }
+                if (capNorm.dot(avgNorm) < 0.0f) {
+                    std::reverse(capVerts.begin(), capVerts.end());
+                }
+                addFaceWithAttributes(mesh, capVerts, origFaces[edgeSplits[incEdges[0]].fA]);
             }
         }
     }
